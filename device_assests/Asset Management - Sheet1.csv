@@ -1,0 +1,6 @@
+ EMP_ID,EMP_NAME,EMP_MAIL,DV_ID,DV_OS,DV_IP,DV_USER,DV_PASS
+EL-001,Chezhian,chezhian@elverve.com,DV_EL_001,Windows 10,DESKTOP-UI5FITD,Administrator,Password123!
+EL-002,Pradeep,pradeepnaveen930@gmail.com,DV_EL_002,Windows 11,Carnage,prade,6521
+EL-003,Semmozhi,chezhiantech@gmail.com,DV_EL_003,Windows 11,Prabanjan,prapa,2005
+EL-004,Jane Smith,jane.smith@testcorp.com,DV_EL_004,Windows 11,target machine,jane,Password123!
+EL-005,John Doe,john.doe@testcorp.com,DV_EL_005,Windows 11,target machine,john,Password123!

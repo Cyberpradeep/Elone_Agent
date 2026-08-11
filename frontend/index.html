@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EloneAgent — Autonomous L1 Support Agent</title>
+  <link rel="stylesheet" href="css/styles.css" />
+  <!-- Import Orbitron and Inter fonts for premium enterprise cyber aesthetic -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <!-- Import Marked.js for rendering markdown summaries -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+
+<body>
+
+  <div class="dashboard-container">
+
+    <!-- ================= LEFT PANEL: TICKET QUEUE ================= -->
+    <aside class="panel-left">
+      <div class="panel-header">
+        <div class="logo-area">
+          <div class="logo-glow"></div>
+          <span class="logo-title">Elone<span>Agent</span></span>
+        </div>
+        <nav class="header-nav-pills">
+          <a href="index.html" class="nav-pill active" title="Agent Console">Agent</a>
+          <a href="ingestion.html" class="nav-pill" title="SOP Ingestion">Ingestion</a>
+        </nav>
+        <button class="btn-new-ticket" id="newTicketBtn" title="Create New Ticket">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          New
+        </button>
+      </div>
+
+
+      <div class="search-box">
+        <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input type="text" id="ticketSearch" placeholder="Search Ticket..." autocomplete="off" />
+      </div>
+
+      <div class="filter-container">
+        <div class="filter-chips">
+          <button class="chip active" data-filter="all">All</button>
+          <button class="chip" data-filter="in_progress">Running</button>
+          <button class="chip" data-filter="pending">Awaiting</button>
+          <button class="chip" data-filter="completed">Resolved</button>
+          <button class="chip" data-filter="escalated">Escalated</button>
+        </div>
+      </div>
+
+      <div class="ticket-list-wrapper">
+        <div class="ticket-list" id="ticketList">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+    </aside>
+
+    <!-- ================= CENTER PANEL: LIVE AGENT CONSOLE ================= -->
+    <main class="panel-center">
+      <div class="panel-header console-header-bar">
+        <div class="console-title-wrap">
+          <span class="console-ticket-id" id="consoleTicketId">AGENT EXECUTION CONSOLE</span>
+          <span class="console-ticket-sep" id="consoleTicketSep" style="display:none;">•</span>
+          <span class="console-ticket-issue" id="consoleTicketIssue"></span>
+        </div>
+        <div class="console-meta-info">
+          <span class="meta-label">Session:</span>
+          <span class="meta-val" id="sessionLabel">No active session</span>
+          <button class="copy-session-btn" id="copySessionBtn" data-session="" title="Copy Session ID">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"></path>
+            </svg>
+          </button>
+          <span class="live-badge" id="liveBadge" style="display:none;"><span class="pulse-dot"></span>LIVE</span>
+          <span class="duration-badge" id="durationBadge" style="display:none;"></span>
+          <button class="end-session-btn" id="endSessionBtn" style="display:none;">End Session</button>
+        </div>
+      </div>
+      <div class="console-sub-header" id="consoleSubHeader" style="display:none;"></div>
+
+      <!-- Scrolling terminal logs and inline elements -->
+      <div class="terminal-container">
+        <div class="terminal-body" id="consoleBody">
+          <!-- Initial Welcome message -->
+          <div class="console-empty" id="emptyChatCta">
+            <div class="welcome-box">
+              <div class="agent-avatar-welcome">EA</div>
+              <h3>EloneAgent v1.0.0</h3>
+              <p>Autonomous L1 support agent ready for action. Select a ticket from the left panel or create a new ticket to begin execution.</p>
+              <button class="btn-create-welcome" id="emptyNewTicketBtn">Create Support Ticket</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- ================= RIGHT PANEL: EXECUTION STATUS ================= -->
+    <aside class="panel-right">
+      
+      <!-- Widget: Execution Progress -->
+      <div class="widget-card">
+        <div class="widget-header">
+          <h3>EXECUTION PROGRESS</h3>
+          <span class="status-indicator">
+            <span class="live-dot"></span>
+            LIVE
+          </span>
+        </div>
+        <div class="widget-body">
+          <ul class="workflow-checklist" id="executionProgressList"></ul>
+        </div>
+      </div>
+
+      <!-- Widget: Remote Machine -->
+      <div class="widget-card">
+        <div class="widget-header">
+          <h3>Details</h3>
+        </div>
+        <div class="widget-body">
+          <div class="remote-machine-grid" id="remoteMachineInfo">
+            <div class="empty-widget-note">No remote session yet</div>
+          </div>
+        </div>
+      </div>
+
+    </aside>
+
+  </div>
+
+  <!-- ================= NEW TICKET MODAL ================= -->
+  <div class="modal-overlay" id="ticketModalOverlay">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>New Support Ticket</h3>
+        <button class="modal-close" id="modalCloseBtn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="ticketEmail">Customer Email</label>
+            <input type="email" id="ticketEmail" placeholder="john.doe@acme.com" required/>
+          </div>
+          <div class="form-group">
+            <label for="ticketUserId">User ID</label>
+            <input type="text" id="ticketUserId" placeholder="12" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="ticketCategory">Category</label>
+          <select id="ticketCategory">
+            <!-- <option value="logins">Logins</option> -->
+            <!-- <option value="mfa">MFA</option> -->
+            <!-- <option value="account_management">Account Management</option> -->
+            <!-- <option value="email">Email</option> -->
+            <option value="network">Network</option>
+            <option value="software">Software</option>
+            <option value="hardware">Hardware</option>
+            <!-- <option value="billing">Billing</option> -->
+            <option value="system">System</option>
+            <option value="storage">Storage</option>
+            <option value="logins">Login</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="ticketDescription">Ticket Description</label>
+          <textarea id="ticketDescription" rows="4" placeholder="Describe the issue the customer is reporting..." required></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-modal-action btn-secondary" id="loadSampleBtn">Load Sample</button>
+        <div class="modal-actions-right">
+          <button class="btn-modal-action btn-secondary" id="modalCancelBtn">Cancel</button>
+          <button class="btn-modal-action btn-primary" id="createTicketBtn">Create Ticket</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= STEP REJECTION & ESCALATION MODAL ================= -->
+  <div class="modal-overlay" id="stepRejectModalOverlay" style="display:none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="stepRejectModalTitle">Reject Step &amp; Escalate Ticket</h3>
+        <button class="modal-close" id="stepRejectModalCloseBtn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="reject-step-info" id="rejectStepInfoBox" style="margin-bottom:14px;font-size:12px;color:var(--text-primary);padding:10px 14px;background:rgba(239,68,68,0.1);border-left:3px solid var(--state-error);border-radius:6px;">
+          <strong>Target Step:</strong> <span id="rejectStepNumLabel">Step 1</span> — <span id="rejectStepDescLabel">Description</span>
+        </div>
+        <div class="form-group">
+          <label for="stepRejectReasonInput">Rejection Reason / Rationale <span style="color:var(--state-error)">*</span></label>
+          <textarea id="stepRejectReasonInput" rows="3" placeholder="Specify why this step/plan is rejected (e.g., Unsafe reboot during business hours)..." required></textarea>
+        </div>
+        <div class="form-group">
+          <label for="stepRejectTeamSelect">Escalate To Department</label>
+          <select id="stepRejectTeamSelect">
+            <option value="L2 Systems Infrastructure">L2 Systems Infrastructure</option>
+            <option value="L2 Network Operations">L2 Network Operations</option>
+            <option value="Database Administration">Database Administration</option>
+            <option value="Security Operations Center">Security Operations Center</option>
+            <option value="IT Operations Lead">IT Operations Lead</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-modal-action btn-secondary" id="stepRejectModalCancelBtn">Cancel</button>
+        <button class="btn-modal-action btn-danger" id="stepRejectModalConfirmBtn" style="background:#ef4444;color:#fff;border:none;">Confirm &amp; Escalate</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="js/app.js"></script>
+</body>
+
+</html>
