@@ -1,0 +1,80 @@
+{
+  "thread_id": "AGT-b8c91038cc56",
+  "ticket_id": "AGT-b8c91038cc56",
+  "created_at": "2026-08-10T18:03:32.708577",
+  "updated_at": "2026-08-10T18:03:32.708577",
+  "workflow_status": "escalated",
+  "resolution_type": "ESCALATED_L2",
+  "customer": {
+    "email": "pradeepnaveen930@gmail.com",
+    "name": "Pradeep",
+    "emp_id": "EL-002",
+    "user_id": "12",
+    "device_id": "DV_EL_002"
+  },
+  "remote_machine": {
+    "hostname": "Carnage",
+    "target_os": "windows",
+    "username": "prade",
+    "ip_address": "Carnage"
+  },
+  "issue": {
+    "ticket_raw": "mouse is not connecting with the laptop",
+    "intent": "general_inquiry",
+    "category": "hardware",
+    "priority": "medium",
+    "sop_id": null,
+    "sop_title": null,
+    "ticket_details_confidence": 0.4,
+    "sop_match_confidence": 0.2
+  },
+  "execution_plan": {
+    "total_steps": 0,
+    "current_step_index": 0,
+    "plan_valid": null,
+    "validator_result": null,
+    "steps": []
+  },
+  "extracted_variables": {},
+  "entities": {
+    "user_id": "12",
+    "email": "pradeepnaveen930@gmail.com",
+    "emp_id": "EL-002",
+    "employee_name": "Pradeep",
+    "device_id": "DV_EL_002",
+    "target_os": "windows",
+    "hostname": "Carnage",
+    "username": "prade",
+    "password": "6521"
+  },
+  "clarification": {
+    "question": null,
+    "ui": null,
+    "attempts": 0
+  },
+  "escalation_payload": {
+    "escalation_id": "ESC-B3D536",
+    "ticket_id": "1000",
+    "customer_email": "pradeepnaveen930@gmail.com",
+    "hostname": "Carnage",
+    "intent": "general_inquiry",
+    "category": "hardware",
+    "priority": "medium",
+    "reason": "[Orchestrator] Execution halted -> escalation_agent (Low details confidence (0.40) or SOP match confidence (0.20). Escalating for human review.)",
+    "failed_step_number": 1,
+    "last_command": "(none)",
+    "last_exit_code": "N/A",
+    "variables": {},
+    "handover_markdown": "# L2/L3 TECHNICAL ESCALATION HANDOVER TICKET [ESC-B3D536]\n\n## 1. TICKET & WORKSTATION SUMMARY\n- **Ticket ID**: #1000\n- **Customer Email**: pradeepnaveen930@gmail.com\n- **Target Hostname**: Carnage\n- **Intent Category**: HARDWARE | Priority: MEDIUM\n- **Escalation Reason**: [Orchestrator] Execution halted -> escalation_agent (Low details confidence (0.40) or SOP match confidence (0.20). Escalating for human review.)\n\n## 2. AUTOMATION HALT CONTEXT\n- **Halted Step Number**: Step 1 of 0\n- **Step Description**: N/A\n- **Last Executed Command**: `(none)` (Exit Code: N/A)\n\n## 3. EXTRACTED DIAGNOSTIC VARIABLES\n```json\n{}\n```\n\n## 4. AUDIT TRAJECTORY LOG\n[\n  \"[Intake] Low confidence (details: 0.40, match: 0.20). Escalating immediately.\",\n  \"[Orchestrator] Execution halted -> escalation_agent (Low details confidence (0.40) or SOP match confidence (0.20). Escalating for human review.)\"\n]\n\n## 5. RECOMMENDED L2 NEXT ACTIONS\n- Inspect workstation `Carnage` manually via RDP/WinRM or Remote Control.\n- Review CLI command stdout for step `(none)`.\n- Verify user permissions or network adapter hardware status.\n"
+  },
+  "final_responses": {
+    "customer_ticket_reply": "Hello,\n\nYour support ticket regarding **general_inquiry** has been processed on workstation **Carnage**.\n\n**Summary of Actions:**\n- Diagnostics and resolution steps were performed using automated playbook `SOP-DYN-000`.\n- Status: **ESCALATED TO L2**.\n\nIf you continue to experience any issues, please reply directly to this email.",
+    "internal_ticket_summary": "# L2/L3 TECHNICAL ESCALATION HANDOVER TICKET [ESC-B3D536]\n\n## 1. TICKET & WORKSTATION SUMMARY\n- **Ticket ID**: #1000\n- **Customer Email**: pradeepnaveen930@gmail.com\n- **Target Hostname**: Carnage\n- **Intent Category**: HARDWARE | Priority: MEDIUM\n- **Escalation Reason**: [Orchestrator] Execution halted -> escalation_agent (Low details confidence (0.40) or SOP match confidence (0.20). Escalating for human review.)\n\n## 2. AUTOMATION HALT CONTEXT\n- **Halted Step Number**: Step 1 of 0\n- **Step Description**: N/A\n- **Last Executed Command**: `(none)` (Exit Code: N/A)\n\n## 3. EXTRACTED DIAGNOSTIC VARIABLES\n```json\n{}\n```\n\n## 4. AUDIT TRAJECTORY LOG\n[\n  \"[Intake] Low confidence (details: 0.40, match: 0.20). Escalating immediately.\",\n  \"[Orchestrator] Execution halted -> escalation_agent (Low details confidence (0.40) or SOP match confidence (0.20). Escalating for human review.)\"\n]\n\n## 5. RECOMMENDED L2 NEXT ACTIONS\n- Inspect workstation `Carnage` manually via RDP/WinRM or Remote Control.\n- Review CLI command stdout for step `(none)`.\n- Verify user permissions or network adapter hardware status.\n"
+  },
+  "audit_log": [
+    "[Intake] Low confidence (details: 0.40, match: 0.20). Escalating immediately.",
+    "[Orchestrator] Execution halted -> escalation_agent (Low details confidence (0.40) or SOP match confidence (0.20). Escalating for human review.)",
+    "[Escalation Agent] Formulated L2 Handover Ticket 'ESC-B3D536' ([Orchestrator] Execution halted -> escalation_agent (Low details confidence (0.40) or SOP match confidence (0.20). Escalating for human review.))",
+    "[Summarization] Final response & engineering log generated"
+  ]
+}

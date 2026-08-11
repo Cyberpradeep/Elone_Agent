@@ -1,0 +1,188 @@
+{
+  "thread_id": "AGT-b3cb9a7ac79e",
+  "ticket_id": "AGT-b3cb9a7ac79e",
+  "created_at": "2026-08-09T17:24:11.277645",
+  "updated_at": "2026-08-09T17:24:11.277645",
+  "workflow_status": "escalated",
+  "resolution_type": "ESCALATED_L2",
+  "customer": {
+    "email": "jane.smith@testcorp.com",
+    "name": null,
+    "emp_id": null,
+    "user_id": "12",
+    "device_id": null
+  },
+  "remote_machine": {
+    "hostname": "unknown_host",
+    "target_os": "unknown",
+    "username": null,
+    "ip_address": null
+  },
+  "issue": {
+    "ticket_raw": "i forgot my password for mock portal",
+    "intent": "User Account Unlock and Password Reset Playbook",
+    "category": "logins",
+    "priority": "high",
+    "sop_id": "SOP-user_account_unlock-001",
+    "sop_title": "User Account Unlock and Password Reset Playbook",
+    "ticket_details_confidence": 1.0,
+    "sop_match_confidence": 1.0
+  },
+  "execution_plan": {
+    "total_steps": 7,
+    "current_step_index": 0,
+    "plan_valid": false,
+    "validator_result": "INVALID_PLAN",
+    "steps": [
+      {
+        "step_number": 1,
+        "description": "Search for the user account by email to verify existence and status.",
+        "step_type": "tool_call",
+        "command": null,
+        "shell": null,
+        "fallback_command": null,
+        "execute_if": null,
+        "is_dangerous": false,
+        "danger_warning": null,
+        "status": "PENDING",
+        "exit_code": null,
+        "output": "",
+        "output_variable": "user_search_result",
+        "output_parse_instruction": "If response contains 'user_id', set 'user_found' to 'true' and extract 'user_id' to 12."
+      },
+      {
+        "step_number": 2,
+        "description": "Retrieve detailed user profile to check account status (locked/unlocked).",
+        "step_type": "tool_call",
+        "command": null,
+        "shell": null,
+        "fallback_command": null,
+        "execute_if": "variables.user_found == 'true'",
+        "is_dangerous": false,
+        "danger_warning": null,
+        "status": "PENDING",
+        "exit_code": null,
+        "output": "",
+        "output_variable": "user_details",
+        "output_parse_instruction": "If response contains 'locked: true', set 'account_locked' to 'true'."
+      },
+      {
+        "step_number": 3,
+        "description": "Unlock the user account if it is locked.",
+        "step_type": "tool_call",
+        "command": null,
+        "shell": null,
+        "fallback_command": null,
+        "execute_if": "variables.account_locked == 'true'",
+        "is_dangerous": false,
+        "danger_warning": null,
+        "status": "PENDING",
+        "exit_code": null,
+        "output": "",
+        "output_variable": "unlock_result",
+        "output_parse_instruction": "If response contains 'status: \"unlocked\"', set 'unlock_success' to 'true'."
+      },
+      {
+        "step_number": 4,
+        "description": "Trigger a password reset email for the user if requested.",
+        "step_type": "tool_call",
+        "command": null,
+        "shell": null,
+        "fallback_command": null,
+        "execute_if": "variables.user_found == 'true'",
+        "is_dangerous": false,
+        "danger_warning": null,
+        "status": "PENDING",
+        "exit_code": null,
+        "output": "",
+        "output_variable": "password_reset_result",
+        "output_parse_instruction": "If response contains 'status: \"reset_token_sent\"', set 'reset_email_sent' to 'true'."
+      },
+      {
+        "step_number": 5,
+        "description": "Admin reset of user password if required (e.g., user cannot reset via email).",
+        "step_type": "tool_call",
+        "command": null,
+        "shell": null,
+        "fallback_command": null,
+        "execute_if": "variables.user_found == 'true' && variables.reset_email_sent != 'true'",
+        "is_dangerous": true,
+        "danger_warning": "Admin password reset bypasses user consent. Ensure compliance with IT security policies.",
+        "status": "PENDING",
+        "exit_code": null,
+        "output": "",
+        "output_variable": "admin_reset_result",
+        "output_parse_instruction": "If response contains 'status: \"password_reset\"', set 'admin_reset_success' to 'true'."
+      },
+      {
+        "step_number": 6,
+        "description": "Reset MFA for the user if required (e.g., lost MFA device).",
+        "step_type": "tool_call",
+        "command": null,
+        "shell": null,
+        "fallback_command": null,
+        "execute_if": "variables.user_found == 'true'",
+        "is_dangerous": true,
+        "danger_warning": "MFA reset disables user's second-factor authentication. Ensure user is verified before proceeding.",
+        "status": "PENDING",
+        "exit_code": null,
+        "output": "",
+        "output_variable": "mfa_reset_result",
+        "output_parse_instruction": "If response contains 'status: \"mfa_reset\"', set 'mfa_reset_success' to 'true'."
+      },
+      {
+        "step_number": 7,
+        "description": "Send confirmation email to the user with resolution details.",
+        "step_type": "tool_call",
+        "command": null,
+        "shell": null,
+        "fallback_command": null,
+        "execute_if": "variables.unlock_success == 'true' || variables.admin_reset_success == 'true' || variables.mfa_reset_success == 'true'",
+        "is_dangerous": false,
+        "danger_warning": null,
+        "status": "PENDING",
+        "exit_code": null,
+        "output": "",
+        "output_variable": "email_result",
+        "output_parse_instruction": "No output parsing required for email confirmation."
+      }
+    ]
+  },
+  "extracted_variables": {},
+  "entities": {
+    "user_id": "12",
+    "email": "jane.smith@testcorp.com",
+    "application_name": "mock portal"
+  },
+  "clarification": {
+    "question": null,
+    "ui": null,
+    "attempts": 0
+  },
+  "escalation_payload": {
+    "escalation_id": "ESC-B714A9",
+    "ticket_id": "1000",
+    "customer_email": "jane.smith@testcorp.com",
+    "hostname": "target machine",
+    "intent": "User Account Unlock and Password Reset Playbook",
+    "category": "logins",
+    "priority": "high",
+    "reason": "[Orchestrator] Execution halted -> escalation_agent (Deterministic Planner Error: Missing required entities for execution: ['hostname'])",
+    "failed_step_number": 1,
+    "last_command": "(none)",
+    "last_exit_code": "N/A",
+    "variables": {},
+    "handover_markdown": "# L2/L3 TECHNICAL ESCALATION HANDOVER TICKET [ESC-B714A9]\n\n## 1. TICKET & WORKSTATION SUMMARY\n- **Ticket ID**: #1000\n- **Customer Email**: jane.smith@testcorp.com\n- **Target Hostname**: target machine\n- **Intent Category**: LOGINS | Priority: HIGH\n- **Escalation Reason**: [Orchestrator] Execution halted -> escalation_agent (Deterministic Planner Error: Missing required entities for execution: ['hostname'])\n\n## 2. AUTOMATION HALT CONTEXT\n- **Halted Step Number**: Step 1 of 7\n- **Step Description**: Search for the user account by email to verify existence and status.\n- **Last Executed Command**: `(none)` (Exit Code: N/A)\n\n## 3. EXTRACTED DIAGNOSTIC VARIABLES\n```json\n{}\n```\n\n## 4. AUDIT TRAJECTORY LOG\n[\n  \"[Intake] Triage applied: intent=User Account Unlock and Password Reset Playbook, priority=high, category=logins, details_conf=1.0, sop_match_conf=1.0, source=okf_playbook, matched_file=sops/logins/SOP-user_account_unlock-001.md, entities={'user_id': '12', 'email': 'jane.smith@testcorp.com', 'application_name': 'mock portal'}\",\n  \"[Planner Error] OKF Playbook 'User Account Unlock and Password Reset Playbook' (SOP-user_account_unlock-001) plan binding failed: Deterministic Planner Error: Missing required entities for execution: ['hostname']\",\n  \"[Orchestrator] Execution halted -> escalation_agent (Deterministic Planner Error: Missing required entities for execution: ['hostname'])\"\n]\n\n## 5. RECOMMENDED L2 NEXT ACTIONS\n- Inspect workstation `target machine` manually via RDP/WinRM or Remote Control.\n- Review CLI command stdout for step `(none)`.\n- Verify user permissions or network adapter hardware status.\n"
+  },
+  "final_responses": {
+    "customer_ticket_reply": "Hello, your support ticket regarding 'User Account Unlock and Password Reset Playbook' has been processed on workstation target machine.",
+    "internal_ticket_summary": "# L2/L3 TECHNICAL ESCALATION HANDOVER TICKET [ESC-B714A9]\n\n## 1. TICKET & WORKSTATION SUMMARY\n- **Ticket ID**: #1000\n- **Customer Email**: jane.smith@testcorp.com\n- **Target Hostname**: target machine\n- **Intent Category**: LOGINS | Priority: HIGH\n- **Escalation Reason**: [Orchestrator] Execution halted -> escalation_agent (Deterministic Planner Error: Missing required entities for execution: ['hostname'])\n\n## 2. AUTOMATION HALT CONTEXT\n- **Halted Step Number**: Step 1 of 7\n- **Step Description**: Search for the user account by email to verify existence and status.\n- **Last Executed Command**: `(none)` (Exit Code: N/A)\n\n## 3. EXTRACTED DIAGNOSTIC VARIABLES\n```json\n{}\n```\n\n## 4. AUDIT TRAJECTORY LOG\n[\n  \"[Intake] Triage applied: intent=User Account Unlock and Password Reset Playbook, priority=high, category=logins, details_conf=1.0, sop_match_conf=1.0, source=okf_playbook, matched_file=sops/logins/SOP-user_account_unlock-001.md, entities={'user_id': '12', 'email': 'jane.smith@testcorp.com', 'application_name': 'mock portal'}\",\n  \"[Planner Error] OKF Playbook 'User Account Unlock and Password Reset Playbook' (SOP-user_account_unlock-001) plan binding failed: Deterministic Planner Error: Missing required entities for execution: ['hostname']\",\n  \"[Orchestrator] Execution halted -> escalation_agent (Deterministic Planner Error: Missing required entities for execution: ['hostname'])\"\n]\n\n## 5. RECOMMENDED L2 NEXT ACTIONS\n- Inspect workstation `target machine` manually via RDP/WinRM or Remote Control.\n- Review CLI command stdout for step `(none)`.\n- Verify user permissions or network adapter hardware status.\n"
+  },
+  "audit_log": [
+    "[Intake] Triage applied: intent=User Account Unlock and Password Reset Playbook, priority=high, category=logins, details_conf=1.0, sop_match_conf=1.0, source=okf_playbook, matched_file=sops/logins/SOP-user_account_unlock-001.md, entities={'user_id': '12', 'email': 'jane.smith@testcorp.com', 'application_name': 'mock portal'}",
+    "[Planner Error] OKF Playbook 'User Account Unlock and Password Reset Playbook' (SOP-user_account_unlock-001) plan binding failed: Deterministic Planner Error: Missing required entities for execution: ['hostname']",
+    "[Orchestrator] Execution halted -> escalation_agent (Deterministic Planner Error: Missing required entities for execution: ['hostname'])",
+    "[Escalation Agent] Formulated L2 Handover Ticket 'ESC-B714A9' ([Orchestrator] Execution halted -> escalation_agent (Deterministic Planner Error: Missing required entities for execution: ['hostname']))",
+    "[Summarization] Final response & engineering log generated"
+  ]
+}

@@ -1,0 +1,165 @@
+{
+  "thread_id": "AGT-107d2734a1e0",
+  "ticket_id": "AGT-107d2734a1e0",
+  "created_at": "2026-08-06T10:46:17.694514",
+  "updated_at": "2026-08-06T10:46:17.694514",
+  "workflow_status": "escalated",
+  "resolution_type": "ESCALATED_L2",
+  "customer": {
+    "email": "pradeepnaveen930@gmail.com",
+    "name": "Pradeep",
+    "emp_id": "EL-002",
+    "user_id": "12",
+    "device_id": "DV_EL_002"
+  },
+  "remote_machine": {
+    "hostname": "Carnage",
+    "target_os": "windows",
+    "username": "prade",
+    "ip_address": "Carnage"
+  },
+  "issue": {
+    "ticket_raw": "Vscode is not opening, when i double click that also not opening",
+    "intent": "Software Application Unblock via IFEO Debugger Entry Removal",
+    "category": "software",
+    "priority": "high",
+    "sop_id": "SOP-APP-001",
+    "sop_title": "Software Application Unblock via IFEO Debugger Entry Removal",
+    "ticket_details_confidence": 1.0,
+    "sop_match_confidence": 1.0
+  },
+  "execution_plan": {
+    "total_steps": 5,
+    "current_step_index": 0,
+    "plan_valid": false,
+    "validator_result": "INVALID_PLAN",
+    "steps": [
+      {
+        "step_number": 1,
+        "description": "Verify endpoint connectivity to ensure remote administrative access is possible.",
+        "step_type": "command",
+        "command": "Test-Connection {entities.computername} -Count 2",
+        "shell": "powershell",
+        "fallback_command": null,
+        "execute_if": null,
+        "is_dangerous": false,
+        "danger_warning": null,
+        "status": "PENDING",
+        "exit_code": null,
+        "output": "",
+        "output_variable": "connectivity_check",
+        "output_parse_instruction": "Check if output contains 'Reply from'. If not, set 'connectivity_failure' to 'true'."
+      },
+      {
+        "step_number": 2,
+        "description": "Identify if the application is blocked via an IFEO Debugger entry by querying the registry.",
+        "step_type": "command",
+        "command": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\{variables.application_exe}\"",
+        "shell": "powershell",
+        "fallback_command": null,
+        "execute_if": null,
+        "is_dangerous": false,
+        "danger_warning": null,
+        "status": "PENDING",
+        "exit_code": null,
+        "output": "",
+        "output_variable": "ifeo_query_result",
+        "output_parse_instruction": "Inspect output. If 'Debugger' value is present, set 'ifeo_block_detected' to 'true'. If 'ERROR: The system was unable to find the specified registry key', set 'ifeo_block_detected' to 'false'."
+      },
+      {
+        "step_number": 3,
+        "description": "Remove the IFEO Debugger entry if Step 2 confirms its presence.",
+        "step_type": "command",
+        "command": "reg delete \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\{variables.application_exe}\" /v Debugger /f",
+        "shell": "powershell",
+        "fallback_command": "reg delete \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\{variables.application_exe}\" /f",
+        "execute_if": "variables.ifeo_block_detected == 'true'",
+        "is_dangerous": true,
+        "danger_warning": "This step modifies the Windows registry. Ensure the application is approved for unblocking before proceeding.",
+        "status": "PENDING",
+        "exit_code": null,
+        "output": "",
+        "output_variable": "debugger_removal_result",
+        "output_parse_instruction": "Check if output contains 'The operation completed successfully'. If not, set 'removal_failed' to 'true'."
+      },
+      {
+        "step_number": 4,
+        "description": "Refresh local Group Policy to apply changes immediately.",
+        "step_type": "command",
+        "command": "gpupdate /force",
+        "shell": "powershell",
+        "fallback_command": null,
+        "execute_if": "variables.ifeo_block_detected == 'true'",
+        "is_dangerous": false,
+        "danger_warning": null,
+        "status": "PENDING",
+        "exit_code": null,
+        "output": "",
+        "output_variable": "policy_refresh_result",
+        "output_parse_instruction": "Check if output contains 'Computer Policy update has completed successfully'. If not, set 'policy_refresh_failed' to 'true'."
+      },
+      {
+        "step_number": 5,
+        "description": "Verify that the IFEO block has been removed by re-querying the registry.",
+        "step_type": "command",
+        "command": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\{variables.application_exe}\"",
+        "shell": "powershell",
+        "fallback_command": null,
+        "execute_if": "variables.ifeo_block_detected == 'true'",
+        "is_dangerous": false,
+        "danger_warning": null,
+        "status": "PENDING",
+        "exit_code": null,
+        "output": "",
+        "output_variable": "verification_query_result",
+        "output_parse_instruction": "Inspect output. If 'ERROR: The system was unable to find the specified registry key' or no 'Debugger' value is present, set 'block_removed' to 'true'."
+      }
+    ]
+  },
+  "extracted_variables": {},
+  "entities": {
+    "user_id": "12",
+    "email": "pradeepnaveen930@gmail.com",
+    "emp_id": "EL-002",
+    "employee_name": "Pradeep",
+    "device_id": "DV_EL_002",
+    "target_os": "windows",
+    "hostname": "Carnage",
+    "username": "prade",
+    "password": "6521",
+    "application_name": "Visual Studio Code",
+    "executable": "Code.exe",
+    "catalog_permission_approved": "true"
+  },
+  "clarification": {
+    "question": null,
+    "ui": null,
+    "attempts": 0
+  },
+  "escalation_payload": {
+    "escalation_id": "ESC-A981F2",
+    "ticket_id": "1000",
+    "customer_email": "pradeepnaveen930@gmail.com",
+    "hostname": "Carnage",
+    "intent": "Software Application Unblock via IFEO Debugger Entry Removal",
+    "category": "software",
+    "priority": "high",
+    "reason": "Missing required user entities for execution: ['computername']",
+    "failed_step_number": 1,
+    "last_command": "Test-Connection {entities.computername} -Count 2",
+    "last_exit_code": "N/A",
+    "variables": {},
+    "handover_markdown": "# L2/L3 TECHNICAL ESCALATION HANDOVER TICKET [ESC-A981F2]\n\n## 1. TICKET & WORKSTATION SUMMARY\n- **Ticket ID**: #1000\n- **Customer Email**: pradeepnaveen930@gmail.com\n- **Target Hostname**: Carnage\n- **Intent Category**: SOFTWARE | Priority: HIGH\n- **Escalation Reason**: Missing required user entities for execution: ['computername']\n\n## 2. AUTOMATION HALT CONTEXT\n- **Halted Step Number**: Step 1 of 5\n- **Step Description**: Verify endpoint connectivity to ensure remote administrative access is possible.\n- **Last Executed Command**: `Test-Connection {entities.computername} -Count 2` (Exit Code: N/A)\n\n## 3. EXTRACTED DIAGNOSTIC VARIABLES\n```json\n{}\n```\n\n## 4. AUDIT TRAJECTORY LOG\n[\n  \"[Intake] Triage applied: intent=Software Application Unblock via IFEO Debugger Entry Removal, priority=high, category=software, details_conf=1.0, sop_match_conf=1.0, source=okf_playbook, matched_file=sops/software/SOP-APP-001.md, entities={'user_id': '12', 'email': 'pradeepnaveen930@gmail.com', 'emp_id': 'EL-002', 'employee_name': 'Pradeep', 'device_id': 'DV_EL_002', 'target_os': 'windows', 'hostname': 'Carnage', 'username': 'prade', 'password': '6521', 'application_name': 'Visual Studio Code', 'executable': 'Code.exe', 'catalog_permission_approved': 'true'}\",\n  \"[Retrieval] OKF Playbook 'Software Application Unblock via IFEO Debugger Entry Removal' (SOP-APP-001) requires missing user entities: ['computername'].\",\n  \"[Orchestrator] Execution halted -> escalation_agent (Missing required user entities for execution: ['computername'])\"\n]\n\n## 5. RECOMMENDED L2 NEXT ACTIONS\n- Inspect workstation `Carnage` manually via RDP/WinRM or Remote Control.\n- Review CLI command stdout for step `Test-Connection {entities.computername} -Count 2`.\n- Verify user permissions or network adapter hardware status.\n"
+  },
+  "final_responses": {
+    "customer_ticket_reply": "## Issue Diagnosed and Resolution Steps\nThe issue diagnosed on your workstation, Carnage, was related to a software application unblock via IFEO debugger entry removal. The diagnostic steps involved analyzing the execution trajectory, audit logs, and dynamic variables. However, due to missing required user entities for execution, specifically 'computername', the resolution steps could not be completed as intended.\n## Current Status\nThe issue has been escalated to our engineering team for further assistance. You will be contacted with updates on the resolution progress.",
+    "internal_ticket_summary": "# L2/L3 TECHNICAL ESCALATION HANDOVER TICKET [ESC-A981F2]\n\n## 1. TICKET & WORKSTATION SUMMARY\n- **Ticket ID**: #1000\n- **Customer Email**: pradeepnaveen930@gmail.com\n- **Target Hostname**: Carnage\n- **Intent Category**: SOFTWARE | Priority: HIGH\n- **Escalation Reason**: Missing required user entities for execution: ['computername']\n\n## 2. AUTOMATION HALT CONTEXT\n- **Halted Step Number**: Step 1 of 5\n- **Step Description**: Verify endpoint connectivity to ensure remote administrative access is possible.\n- **Last Executed Command**: `Test-Connection {entities.computername} -Count 2` (Exit Code: N/A)\n\n## 3. EXTRACTED DIAGNOSTIC VARIABLES\n```json\n{}\n```\n\n## 4. AUDIT TRAJECTORY LOG\n[\n  \"[Intake] Triage applied: intent=Software Application Unblock via IFEO Debugger Entry Removal, priority=high, category=software, details_conf=1.0, sop_match_conf=1.0, source=okf_playbook, matched_file=sops/software/SOP-APP-001.md, entities={'user_id': '12', 'email': 'pradeepnaveen930@gmail.com', 'emp_id': 'EL-002', 'employee_name': 'Pradeep', 'device_id': 'DV_EL_002', 'target_os': 'windows', 'hostname': 'Carnage', 'username': 'prade', 'password': '6521', 'application_name': 'Visual Studio Code', 'executable': 'Code.exe', 'catalog_permission_approved': 'true'}\",\n  \"[Retrieval] OKF Playbook 'Software Application Unblock via IFEO Debugger Entry Removal' (SOP-APP-001) requires missing user entities: ['computername'].\",\n  \"[Orchestrator] Execution halted -> escalation_agent (Missing required user entities for execution: ['computername'])\"\n]\n\n## 5. RECOMMENDED L2 NEXT ACTIONS\n- Inspect workstation `Carnage` manually via RDP/WinRM or Remote Control.\n- Review CLI command stdout for step `Test-Connection {entities.computername} -Count 2`.\n- Verify user permissions or network adapter hardware status.\n"
+  },
+  "audit_log": [
+    "[Intake] Triage applied: intent=Software Application Unblock via IFEO Debugger Entry Removal, priority=high, category=software, details_conf=1.0, sop_match_conf=1.0, source=okf_playbook, matched_file=sops/software/SOP-APP-001.md, entities={'user_id': '12', 'email': 'pradeepnaveen930@gmail.com', 'emp_id': 'EL-002', 'employee_name': 'Pradeep', 'device_id': 'DV_EL_002', 'target_os': 'windows', 'hostname': 'Carnage', 'username': 'prade', 'password': '6521', 'application_name': 'Visual Studio Code', 'executable': 'Code.exe', 'catalog_permission_approved': 'true'}",
+    "[Retrieval] OKF Playbook 'Software Application Unblock via IFEO Debugger Entry Removal' (SOP-APP-001) requires missing user entities: ['computername'].",
+    "[Orchestrator] Execution halted -> escalation_agent (Missing required user entities for execution: ['computername'])",
+    "[Escalation Agent] Formulated L2 Handover Ticket 'ESC-A981F2' (Missing required user entities for execution: ['computername'])",
+    "[Summarization] Final response & engineering log generated"
+  ]
+}

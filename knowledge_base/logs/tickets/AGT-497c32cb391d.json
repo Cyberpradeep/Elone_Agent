@@ -1,0 +1,83 @@
+{
+  "thread_id": "AGT-497c32cb391d",
+  "ticket_id": "AGT-497c32cb391d",
+  "created_at": "2026-08-04T15:50:32.430875",
+  "updated_at": "2026-08-04T15:50:32.430875",
+  "workflow_status": "escalated",
+  "resolution_type": "ESCALATED_L2",
+  "customer": {
+    "email": "pradeepnaveen930@gmail.com",
+    "name": "Pradeep",
+    "emp_id": "EL-002",
+    "user_id": "12",
+    "device_id": "DV_EL_002"
+  },
+  "remote_machine": {
+    "hostname": "Carnage",
+    "target_os": "windows",
+    "username": "prade",
+    "ip_address": "Carnage"
+  },
+  "issue": {
+    "ticket_raw": "in my lap ms excel is hung and unresponsive",
+    "intent": "Check and Terminate a Hung Application \u2013 Windows",
+    "category": "software",
+    "priority": "high",
+    "sop_id": null,
+    "sop_title": null,
+    "ticket_details_confidence": null,
+    "sop_match_confidence": null
+  },
+  "execution_plan": {
+    "total_steps": 0,
+    "current_step_index": 0,
+    "plan_valid": null,
+    "validator_result": null,
+    "steps": []
+  },
+  "extracted_variables": {},
+  "entities": {
+    "user_id": "12",
+    "email": "pradeepnaveen930@gmail.com",
+    "emp_id": "EL-002",
+    "employee_name": "Pradeep",
+    "device_id": "DV_EL_002",
+    "target_os": "windows",
+    "hostname": "Carnage",
+    "username": "prade",
+    "password": "6521",
+    "application_name": "Microsoft Excel",
+    "executable": "EXCEL.EXE",
+    "catalog_permission_approved": "false"
+  },
+  "clarification": {
+    "question": null,
+    "ui": null,
+    "attempts": 0
+  },
+  "escalation_payload": {
+    "escalation_id": "ESC-CF08F0",
+    "ticket_id": "1000",
+    "customer_email": "pradeepnaveen930@gmail.com",
+    "hostname": "Carnage",
+    "intent": "Check and Terminate a Hung Application \u2013 Windows",
+    "category": "software",
+    "priority": "high",
+    "reason": "Application 'EXCEL.EXE' is not in the approved software policy for employee EL-002 (Pradeep). Policy restriction enforced.",
+    "failed_step_number": 1,
+    "last_command": "(none)",
+    "last_exit_code": "N/A",
+    "variables": {},
+    "handover_markdown": "# L2/L3 TECHNICAL ESCALATION HANDOVER TICKET [ESC-CF08F0]\n\n## 1. TICKET & WORKSTATION SUMMARY\n- **Ticket ID**: #1000\n- **Customer Email**: pradeepnaveen930@gmail.com\n- **Target Hostname**: Carnage\n- **Intent Category**: SOFTWARE | Priority: HIGH\n- **Escalation Reason**: Application 'EXCEL.EXE' is not in the approved software policy for employee EL-002 (Pradeep). Policy restriction enforced.\n\n## 2. AUTOMATION HALT CONTEXT\n- **Halted Step Number**: Step 1 of 0\n- **Step Description**: N/A\n- **Last Executed Command**: `(none)` (Exit Code: N/A)\n\n## 3. EXTRACTED DIAGNOSTIC VARIABLES\n```json\n{}\n```\n\n## 4. AUDIT TRAJECTORY LOG\n[\n  \"[Intake Policy Violation] Application 'EXCEL.EXE' is NOT authorized for employee EL-002 in Allowed_Applications.csv. Escalating immediately.\",\n  \"[Orchestrator] Execution halted -> escalation_agent (Application 'EXCEL.EXE' is not in the approved software policy for employee EL-002 (Pradeep). Policy restriction enforced.)\"\n]\n\n## 5. RECOMMENDED L2 NEXT ACTIONS\n- Inspect workstation `Carnage` manually via RDP/WinRM or Remote Control.\n- Review CLI command stdout for step `(none)`.\n- Verify user permissions or network adapter hardware status.\n"
+  },
+  "final_responses": {
+    "customer_ticket_reply": "Hello, your support ticket regarding 'Check and Terminate a Hung Application \u2013 Windows' has been processed on workstation Carnage.",
+    "internal_ticket_summary": "# L2/L3 TECHNICAL ESCALATION HANDOVER TICKET [ESC-CF08F0]\n\n## 1. TICKET & WORKSTATION SUMMARY\n- **Ticket ID**: #1000\n- **Customer Email**: pradeepnaveen930@gmail.com\n- **Target Hostname**: Carnage\n- **Intent Category**: SOFTWARE | Priority: HIGH\n- **Escalation Reason**: Application 'EXCEL.EXE' is not in the approved software policy for employee EL-002 (Pradeep). Policy restriction enforced.\n\n## 2. AUTOMATION HALT CONTEXT\n- **Halted Step Number**: Step 1 of 0\n- **Step Description**: N/A\n- **Last Executed Command**: `(none)` (Exit Code: N/A)\n\n## 3. EXTRACTED DIAGNOSTIC VARIABLES\n```json\n{}\n```\n\n## 4. AUDIT TRAJECTORY LOG\n[\n  \"[Intake Policy Violation] Application 'EXCEL.EXE' is NOT authorized for employee EL-002 in Allowed_Applications.csv. Escalating immediately.\",\n  \"[Orchestrator] Execution halted -> escalation_agent (Application 'EXCEL.EXE' is not in the approved software policy for employee EL-002 (Pradeep). Policy restriction enforced.)\"\n]\n\n## 5. RECOMMENDED L2 NEXT ACTIONS\n- Inspect workstation `Carnage` manually via RDP/WinRM or Remote Control.\n- Review CLI command stdout for step `(none)`.\n- Verify user permissions or network adapter hardware status.\n"
+  },
+  "audit_log": [
+    "[Intake Policy Violation] Application 'EXCEL.EXE' is NOT authorized for employee EL-002 in Allowed_Applications.csv. Escalating immediately.",
+    "[Orchestrator] Execution halted -> escalation_agent (Application 'EXCEL.EXE' is not in the approved software policy for employee EL-002 (Pradeep). Policy restriction enforced.)",
+    "[Escalation Agent] Formulated L2 Handover Ticket 'ESC-CF08F0' (Application 'EXCEL.EXE' is not in the approved software policy for employee EL-002 (Pradeep). Policy restriction enforced.)",
+    "[Summarization] Final response & engineering log generated"
+  ]
+}

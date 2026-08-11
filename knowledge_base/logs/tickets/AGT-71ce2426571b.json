@@ -1,0 +1,58 @@
+{
+  "thread_id": "AGT-71ce2426571b",
+  "ticket_id": "AGT-71ce2426571b",
+  "created_at": "2026-08-09T16:42:42.901089",
+  "updated_at": "2026-08-09T16:42:42.901089",
+  "workflow_status": "escalated",
+  "resolution_type": null,
+  "customer": {
+    "email": "jane.smith@testcorp.com",
+    "name": null,
+    "emp_id": null,
+    "user_id": "12",
+    "device_id": null
+  },
+  "remote_machine": {
+    "hostname": "unknown_host",
+    "target_os": "unknown",
+    "username": null,
+    "ip_address": null
+  },
+  "issue": {
+    "ticket_raw": "i forgot my password fro mock portal",
+    "intent": "User Account Unlock and Password Reset Procedure",
+    "category": "logins",
+    "priority": "high",
+    "sop_id": null,
+    "sop_title": null,
+    "ticket_details_confidence": null,
+    "sop_match_confidence": null
+  },
+  "execution_plan": {
+    "total_steps": 0,
+    "current_step_index": 0,
+    "plan_valid": null,
+    "validator_result": null,
+    "steps": []
+  },
+  "extracted_variables": {},
+  "entities": {
+    "user_id": "12",
+    "email": "jane.smith@testcorp.com",
+    "application_name": "mock portal"
+  },
+  "clarification": {
+    "question": null,
+    "ui": null,
+    "attempts": 0
+  },
+  "escalation_payload": null,
+  "final_responses": {
+    "customer_ticket_reply": null,
+    "internal_ticket_summary": null
+  },
+  "audit_log": [
+    "[Intake] Category mismatch ('network' vs 'logins'). Escalating immediately.",
+    "[Orchestrator] Execution halted -> escalation_agent (Category discrepancy detected: Ticket pre-assigned category 'network' differs from classified category 'logins'. Escalating for verification.)"
+  ]
+}

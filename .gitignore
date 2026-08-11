@@ -1,0 +1,36 @@
+# Environments & Secret Keys
+.env
+.env.*
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Agent IDE & Tracing Local Storage
+.agents/
+.phoenix/
+phoenix.db
+*.db
+*.sqlite
+*.log
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Testing, Scratch & Evals
+.pytest_cache/
+scratch/
+
+
+# IDE & OS generated files
+.vscode/
+.idea/
+.DS_Store
+.DS_Store?
+._*
+ehthumbs.db
+Thumbs.db

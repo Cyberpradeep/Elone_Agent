@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>EloneAgent — Ingestion</title>
+<link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+
+<div class="app-shell">
+
+  <!-- ================= SIDEBAR ================= -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="4" y="7" width="16" height="12" rx="4" stroke="white" stroke-width="1.8"/><circle cx="9" cy="13" r="1.4" fill="white"/><circle cx="15" cy="13" r="1.4" fill="white"/><path d="M12 7V4" stroke="white" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </div>
+      <div class="brand-name">Elone<span>Agent</span></div>
+    </div>
+
+    <nav class="nav">
+      <a class="nav-link" href="index.html">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M3 11.5L12 4l9 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 10v9a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1v-9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Agent
+      </a>
+      <a class="nav-link active" href="ingestion.html">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="6" rx="8" ry="3" stroke="currentColor" stroke-width="1.8"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6" stroke="currentColor" stroke-width="1.8"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6" stroke="currentColor" stroke-width="1.8"/></svg>
+        Ingestion
+      </a>
+    </nav>
+
+    <div class="sidebar-promo">
+      <div class="mascot">
+        <span class="spark s1">✦</span>
+        <span class="spark s2">✦</span>
+        <div class="head"><div class="eyes"><span></span><span></span></div></div>
+        <div class="ring"></div>
+      </div>
+      <h4>Elone<span>Agent</span></h4>
+      <p>AI-powered ingestion that turns your SOPs into validated, executable plans for smarter, faster L1 support.</p>
+      <ul class="promo-list">
+        <li><span class="tick">✓</span> Accurate Knowledge</li>
+        <li><span class="tick">✓</span> Secure &amp; Reliable</li>
+        <li><span class="tick">✓</span> Always Up-to-Date</li>
+        <li><span class="tick">✓</span> SOP Driven</li>
+      </ul>
+    </div>
+
+    <div class="sidebar-spacer"></div>
+
+    <button class="help-btn">
+      Need Help?
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+
+    <div class="sidebar-footer">© 2026 EloneAgent<br/>v1.0.0</div>
+  </aside>
+
+  <!-- ================= MAIN ================= -->
+  <div class="main-col">
+
+    <header class="topbar">
+      <div>
+        <h1>Ingestion</h1>
+        <p class="subtitle">Ingest and manage the SOP knowledge base</p>
+      </div>
+      <div class="topbar-actions">
+        <button class="icon-btn" id="themeToggle" title="Toggle theme">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4.5" stroke="currentColor" stroke-width="1.8"/><path d="M12 2v2.5M12 19.5V22M4.2 4.2l1.8 1.8M18 18l1.8 1.8M2 12h2.5M19.5 12H22M4.2 19.8L6 18M18 6l1.8-1.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+        <button class="icon-btn" title="Notifications">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.7 21a2 2 0 01-3.4 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          <span class="dot"></span>
+        </button>
+        <div class="user-pill" id="userPill">
+          <div class="user-avatar">L1</div>
+          <div class="user-meta">
+            <div class="name">L1 Agent</div>
+            <div class="role">Support Team</div>
+          </div>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <div class="user-menu" id="userMenu">
+            <a href="#">Profile</a>
+            <a href="#">Settings</a>
+            <a href="#">Sign out</a>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="body-grid">
+
+      <!-- ============ Main column ============ -->
+      <div class="ingest-main">
+
+        <div class="card">
+          <div class="card-head" style="padding-bottom:0;">
+            <div>
+              <h3 style="font-size:15px;">Upload SOP Document</h3>
+              <p style="margin:4px 0 0;font-size:11.8px;color:var(--text-muted);">Only one SOP can be ingested at a time.</p>
+            </div>
+          </div>
+          <div class="card-body" style="padding-top:16px;">
+
+            <div class="dropzone" id="dropzone">
+              <div class="cloud-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M7 18a4 4 0 01-1-7.9A5 5 0 0116 8a4.5 4.5 0 011 8.9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12v7M9 16l3-3 3 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </div>
+              <p>Drag &amp; drop your SOP document here</p>
+              <div class="or">or</div>
+              <button class="btn btn-outline btn-sm" id="chooseFileBtn" type="button">Choose File</button>
+              <input type="file" id="fileInput" accept=".pdf,.docx,.txt,.md,.xlsx,.xls" hidden />
+              <div class="hint">Supported formats: .docx, .pdf, .txt, .md, .xlsx (Max size: 20MB)</div>
+            </div>
+
+            <div class="file-chip" id="fileChip">
+              <div class="file-ico">DOC</div>
+              <div class="file-meta">
+                <div class="file-name" id="fileName"></div>
+                <div class="file-size" id="fileSize"></div>
+              </div>
+              <button class="file-remove" id="removeFileBtn" title="Remove file">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V4h6v3M6 7l1 13a1 1 0 001 1h8a1 1 0 001-1l1-13" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+            </div>
+
+            <div class="field-row" style="margin-top:16px;max-width:400px;">
+              <div class="field" style="margin:0;">
+                <label>Category</label>
+                <input type="text" id="categoryInput" value="Access Management" />
+              </div>
+              <div class="field" style="margin:0;">
+                <label>Provider</label>
+                <select id="providerInput"></select>
+              </div>
+            </div>
+
+            <div class="ingest-actions">
+              <button class="btn btn-primary" id="startIngestBtn" style="width:220px;justify-content:center;" disabled>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M6 4l14 8-14 8V4z" fill="white"/></svg>
+                Start Ingestion
+              </button>
+              <div class="secure-note">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><rect x="5" y="11" width="14" height="9" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M8 11V7a4 4 0 018 0v4" stroke="currentColor" stroke-width="1.6"/></svg>
+                Your files are secure and private
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h3 style="font-size:15px;">Ingestion Progress</h3>
+          </div>
+          <div class="card-body">
+            <div class="progress-grid">
+
+              <ul class="stepper">
+                <li id="step-reading">
+                  <div class="st-dot"></div>
+                  <div>
+                    <div class="st-title dim">Reading Document</div>
+                    <div class="st-sub">Extracting raw text from the SOP file</div>
+                  </div>
+                </li>
+                <li id="step-planning">
+                  <div class="st-dot"></div>
+                  <div>
+                    <div class="st-title dim">Generating Execution Plan</div>
+                    <div class="st-sub">LLM drafts a step-by-step AOP template</div>
+                  </div>
+                </li>
+                <li id="step-validating">
+                  <div class="st-dot"></div>
+                  <div>
+                    <div class="st-title dim">Validating Plan</div>
+                    <div class="st-sub">Deterministic + semantic checks against the tool catalog</div>
+                  </div>
+                </li>
+                <li id="step-review">
+                  <div class="st-dot"></div>
+                  <div>
+                    <div class="st-title dim">Awaiting Your Review</div>
+                    <div class="st-sub">Inspect and edit the plan before it's stored</div>
+                  </div>
+                </li>
+                <li id="step-embedding">
+                  <div class="st-dot"></div>
+                  <div>
+                    <div class="st-title dim">Embedding &amp; Indexing</div>
+                    <div class="st-sub">Generating embedding &amp; upserting to Qdrant</div>
+                  </div>
+                </li>
+                <li id="step-completed">
+                  <div class="st-dot"></div>
+                  <div>
+                    <div class="st-title dim">Completed</div>
+                    <div class="st-sub">SOP ingestion completed successfully</div>
+                  </div>
+                </li>
+              </ul>
+
+              <div class="progress-panel">
+                <div class="progress-pct" id="progressPct">0%</div>
+                <div class="progress-status" id="progressStatus">Waiting to start…</div>
+                <div class="progress-bar-track"><div class="progress-bar-fill" id="progressBarFill"></div></div>
+
+                <div class="stat-grid">
+                  <div class="stat-item"><span class="label">Steps Generated</span><span class="value" id="statSteps">—</span></div>
+                  <div class="stat-item"><span class="label">Semantic Review</span><span class="value" id="statAttempts">—</span></div>
+                  <div class="stat-item"><span class="label">Characters Processed</span><span class="value" id="statChars">—</span></div>
+                  <div class="stat-item"><span class="label">Status</span><span class="value" id="statEta">—</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="ingest-note" style="margin-top:20px;">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M12 8v.01M12 11v5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+              Please don't close or refresh the page during ingestion.
+            </div>
+          </div>
+        </div>
+
+        <div class="card" id="reviewCard" style="display:none;">
+          <div class="card-head">
+            <h3 style="font-size:15px;">Review &amp; Edit Plan</h3>
+            <span class="badge orange" id="reviewIssuesBadge" style="display:none;">Needs attention</span>
+          </div>
+          <div class="card-body">
+
+            <div id="planLevelErrors"></div>
+
+            <div class="field-row" style="margin-bottom:14px;">
+              <div class="field">
+                <label>SOP Title</label>
+                <input type="text" id="reviewTitle" />
+              </div>
+              <div class="field">
+                <label>Provider</label>
+                <input type="text" id="reviewProvider" disabled style="opacity:.7;" />
+              </div>
+            </div>
+            <div class="field" style="margin-bottom:14px;">
+              <label>SOP Description</label>
+              <textarea id="reviewDescription" style="min-height:60px;"></textarea>
+            </div>
+            <div class="field-row" style="margin-bottom:18px;">
+              <div class="field">
+                <label>Required Entities (comma-separated)</label>
+                <input type="text" id="reviewEntities" />
+              </div>
+              <div class="field">
+                <label>Trigger Words (comma-separated)</label>
+                <input type="text" id="reviewTriggerWords" />
+              </div>
+            </div>
+
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+              <label style="font-size:12.5px;font-weight:700;">Execution Steps</label>
+              <button class="btn btn-outline btn-sm" id="addStepBtn" type="button">+ Add Step</button>
+            </div>
+            <div id="stepsEditor" style="display:flex;flex-direction:column;gap:12px;max-height:480px;overflow-y:auto;padding-right:6px;"></div>
+
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:18px;gap:10px;flex-wrap:wrap;">
+              <div id="reviewValidState" style="font-size:11.8px;color:var(--text-muted);"></div>
+              <div style="display:flex;gap:8px;">
+                <button class="btn btn-outline btn-sm" id="recheckBtn" type="button">Re-check Plan</button>
+                <button class="btn btn-primary btn-sm" id="confirmStoreBtn" type="button">Confirm &amp; Store</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ============ Right rail ============ -->
+      <aside class="rail">
+
+        <div class="card">
+          <div class="card-head">
+            <h3>SOP Overview <span style="font-weight:500;color:var(--text-faint);">(After Ingestion)</span></h3>
+          </div>
+          <div class="card-body">
+            <div class="overview-list">
+              <div class="overview-row">
+                <div class="ov-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="3" stroke="currentColor" stroke-width="1.7"/></svg></div>
+                <span class="ov-label">SOP ID</span><span class="ov-value" id="ovSopId">—</span>
+              </div>
+              <div class="overview-row">
+                <div class="ov-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></div>
+                <span class="ov-label">Title</span><span class="ov-value" id="ovTitle">—</span>
+              </div>
+              <div class="overview-row">
+                <div class="ov-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 3l8 4v5c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V7l8-4z" stroke="currentColor" stroke-width="1.6"/></svg></div>
+                <span class="ov-label">Category</span><span class="ov-value" id="ovCategory">—</span>
+              </div>
+              <div class="overview-row">
+                <div class="ov-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3 9h18" stroke="currentColor" stroke-width="1.6"/></svg></div>
+                <span class="ov-label">Provider</span><span class="ov-value" id="ovProvider">—</span>
+              </div>
+              <div class="overview-row">
+                <div class="ov-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></div>
+                <span class="ov-label">Required Entities</span><span class="ov-value" id="ovEntities">—</span>
+              </div>
+              <div class="overview-row">
+                <div class="ov-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M9 6l3-3 3 3M9 18l3 3 3-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 3v18" stroke="currentColor" stroke-width="1.6"/></svg></div>
+                <span class="ov-label">Execution Steps</span><span class="ov-value" id="ovSteps">—</span>
+              </div>
+              <div class="overview-row">
+                <div class="ov-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M12 7v5l3 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></div>
+                <span class="ov-label">Ingested On</span><span class="ov-value" id="ovIngestedOn">—</span>
+              </div>
+              <div class="overview-row">
+                <div class="ov-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                <span class="ov-label">Status</span><span class="badge gray" id="ovStatus">Idle</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>Ingestion Tips</h3></div>
+          <div class="card-body">
+            <div class="tip-list">
+              <div class="tip-row">
+                <div class="tip-icon a"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></div>
+                <div>
+                  <div class="tip-title">Use clear, numbered steps</div>
+                  <div class="tip-text">Each step is mapped 1:1 to a tool call — ambiguous steps fail deterministic validation.</div>
+                </div>
+              </div>
+              <div class="tip-row">
+                <div class="tip-icon b"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M9 12l2 2 4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/></svg></div>
+                <div>
+                  <div class="tip-title">Reference exact tool actions</div>
+                  <div class="tip-text">Steps naming concrete actions (reset password, lock account, send email) map reliably to the tool catalog.</div>
+                </div>
+              </div>
+              <div class="tip-row">
+                <div class="tip-icon c"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 2v20M2 12h20" stroke="currentColor" stroke-width="1.6"/></svg></div>
+                <div>
+                  <div class="tip-title">Keep SOPs updated</div>
+                  <div class="tip-text">Re-ingest after edits so embeddings and execution steps reflect the latest procedure.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>Recent Ingestions</h3></div>
+          <div class="card-body">
+            <div class="recent-list" id="recentList"></div>
+            <div class="recent-empty" id="recentEmpty">
+              <div class="box-ico">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M3 8l9 6 9-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><rect x="3" y="6" width="18" height="12" rx="2" stroke="currentColor" stroke-width="1.7"/></svg>
+              </div>
+              <div class="t1">No SOPs ingested yet.</div>
+              <div class="t2">Upload your first SOP to get started.</div>
+            </div>
+          </div>
+        </div>
+
+      </aside>
+    </div>
+  </div>
+</div>
+
+<script src="js/app.js"></script>
+</body>
+</html>

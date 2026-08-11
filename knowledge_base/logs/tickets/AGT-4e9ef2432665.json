@@ -1,0 +1,107 @@
+{
+  "thread_id": "AGT-4e9ef2432665",
+  "ticket_id": "AGT-4e9ef2432665",
+  "created_at": "2026-08-06T10:43:25.004232",
+  "updated_at": "2026-08-06T10:43:25.004232",
+  "workflow_status": "escalated",
+  "resolution_type": "ESCALATED_L2",
+  "customer": {
+    "email": "unknown@acme.com",
+    "name": null,
+    "emp_id": null,
+    "user_id": "12",
+    "device_id": null
+  },
+  "remote_machine": {
+    "hostname": "unknown_host",
+    "target_os": "windows",
+    "username": null,
+    "ip_address": null
+  },
+  "issue": {
+    "ticket_raw": "My application is frozen on machine. It's completely stuck and I can't work.",
+    "intent": "Check and Terminate a Hung Application \u2013 Windows",
+    "category": "software",
+    "priority": "high",
+    "sop_id": "SOP-DYN-001",
+    "sop_title": "Check and Terminate a Hung Application \u2013 Windows",
+    "ticket_details_confidence": 0.8,
+    "sop_match_confidence": 1.0
+  },
+  "execution_plan": {
+    "total_steps": 2,
+    "current_step_index": 0,
+    "plan_valid": false,
+    "validator_result": "INVALID_PLAN",
+    "steps": [
+      {
+        "step_number": 1,
+        "description": "Verify if the specified application process is currently running by checking the process list.",
+        "step_type": "command",
+        "command": "tasklist | findstr /I {entities.executable}",
+        "shell": "cmd",
+        "fallback_command": null,
+        "execute_if": null,
+        "is_dangerous": false,
+        "danger_warning": null,
+        "status": "PENDING",
+        "exit_code": null,
+        "output": "",
+        "output_variable": "tasklist_output",
+        "output_parse_instruction": "Inspect output. If process name is found, set 'process_exists' to 'true'. If no output, set 'process_exists' to 'false'."
+      },
+      {
+        "step_number": 2,
+        "description": "Forcefully terminate the application process to recover system resources. Warning: Unsaved data may be lost.",
+        "step_type": "command",
+        "command": "taskkill /F /IM {entities.executable}",
+        "shell": "cmd",
+        "fallback_command": null,
+        "execute_if": "variables.process_exists == 'true'",
+        "is_dangerous": true,
+        "danger_warning": "This step will forcefully terminate the application. Any unsaved data in the application may be lost.",
+        "status": "PENDING",
+        "exit_code": null,
+        "output": "",
+        "output_variable": "taskkill_output",
+        "output_parse_instruction": "No parsing required. Confirm termination success via output message."
+      }
+    ]
+  },
+  "extracted_variables": {},
+  "entities": {
+    "user_id": "12",
+    "email": "unknown@acme.com"
+  },
+  "clarification": {
+    "question": null,
+    "ui": null,
+    "attempts": 0
+  },
+  "escalation_payload": {
+    "escalation_id": "ESC-89416B",
+    "ticket_id": "1000",
+    "customer_email": "unknown@acme.com",
+    "hostname": "target machine",
+    "intent": "Check and Terminate a Hung Application \u2013 Windows",
+    "category": "software",
+    "priority": "high",
+    "reason": "Missing required user entities for execution: ['executable', 'hostname']",
+    "failed_step_number": 1,
+    "last_command": "tasklist | findstr /I {entities.executable}",
+    "last_exit_code": "N/A",
+    "variables": {},
+    "handover_markdown": "# L2/L3 TECHNICAL ESCALATION HANDOVER TICKET [ESC-89416B]\n\n## 1. TICKET & WORKSTATION SUMMARY\n- **Ticket ID**: #1000\n- **Customer Email**: unknown@acme.com\n- **Target Hostname**: target machine\n- **Intent Category**: SOFTWARE | Priority: HIGH\n- **Escalation Reason**: Missing required user entities for execution: ['executable', 'hostname']\n\n## 2. AUTOMATION HALT CONTEXT\n- **Halted Step Number**: Step 1 of 2\n- **Step Description**: Verify if the specified application process is currently running by checking the process list.\n- **Last Executed Command**: `tasklist | findstr /I {entities.executable}` (Exit Code: N/A)\n\n## 3. EXTRACTED DIAGNOSTIC VARIABLES\n```json\n{}\n```\n\n## 4. AUDIT TRAJECTORY LOG\n[\n  \"[Intake] Triage applied: intent=Check and Terminate a Hung Application \\u2013 Windows, priority=high, category=software, details_conf=0.8, sop_match_conf=1.0, source=okf_playbook, matched_file=sops/software/SOP-DYN-001.md, entities={'user_id': '12', 'email': 'unknown@acme.com'}\",\n  \"[Retrieval] OKF Playbook 'Check and Terminate a Hung Application \\u2013 Windows' (SOP-DYN-001) requires missing user entities: ['executable', 'hostname'].\",\n  \"[Orchestrator] Execution halted -> escalation_agent (Missing required user entities for execution: ['executable', 'hostname'])\"\n]\n\n## 5. RECOMMENDED L2 NEXT ACTIONS\n- Inspect workstation `target machine` manually via RDP/WinRM or Remote Control.\n- Review CLI command stdout for step `tasklist | findstr /I {entities.executable}`.\n- Verify user permissions or network adapter hardware status.\n"
+  },
+  "final_responses": {
+    "customer_ticket_reply": "## Issue Diagnosed and Resolution Steps\nThe issue diagnosed on your workstation (target machine) was related to a hung application. Our system attempted to execute a playbook to check and terminate the hung application, but it required additional user entities such as the executable name and hostname, which were not provided.\n\nThe diagnostic and resolution steps performed included:\n- Triage and intent matching to identify the correct Standard Operating Procedure (SOP) for the issue.\n- Retrieval of the matched SOP (SOP-DYN-001) for execution.\n- Halting of execution due to missing required user entities.\n- Escalation to an L2 handover ticket (ESC-89416B) for further assistance.\n\nThe current status of your issue is escalated to our L2 engineering team due to the missing information required for the automated resolution process.",
+    "internal_ticket_summary": "# L2/L3 TECHNICAL ESCALATION HANDOVER TICKET [ESC-89416B]\n\n## 1. TICKET & WORKSTATION SUMMARY\n- **Ticket ID**: #1000\n- **Customer Email**: unknown@acme.com\n- **Target Hostname**: target machine\n- **Intent Category**: SOFTWARE | Priority: HIGH\n- **Escalation Reason**: Missing required user entities for execution: ['executable', 'hostname']\n\n## 2. AUTOMATION HALT CONTEXT\n- **Halted Step Number**: Step 1 of 2\n- **Step Description**: Verify if the specified application process is currently running by checking the process list.\n- **Last Executed Command**: `tasklist | findstr /I {entities.executable}` (Exit Code: N/A)\n\n## 3. EXTRACTED DIAGNOSTIC VARIABLES\n```json\n{}\n```\n\n## 4. AUDIT TRAJECTORY LOG\n[\n  \"[Intake] Triage applied: intent=Check and Terminate a Hung Application \\u2013 Windows, priority=high, category=software, details_conf=0.8, sop_match_conf=1.0, source=okf_playbook, matched_file=sops/software/SOP-DYN-001.md, entities={'user_id': '12', 'email': 'unknown@acme.com'}\",\n  \"[Retrieval] OKF Playbook 'Check and Terminate a Hung Application \\u2013 Windows' (SOP-DYN-001) requires missing user entities: ['executable', 'hostname'].\",\n  \"[Orchestrator] Execution halted -> escalation_agent (Missing required user entities for execution: ['executable', 'hostname'])\"\n]\n\n## 5. RECOMMENDED L2 NEXT ACTIONS\n- Inspect workstation `target machine` manually via RDP/WinRM or Remote Control.\n- Review CLI command stdout for step `tasklist | findstr /I {entities.executable}`.\n- Verify user permissions or network adapter hardware status.\n"
+  },
+  "audit_log": [
+    "[Intake] Triage applied: intent=Check and Terminate a Hung Application \u2013 Windows, priority=high, category=software, details_conf=0.8, sop_match_conf=1.0, source=okf_playbook, matched_file=sops/software/SOP-DYN-001.md, entities={'user_id': '12', 'email': 'unknown@acme.com'}",
+    "[Retrieval] OKF Playbook 'Check and Terminate a Hung Application \u2013 Windows' (SOP-DYN-001) requires missing user entities: ['executable', 'hostname'].",
+    "[Orchestrator] Execution halted -> escalation_agent (Missing required user entities for execution: ['executable', 'hostname'])",
+    "[Escalation Agent] Formulated L2 Handover Ticket 'ESC-89416B' (Missing required user entities for execution: ['executable', 'hostname'])",
+    "[Summarization] Final response & engineering log generated"
+  ]
+}

@@ -1,0 +1,24 @@
+[
+  {
+    "eval_id": "EVAL-NET-001",
+    "category": "network",
+    "customer_email": "chezhiantech@gmail.com",
+    "ticket_raw": "Hi IT support, my email is chezhiantech@gmail.com. I am experiencing internet connection loss on my Windows laptop Prabanjan.",
+    "expected_intent": "Network Sop",
+    "expected_category": "network",
+    "expected_hostname": "Prabanjan",
+    "expected_commands": ["ipconfig /all", "ping 127.0.0.1", "ping 8.8.8.8"],
+    "requires_safety_warning": true
+  },
+  {
+    "eval_id": "EVAL-STG-001",
+    "category": "storage",
+    "customer_email": "pradeepnaveen930@gmail.com",
+    "ticket_raw": "Hi team, my laptop Carnage has disk read errors and corrupted filesystem. Email pradeepnaveen930@gmail.com",
+    "expected_intent": "Disk Error_sop",
+    "expected_category": "storage",
+    "expected_hostname": "Carnage",
+    "expected_commands": ["chkdsk C: /f /r"],
+    "requires_safety_warning": true
+  }
+]
