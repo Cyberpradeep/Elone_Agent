@@ -1,15 +1,3 @@
-"""
-Plan Validator — Standalone Version
-=====================================
-Extracted from agents/plan_validator/validator.py + prompts.py in the main app.
-
-2-Layer Validation for JIT Converted SOPs:
-  Layer 1: Fast Deterministic Python Syntax, Variable Linkage & Tool Catalog Check (< 1ms)
-  Layer 2: LLM Human SOP Faithfulness & Hallucination Inspection
-
-Imports from standalone config/ modules instead of shared/.
-"""
-
 import json
 import re
 from typing import Tuple, List, Dict, Any
@@ -18,11 +6,6 @@ from pydantic import BaseModel, Field
 from config.llm_config import get_llm
 from config.tool_catalog import TOOL_CATALOG, PROVIDER_NAMES, get_function_names, get_required_inputs
 from prompts.validator_prompts import JIT_VALIDATOR_COT_SYSTEM_PROMPT
-
-
-# ---------------------------------------------------------------------------
-# Pydantic model for structured validation result
-# ---------------------------------------------------------------------------
 
 class JITFaithfulnessInspectionResult(BaseModel):
     command_preservation_reasoning: str = Field(
@@ -54,10 +37,6 @@ class JITFaithfulnessInspectionResult(BaseModel):
         description="Summary verdict: 'PASSED FAITHFULNESS INSPECTION' or detailed error list."
     )
 
-
-# ---------------------------------------------------------------------------
-# Main validation function
-# ---------------------------------------------------------------------------
 
 def validate_plan_faithfulness_and_linkage(
     raw_sop_text: str,
