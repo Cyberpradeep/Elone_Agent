@@ -1,0 +1,6 @@
+{
+  "image_filename": "img_14.png",
+  "label": "Image 14",
+  "mime_type": "image/png",
+  "vlm_report": "VLM Analysis (Quota Exceeded): Image extracted and saved. Visual analysis paused due to API quota limit."
+}

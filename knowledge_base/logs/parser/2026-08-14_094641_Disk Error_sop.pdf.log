@@ -1,0 +1,103 @@
+============================================================
+  SOP INGESTION PIPELINE — PARSER AUDIT LOG
+============================================================
+  Source File:          Disk Error_sop.pdf
+  Source Absolute Path: D:\elone_ingestion\sop_ingestion_standalone\knowledge_base\_uploads\Disk Error_sop.pdf
+  Parser Engine:        vision_ocr
+  Character Count:      3035
+  Page Count:           3
+  Timestamp:            2026-08-14 09:46:41
+============================================================
+
+--- RAW EXTRACTED TEXT START ---
+7/19/26, 12:02 PM | SOP-STG-003 - Disk Error Diagnosis and Repair
+
+# **STANDARD OPERATING PROCEDURE**
+## **Disk Error Diagnosis and Repair via Chkdsk**
+
+| Document ID                   | SOP-STG-003                       | Version         | 1.0       |
+| :---------------------------- | :-------------------------------- | :-------------- | :-------- |
+| Department                    | IT Service Desk / L1 Tech Support | Effective Date  | July 2026 |
+
+---
+
+## **1. Objective**
+
+To identify and repair filesystem structure corruption, bad logical storage blocks, and read/write drive anomalies causing performance bottlenecks.
+
+---
+
+## **2. Scope**
+
+Applies to client storage assets (HDDs and SSDs) experiencing extreme latency or error warnings.
+
+---
+
+## **3. Pre-requisites & Warnings**
+
+> **CRITICAL WARNING:** Running a deep check disk scan requires a volume lock, forcing a system reboot. The analysis can take 30 minutes to over 2 hours. Always secure user authorization regarding operational downtime before scheduling.
+
+---
+
+## **4. Step-by-Step Procedure**
+
+### **4.1 Open Command Prompt as Administrator**
+
+*   Launch an elevated Command Prompt session via the Windows Start Menu search interface.
+
+---
+
+file:///C:/Users/ADMIN/Downloads/gemini-code-1784442626845.html | 1/3
+
+```markdown
+7/19/26, 12:02 PM | SOP-STG-003 - Disk Error Diagnosis and Repair
+
+## 4.2 Execute a Safe Read-Only Disk Evaluation
+
+*   Perform a rapid, non-intrusive scan of the root target drive while the operating system is live:
+    ```
+    chkdsk C:
+    ```
+*   Review the terminal output summary to identify if logical structural faults exist.
+
+## 4.3 Schedule Deep File System and Sector Repair
+
+*   If integrity or sector anomalies are found, run the deep correction sequence:
+    ```
+    chkdsk C: /f /r
+    ```
+*   *Parameter Key*: `/f` flags errors to be corrected; `/r` uncovers unreadable data from degraded physical blocks.
+
+## 4.4 Authorize Volume Reboot Schedule
+
+*   When the console prompts: "*Would you like to schedule this volume to be checked the next time the system restarts? (Y/N)*", type **Y** and hit **Enter**.
+
+## 4.5 Force Reboot to Initialize Repair Scan
+
+*   Execute a direct reboot to pass control to the Windows boot scanner:
+    ```
+    shutdown /r /t 0
+    ```
+*   Remind the user explicitly not to intercept power connectivity while the verification percentages run.
+
+---
+
+## 5. Expected Outcome
+
+Drive directory indices are corrected, corrupted disk structural pointers are patched, and bad storage blocks are securely quarantined out of service.
+
+---
+file:///C:/Users/ADMIN/Downloads/gemini-code-1784442626845.html | 2/3
+```
+
+```markdown
+7/19/26, 12:02 PM | SOP-STG-003 - Disk Error Diagnosis and Repair
+
+# 6. Escalation & Documentation
+
+If the `chkdsk` loop routinely hangs indefinitely at a static progress percentage or trips hardware faults, immediately assign the case to the L2 Hardware Infrastructure Desk for drive replacement.
+
+---
+file:///C:/Users/ADMIN/Downloads/gemini-code-1784442626845.html | 3/3
+```
+--- RAW EXTRACTED TEXT END ---

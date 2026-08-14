@@ -1,0 +1,13 @@
+SOP: Auth0 User Account Maintenance Procedure
+Category: Logins
+Target OS: Windows
+
+Overview:
+Follow the procedure below to check and manage Auth0 user accounts.
+For detailed documentation on Auth0 API parameters, refer to [Auth0 Docs](http://example.com).
+
+Procedure:
+1. Search for user account using customer email in the platform.
+2. Check if the user account status is locked.
+3. If locked, unlock the user account using the admin unlock tool.
+4. Verify account status is updated to unlocked.

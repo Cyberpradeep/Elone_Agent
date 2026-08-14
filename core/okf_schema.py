@@ -1,0 +1,55 @@
+"""
+Pydantic Schemas for OKF Playbook Structure & Validation
+=========================================================
+Strict structural typing for converted OKF Playbooks.
+"""
+
+from typing import List, Dict, Any, Optional
+from pydantic import BaseModel, Field, field_validator, ConfigDict
+
+
+class OKFStepModel(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    step_number: int = Field(..., description="1-indexed step number")
+    sop_step_description: str = Field(..., description="Description of the SOP step action")
+    step_type: str = Field(..., description="Step type: 'tool_call' or 'command'")
+    platform: Optional[str] = Field(None, description="Platform identifier (e.g. system, auth0, airretailer)")
+    provider: Optional[str] = Field(None, description="Tool provider name for tool_call steps")
+    function_name: Optional[str] = Field(None, description="Tool function name for tool_call steps")
+    comm_inputs: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Input parameters for tool_call")
+    command: Optional[str] = Field(None, description="CLI command string for command steps")
+    fallback_command: Optional[str] = Field(None, description="Fallback CLI command string if primary fails")
+    fallback_sop_id: Optional[str] = Field(None, description="SOP ID to invoke if step fails")
+    parse_instruction: Optional[str] = Field(None, description="Instructions to parse stdout/response")
+    execute_if: Optional[str] = Field(None, description="Conditional execution expression")
+    timeout_seconds: Optional[int] = Field(30, description="Execution timeout in seconds")
+
+    @field_validator("step_type")
+    @classmethod
+    def validate_step_type(cls, v: str) -> str:
+        v_clean = str(v).lower().strip()
+        if v_clean not in {"tool_call", "command"}:
+            raise ValueError(f"Invalid step_type '{v}'. Must be 'tool_call' or 'command'.")
+        return v_clean
+
+
+class OKFPlaybookModel(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    sop_id: str = Field(..., description="Unique SOP ID (e.g. SOP-NET-001)")
+    title: str = Field(..., description="Human-readable title of the Playbook")
+    category: str = Field(..., description="SOP category (e.g. network, identity, system)")
+    target_os: Optional[str] = Field("windows", description="Target operating system")
+    description: Optional[str] = Field(None, description="Playbook overview description")
+    required_entities: List[str] = Field(default_factory=list, description="Required entity dynamic placeholders")
+    trigger_words: List[str] = Field(default_factory=list, description="Trigger keywords for playbook lookup")
+    reasoning_chain: List[str] = Field(default_factory=list, description="8-stage CoT reasoning log")
+    steps: List[OKFStepModel] = Field(..., description="List of execution steps")
+
+    @field_validator("steps")
+    @classmethod
+    def validate_steps_non_empty(cls, v: List[OKFStepModel]) -> List[OKFStepModel]:
+        if not v:
+            raise ValueError("Playbook must contain at least 1 execution step.")
+        return v

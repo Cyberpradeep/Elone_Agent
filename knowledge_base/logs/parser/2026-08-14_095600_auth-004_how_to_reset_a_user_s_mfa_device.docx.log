@@ -1,0 +1,64 @@
+============================================================
+  SOP INGESTION PIPELINE — PARSER AUDIT LOG
+============================================================
+  Source File:          auth-004_how_to_reset_a_user_s_mfa_device.docx
+  Source Absolute Path: D:\elone_ingestion\sop_ingestion_standalone\knowledge_base\_uploads\auth-004_how_to_reset_a_user_s_mfa_device.docx
+  Parser Engine:        markitdown_parser
+  Character Count:      1394
+  Page Count:           N/A
+  Timestamp:            2026-08-14 09:56:00
+============================================================
+
+--- RAW EXTRACTED TEXT START ---
+**How to Reset a User's MFA Device**
+
+*SOP ID: AUTH-004*
+
+# Purpose
+
+Users lose access to their authenticator app when they lose or replace their phone.
+
+Without an MFA reset, they're completely locked out even with the correct password.
+
+# Procedure
+
+**Inputs**
+
+* Admin access to the L1 Support Platform
+* Verified identity of the requesting user
+
+**Steps**
+
+**1. User account found**
+
+*Where: Admin Dashboard → Users → Search*
+
+Search by email or employee ID and open their profile.
+
+**2. Current MFA status checked**
+
+*Where: User Profile → Security tab*
+
+Confirm MFA actually shows as enabled. If it's already off, no reset is needed — check for a different login issue instead.
+
+**3. MFA reset**
+
+*Where: User Profile → Security tab → Reset MFA button*
+
+Click once. This clears their old authenticator setup completely — the user will be prompted to set up MFA again on next login.
+
+# Outputs
+
+* User logs in and is prompted to set up MFA fresh
+* Ticket closed with identity verification noted
+
+# FAQs
+
+**Q: Does resetting MFA also unlock the account?**
+
+A: No, these are separate. If the account is also locked, follow the Account Lockout Recovery SOP as well.
+
+**Q: The user says they didn't lose their phone, they just reinstalled the app — is this the same fix?**
+
+A: Yes — reinstalling the authenticator app wipes the saved codes the same way losing the phone does. Same steps apply.
+--- RAW EXTRACTED TEXT END ---

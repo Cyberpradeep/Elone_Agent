@@ -1,0 +1,94 @@
+============================================================
+  SOP INGESTION PIPELINE — PARSER AUDIT LOG
+============================================================
+  Source File:          AR Vpn details (1).docx
+  Source Absolute Path: D:\elone_ingestion\sop_ingestion_standalone\knowledge_base\_uploads\AR Vpn details (1).docx
+  Parser Engine:        markitdown_parser
+  Character Count:      2031
+  Page Count:           N/A
+  Timestamp:            2026-08-13 18:12:09
+============================================================
+
+--- RAW EXTRACTED TEXT START ---
+Open : <https://securevpn.airretailer.com>
+
+![](data:image/png;base64...)
+
+Username:- (firstname) + ( firstletter of second Name) à example Ranganathan Shanmugam
+
+User Name will be: **[jithin-vz](http://192.168.12.10/jithin-vz%22%20%5Co%20%22)**
+
+Password:- **Dubai@2025**
+
+![](data:image/png;base64...)
+
+After login download and install software
+
+![](data:image/png;base64...)
+
+Open cisco AnyConnect secure mobility client
+
+![](data:image/png;base64...)
+
+Then open settings ![](data:image/png;base64...)
+
+Then setup as below
+
+![](data:image/png;base64...)
+
+Configure remote server URl : **securevpn.airretailer.com**
+
+![Graphical user interface, application  Description automatically generated](data:image/png;base64...)
+
+![](data:image/png;base64...)
+
+Click connect
+
+Click connect anyway
+
+Find your PC local IP address :
+
+Right click network Icon and select open network and internet settings
+
+![](data:image/png;base64...)
+
+![](data:image/png;base64...)
+
+Collect the IP address from local PC
+
+![Graphical user interface, application  Description automatically generated](data:image/png;base64...)
+
+From your personal laptop open Microsoft remote desktop software .
+
+![](data:image/png;base64...)
+
+Enter the IP address of your remote PC
+
+![Graphical user interface, text, application  Description automatically generated](data:image/png;base64...)
+
+Enter you’re your name and password for remote local PC ;
+
+To find your local user name of PC in your system .
+
+![Graphical user interface, text, application  Description automatically generated](data:image/png;base64...)
+
+**For Windows systems:**
+
+Username: airretailer.local\Username
+
+EX: airretailer.local\Ranganathans
+
+Password: Your system password
+
+**For Mac systems:**
+
+**Download : Microsoft remote desktop applications**
+
+**![A screenshot of a computer  Description automatically generated](data:image/png;base64...)**
+
+Username: Username@airretailer.local or airretailer.local\username(ex.ranganathans)
+
+Ex: Ranganathan@airretailer.local
+
+Password: Your system password
+--- RAW EXTRACTED TEXT END ---
