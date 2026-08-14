@@ -5,9 +5,11 @@ import datetime
 import yaml
 import frontmatter
 from typing import Tuple, Dict, Any, Optional
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
 from config.llm_config import get_llm
-from config.tool_catalog import get_formatted_tools_summary
+from tools.tool_schemas import PLATFORM_SUMMARIES
+from tools.tool_functions import DYNAMIC_CATALOG_TOOLS
 from core.document_parser import extract_full_text
 from core.plan_validator import validate_plan_faithfulness_and_linkage
 from core.link_scraper import extract_urls_from_markdown, fetch_and_convert_url
@@ -119,23 +121,69 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
     for attempt in range(1, max_retries + 1):
         temp = 0.0 if attempt == 1 else 0.1
         llm = get_llm("execution_planning", temperature=temp)
-        tools_summary = get_formatted_tools_summary()
+        # 1. Build lightweight platform overview (~100 tokens)
+        platform_summary_lines = [
+            f"- Platform: '{p['platform']}' (Provider: '{p['provider']}') — {p['description']}"
+            for p in PLATFORM_SUMMARIES
+        ]
+        platforms_overview = "\n".join(platform_summary_lines)
 
         retry_sop_text = enriched_sop_text
         if feedback_history:
             retry_sop_text += "\n\n## PREVIOUS ATTEMPT ERRORS (MUST FIX ON THIS RETRY):\n" + "\n".join(feedback_history)
 
         prompt = JIT_COT_CONVERTER_PROMPT.format(
-            available_tools_summary=tools_summary,
+            available_tools_summary=platforms_overview,
             raw_sop_text=retry_sop_text
         )
 
         if attempt > 1:
             print(f"\n[JIT Converter Auto-Retry] Attempt {attempt}/{max_retries} with feedback injection...")
 
-        # 1. Invoke LLM for structured 8-Stage CoT JSON conversion
-        res = llm.invoke(prompt)
-        content = res.content if hasattr(res, "content") else str(res)
+        # 2. Bind LangChain dynamic tools to LLM
+        tool_map = {t.name: t for t in DYNAMIC_CATALOG_TOOLS}
+        llm_with_tools = llm.bind_tools(DYNAMIC_CATALOG_TOOLS)
+
+        # Multi-turn tool calling conversation loop
+        messages = [HumanMessage(content=prompt)]
+        max_tool_turns = 5
+        content = ""
+
+        for turn in range(max_tool_turns):
+            res = llm_with_tools.invoke(messages)
+            messages.append(res)
+
+            # Check if LLM invoked any dynamic tools
+            if hasattr(res, "tool_calls") and res.tool_calls:
+                for tc in res.tool_calls:
+                    t_name = tc.get("name", "")
+                    t_args = tc.get("args", {})
+                    t_id = tc.get("id") or f"call_{turn}"
+
+                    print(f"\n[Dynamic Tool Invocation] LLM called: {t_name}({t_args})")
+
+                    if t_name in tool_map:
+                        try:
+                            t_output = tool_map[t_name].invoke(t_args)
+                        except Exception as t_err:
+                            t_output = {"error": f"Tool execution failed: {t_err}"}
+                    else:
+                        t_output = {"error": f"Unknown tool '{t_name}'. Available: {list(tool_map.keys())}"}
+
+                    output_json_str = json.dumps(t_output, indent=2, default=str)
+                    
+                    # Print formatted tool response for user visibility
+                    preview = output_json_str if len(output_json_str) <= 400 else output_json_str[:400] + f"\n... [{len(output_json_str)} total characters]"
+                    print(f"[Dynamic Tool Output] Result from '{t_name}':\n{preview}\n")
+
+                    messages.append(ToolMessage(content=output_json_str, tool_call_id=t_id))
+            else:
+                raw_c = res.content if hasattr(res, "content") else str(res)
+                if isinstance(raw_c, list):
+                    content = "".join([b.get("text", "") if isinstance(b, dict) else str(b) for b in raw_c])
+                else:
+                    content = str(raw_c)
+                break
 
         # Scenario 1: JSON Syntax Extraction & Handling
         match = re.search(r"(\{.*\})", content, re.DOTALL)
