@@ -1,0 +1,14 @@
+============================================================
+  SOP INGESTION PIPELINE — PARSER AUDIT LOG
+============================================================
+  Source File:          dummy_invalid_sop.txt
+  Source Absolute Path: D:\elone_ingestion\sop_ingestion_standalone\knowledge_base\_uploads\dummy_invalid_sop.txt
+  Parser Engine:        markitdown_parser
+  Character Count:      50
+  Page Count:           N/A
+  Timestamp:            2026-08-17 17:12:56
+============================================================
+
+--- RAW EXTRACTED TEXT START ---
+Just a random header line with no procedure steps.
+--- RAW EXTRACTED TEXT END ---
