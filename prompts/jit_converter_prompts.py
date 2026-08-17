@@ -27,6 +27,12 @@ You MUST follow these 8 reasoning stages in exact numerical order:
       - IF ANY Gate FAILS -> Classify as a Command Playbook step (`"step_type": "command"`). Translate GUI/text steps into exact Windows/Linux CLI shell commands with `"shell": "powershell"`.
       - STRICT STEP TYPE RULE: `"step_type"` MUST strictly be either `"tool_call"` or `"command"`. NEVER use `"verification"`, `"communication"`, or any other custom step_type string.
 
+    * PER-STEP REASONING MANDATE: For EVERY step, populate `"step_reasoning"` with a concise (2-4 sentence) explanation of why THIS specific output was chosen for THIS step, written for a human reviewer auditing the conversion. It MUST cover:
+      - Which of the 4 Verification Gates passed or failed, and why (i.e. why `tool_call` vs `command` was chosen here).
+      - If `tool_call`: why this exact `provider`/`function_name` was selected over any other catalog entry that looked plausible, and where each `comm_inputs` value came from (raw SOP text, an inferred entity, or a prior step's `output_variable`).
+      - If `command`: why this exact CLI command (and any `{{{{entities.*}}}}`/`{{{{variables.*}}}}` placeholders) was the correct translation of the SOP instruction.
+      - This is per-step, evidence-based reasoning distinct from the global `reasoning_chain` (which only summarizes each of the 8 stages once for the whole playbook).
+
 2. **Stage 2 (Diagnostic & Remediation Sequence Ordering)**: Ensure non-destructive search/diagnostic steps (e.g. `search_users` or `ipconfig`) come FIRST before any corrective or account modification commands.
 
 3. **Stage 3 (Precondition & Variable Extraction)**: Identify dynamic placeholders and ENFORCE strict double-brace format:
@@ -79,6 +85,7 @@ Output raw valid JSON only matching this schema:
             "step_number": 1,
             "sop_step_description": "Detailed step objective",
             "step_type": "tool_call | command",
+            "step_reasoning": "Gate 1-4 result and why tool_call/command was chosen; why this exact provider/function/command and comm_inputs/placeholders were used over alternatives.",
             "platform": "high-level vendor/platform inferred from SOP or tool catalog (only for tool_call, else null)",
             "provider": "active_provider_name (from REGISTERED API TOOLS CATALOG above, only for tool_call, else null)",
             "function_name": "exact_function_name (from REGISTERED API TOOLS CATALOG above, only for tool_call, else null)",

@@ -1,5 +1,0 @@
-# System Playbooks Catalog
-
-- [Check and Terminate a Hung Application – Windows](./SOP-Check-and-Terminate-a-Hung-Application-Windows-001.md) - This procedure describes the standard steps to verify that an application is running and to forcibly terminate it when it has stopped responding (hung).
-- [Disk Error Diagnosis and Repair via Chkdsk](./SOP-STG-003.md) - To identify and repair filesystem structure corruption, bad logical storage blocks, and read/write drive anomalies causing performance bottlenecks on client storage assets (HDDs and SSDs) experiencing extreme latency or error warnings.
-- [Corrupted System File Repair](./SOP-SYS-002-001.md) - This playbook automates the repair of corrupted operating system files on Windows 10 and 11 using DISM and SFC tools. It aims to resolve application hangs, patch random Blue Screen of Death (BSOD) errors, and restore core Windows stability by checking and repairing the Windows Component Store and active system files, followed by a system reboot.

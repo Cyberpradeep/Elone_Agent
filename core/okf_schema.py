@@ -14,6 +14,12 @@ class OKFStepModel(BaseModel):
     step_number: int = Field(..., description="1-indexed step number")
     sop_step_description: str = Field(..., description="Description of the SOP step action")
     step_type: str = Field(..., description="Step type: 'tool_call' or 'command'")
+    step_reasoning: Optional[str] = Field(
+        None,
+        description="LLM's reasoning for why THIS specific step_type/tool/command was chosen for this step "
+                    "(e.g. which of the 4 Verification Gates passed/failed and why, why this exact command/function "
+                    "over any alternative, why these particular comm_inputs/placeholders were used).",
+    )
     platform: Optional[str] = Field(None, description="Platform identifier (e.g. system, auth0, airretailer)")
     provider: Optional[str] = Field(None, description="Tool provider name for tool_call steps")
     function_name: Optional[str] = Field(None, description="Tool function name for tool_call steps")
