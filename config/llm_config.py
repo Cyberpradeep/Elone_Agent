@@ -36,7 +36,7 @@ ROLE_PROVIDER_MAP = {
     },
     "vlm_image_analysis": {
         "provider": "gemini",
-        "model": "gemini-3-flash-preview",
+        "model": "gemini-2.5-flash",
     },
 }
 

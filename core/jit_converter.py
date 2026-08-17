@@ -8,10 +8,10 @@ from typing import Tuple, Dict, Any, Optional
 
 from config.llm_config import get_llm
 from config.tool_catalog import get_formatted_tools_summary
-from core.document_parser import extract_full_text
+from core.document_parser import extract_ordered_sop_content
 from core.plan_validator import validate_plan_faithfulness_and_linkage
 from core.link_scraper import extract_urls_from_markdown, fetch_and_convert_url
-from core.vlm_inspector import process_sop_images
+from core.vlm_inspector import analyze_and_save_image
 from core.okf_schema import OKFPlaybookModel, OKFStepModel
 from prompts.jit_converter_prompts import JIT_COT_CONVERTER_PROMPT
 
@@ -21,7 +21,44 @@ KB_DIR = os.path.join(BASE_DIR, "knowledge_base")
 SOPS_DIR = os.path.join(KB_DIR, "sops")
 PATTERNS_DIR = os.path.join(KB_DIR, "patterns")
 LOGS_DIR = os.path.join(KB_DIR, "logs")
+CONVERTER_INPUT_LOGS_DIR = os.path.join(LOGS_DIR, "converter_input")
 INDEX_PATH = os.path.join(SOPS_DIR, "index.md")
+
+
+def _log_converter_input(raw_filepath: str, sop_slug: str, enriched_sop_text: str) -> str:
+    """Audit log: saves the exact enriched SOP text (raw text + interleaved VLM
+    image reports + scraped link context, in document order) that gets sent
+    into the JIT converter LLM prompt, under knowledge_base/logs/converter_input/.
+    """
+    os.makedirs(CONVERTER_INPUT_LOGS_DIR, exist_ok=True)
+    now = datetime.datetime.now()
+    timestamp_str = now.strftime("%Y-%m-%d_%H%M%S")
+    filename = os.path.basename(raw_filepath)
+    log_filename = f"{timestamp_str}_{sop_slug}_{filename}.log"
+    log_path = os.path.join(CONVERTER_INPUT_LOGS_DIR, log_filename)
+
+    header_lines = [
+        "============================================================",
+        "  SOP INGESTION PIPELINE — CONVERTER INPUT AUDIT LOG",
+        "============================================================",
+        f"  Source File:          {filename}",
+        f"  Source Absolute Path: {os.path.abspath(raw_filepath)}",
+        f"  SOP Slug:             {sop_slug}",
+        f"  Character Count:      {len(enriched_sop_text)}",
+        f"  Timestamp:            {now.strftime('%Y-%m-%d %H:%M:%S')}",
+        "============================================================",
+        "",
+        "--- ENRICHED SOP TEXT SENT TO CONVERTER START ---",
+        enriched_sop_text,
+        "--- ENRICHED SOP TEXT SENT TO CONVERTER END ---",
+        "",
+    ]
+
+    with open(log_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(header_lines))
+
+    print(f"[JIT OKF Converter Agent] Saved converter input audit log ({len(enriched_sop_text)} chars) to: {log_path}")
+    return log_path
 
 ENTITY_KEY_MAP = {
     "computername": "hostname",
@@ -71,9 +108,17 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
     faithfulness-validation notes, so a reviewer can accept or correct the plan
     before `write_okf_playbook` commits it.
     """
-    print(f"\n[JIT OKF Converter Agent Node] Universal MarkItDown parsing: {os.path.basename(raw_filepath)}...")
+    print(f"\n[JIT OKF Converter Agent Node] Document-order-preserving parsing: {os.path.basename(raw_filepath)}...")
 
-    parser_type, raw_text = extract_full_text(raw_filepath)
+    raw_filename_base = os.path.splitext(os.path.basename(raw_filepath))[0]
+    sop_slug = re.sub(r"[^A-Za-z0-9]+", "-", raw_filename_base).strip("-").upper()[:20]
+
+    # Walk the document once, in its own physical order, so each image stays
+    # anchored to the text step it illustrates (instead of being pulled out
+    # and dumped as one block at the end).
+    parser_type, segments = extract_ordered_sop_content(raw_filepath)
+
+    raw_text = "\n\n".join(s["content"] for s in segments if s["type"] == "text")
     if not raw_text or len(raw_text.strip()) < 10:
         raise ValueError(f"Could not extract text from raw file: {raw_filepath}")
 
@@ -93,20 +138,29 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
                     "file_path": rel_cache_path
                 })
 
-    # Extract embedded images and run Gemini VLM Visual Inspection
-    raw_filename_base = os.path.splitext(os.path.basename(raw_filepath))[0]
-    sop_slug = re.sub(r"[^A-Za-z0-9]+", "-", raw_filename_base).strip("-").upper()[:20]
-    vlm_result = process_sop_images(raw_filepath, sop_slug)
+    # Rebuild the SOP text in the exact same order as the source document:
+    # each image is analyzed by the Vision LLM and its report is spliced in
+    # right where the image occurred, immediately after the text step above it.
+    enriched_parts = []
+    image_index = 0
+    for seg in segments:
+        if seg["type"] == "text":
+            enriched_parts.append(seg["content"])
+        else:
+            image_index += 1
+            label = seg.get("label", f"Image {image_index}")
+            report_text, image_ref = analyze_and_save_image(seg["bytes"], seg["mime_type"], label, sop_slug, image_index)
+            enriched_parts.append(f"### Visual Inspection Report ({label}):\n{report_text}")
+            knowledge_base_ref.append(image_ref)
 
-    if vlm_result.get("image_refs"):
-        knowledge_base_ref.extend(vlm_result["image_refs"])
-
-    enriched_sop_text = raw_text
-    if vlm_result.get("summary_text"):
-        enriched_sop_text += "\n\n## EXTRACTED VISUAL CONTROL METADATA (VLM INFERENCE):\n" + vlm_result["summary_text"]
+    enriched_sop_text = "\n\n".join(enriched_parts)
 
     if scraped_context_blocks:
         enriched_sop_text += "\n\n## LINKED REFERENCE KNOWLEDGE (Scraped from embedded SOP URLs):\n" + "\n\n".join(scraped_context_blocks)
+
+    # Audit log: persist the exact document-order text (raw + interleaved VLM
+    # image reports + scraped links) that will be fed into the converter LLM.
+    _log_converter_input(raw_filepath, sop_slug, enriched_sop_text)
 
     # Closed-Loop Auto-Retry Engine (Max 3 Retries)
     max_retries = 3
@@ -286,6 +340,9 @@ def write_okf_playbook(draft: Dict[str, Any], raw_filename: str = "(reviewed dra
             cmd = s.get("command") or "(none)"
             fb_cmd = f" [Fallback: `{s.get('fallback_command')}`]" if s.get("fallback_command") else ""
             markdown_body += f"- **Step {s.get('step_number')}**: {s.get('sop_step_description')} (`{cmd}`){fb_cmd}\n"
+        step_reasoning = s.get("step_reasoning")
+        if step_reasoning:
+            markdown_body += f"  - *Why this output:* {step_reasoning}\n"
 
     okf_content = f"---\n{yaml_header}---\n\n{markdown_body}"
 

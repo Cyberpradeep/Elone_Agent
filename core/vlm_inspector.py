@@ -93,6 +93,7 @@ def analyze_image_bytes(image_bytes: bytes, mime_type: str) -> str:
     )
 
     max_retries = 2
+    last_error: Optional[Exception] = None
     for attempt in range(1, max_retries + 1):
         try:
             res = llm.invoke([message])
@@ -107,15 +108,62 @@ def analyze_image_bytes(image_bytes: bytes, mime_type: str) -> str:
                 return "\n".join(parts)
             return str(raw_content)
         except Exception as e:
+            last_error = e
             err_str = str(e)
             if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower():
                 print(f"[VLM Rate Limit Warning] Gemini API quota / rate limit reached for image. Retrying in 2s (Attempt {attempt}/{max_retries})...")
                 time.sleep(2)
             else:
                 print(f"[VLM Inspector Error] Failed to analyze image with Gemini VLM: {e}")
-                return f"VLM Analysis (Offline/Cached): Screenshot extracted cleanly from SOP."
+                return f"VLM Analysis FAILED (non-retryable error): {err_str}"
 
-    return "VLM Analysis (Quota Exceeded): Image extracted and saved. Visual analysis paused due to API quota limit."
+    return f"VLM Analysis FAILED (quota/rate-limit exhausted after {max_retries} attempts): {last_error}"
+
+
+def analyze_and_save_image(image_bytes: bytes, mime_type: str, label: str, sop_slug: str, index: int) -> Tuple[str, Dict[str, str]]:
+    """Runs VLM analysis on a single image, saves it + its JSON report under
+    knowledge_base/logs/images/<sop_slug>/, and returns (report_text, image_ref).
+
+    Shared building block used both by process_sop_images() (batch, end-of-document
+    mode) and by the document-order-preserving ingestion path in jit_converter.py,
+    which calls this once per image at the exact position the image occurs in the
+    source SOP so the VLM report can be interleaved right after the text it illustrates.
+    """
+    sop_image_dir = os.path.join(IMAGES_LOG_DIR, sop_slug)
+    os.makedirs(sop_image_dir, exist_ok=True)
+
+    ext = mime_type.split("/")[-1].replace("jpeg", "jpg")
+    if ext not in ("png", "jpg", "webp", "gif"):
+        ext = "png"
+    img_filename = f"img_{index}.{ext}"
+    saved_img_path = os.path.join(sop_image_dir, img_filename)
+    with open(saved_img_path, "wb") as f:
+        f.write(image_bytes)
+
+    rel_img_path = os.path.relpath(saved_img_path, BASE_DIR).replace("\\", "/")
+    report_text = analyze_image_bytes(image_bytes, mime_type)
+    report_str = "\n".join(report_text) if isinstance(report_text, list) else str(report_text)
+
+    safe_report = report_str.encode("ascii", errors="replace").decode("ascii")
+    print(f"\n{'=' * 60}")
+    print(f"[VLM Visual Report] {label} (`{img_filename}`)")
+    print(f"{'=' * 60}")
+    print(safe_report)
+    print(f"{'=' * 60}\n")
+
+    json_meta_path = os.path.join(sop_image_dir, f"{os.path.splitext(img_filename)[0]}_report.json")
+    rel_meta_path = os.path.relpath(json_meta_path, BASE_DIR).replace("\\", "/")
+    meta_payload = {
+        "image_filename": img_filename,
+        "label": label,
+        "mime_type": mime_type,
+        "vlm_report": report_text,
+    }
+    with open(json_meta_path, "w", encoding="utf-8") as f:
+        json.dump(meta_payload, f, indent=2)
+
+    image_ref = {"image_path": rel_img_path, "file_path": rel_meta_path}
+    return report_str, image_ref
 
 
 def process_sop_images(filepath: str, sop_slug: str) -> Dict[str, Any]:
@@ -157,42 +205,10 @@ def process_sop_images(filepath: str, sop_slug: str) -> Dict[str, Any]:
     reports = []
     image_refs = []
 
-    for img_filename, img_bytes, mime_type, label in extracted_items:
-        saved_img_path = os.path.join(sop_image_dir, img_filename)
-        with open(saved_img_path, "wb") as f:
-            f.write(img_bytes)
-
-        rel_img_path = os.path.relpath(saved_img_path, BASE_DIR).replace("\\", "/")
-        report_text = analyze_image_bytes(img_bytes, mime_type)
-        report_str = "\n".join(report_text) if isinstance(report_text, list) else str(report_text)
-
-        # Print detailed report box directly to terminal (ASCII safe for Windows console)
-        safe_report = report_str.encode("ascii", errors="replace").decode("ascii")
-        print(f"\n{'=' * 60}")
-        print(f"[VLM Visual Report] {label} (`{img_filename}`)")
-        print(f"{'=' * 60}")
-        print(safe_report)
-        print(f"{'=' * 60}\n")
-
+    for idx, (img_filename, img_bytes, mime_type, label) in enumerate(extracted_items, start=1):
+        report_str, image_ref = analyze_and_save_image(img_bytes, mime_type, label, sop_slug, idx)
         reports.append(f"### Visual Inspection Report ({label} — `{img_filename}`):\n{report_str}")
-
-        # JSON Metadata report per image
-        json_meta_path = os.path.join(sop_image_dir, f"{os.path.splitext(img_filename)[0]}_report.json")
-        rel_meta_path = os.path.relpath(json_meta_path, BASE_DIR).replace("\\", "/")
-
-        meta_payload = {
-            "image_filename": img_filename,
-            "label": label,
-            "mime_type": mime_type,
-            "vlm_report": report_text,
-        }
-        with open(json_meta_path, "w", encoding="utf-8") as f:
-            json.dump(meta_payload, f, indent=2)
-
-        image_refs.append({
-            "image_path": rel_img_path,
-            "file_path": rel_meta_path
-        })
+        image_refs.append(image_ref)
 
     full_summary = "\n\n".join(reports)
     return {
