@@ -8,19 +8,32 @@ JIT_COT_CONVERTER_PROMPT = """You are an expert L1 IT Support Automation Enginee
 
 Your task is to analyze a raw human SOP document (which may contain GUI click instructions, manual steps, or text descriptions) and convert it into a structured, execution-ready OKF Playbook JSON schema for automated agent execution.
 
-## REGISTERED API TOOLS CATALOG
-Below are the currently active API Tool Providers available in the system:
+## REGISTERED API TOOL PLATFORMS OVERVIEW
+Below are the registered IT Tool Platforms available in the system:
 {available_tools_summary}
+
+DYNAMIC TOOL INSPECTION RULES:
+You have access to callable dynamic tools to inspect tool details on-demand:
+- `get_platform_tools(platform_name=...)`: Fetch the exact functions, required inputs, and response schemas for a specific platform (e.g., 'mock', 'auth0', 'email', 'airretailer').
+- `search_tools_by_keyword(query=...)`: Search for specific functions by keyword across all platforms.
+- `list_available_platforms()`: Get the summary list of all registered platforms.
+
+STRICT TOOL-CALLING MANDATE:
+1. Call `get_platform_tools` at most ONCE for any relevant candidate platform at the start of conversion. `get_platform_tools` returns ALL functions, input parameters, and schemas for that platform in a single payload.
+2. DO NOT call `get_platform_tools` repeatedly or per individual step.
+3. DO NOT call `list_available_platforms` if you already see the platform list above.
+4. If the raw SOP only involves native OS/system CLI commands (e.g. `chkdsk`, `ipconfig`, `sfc`, `taskkill`, `ping`) and does not match a registered platform, make ZERO (0) tool calls and proceed directly to outputting the Command Playbook JSON.
 
 ## 8-STAGE DEEP CoT REASONING MANDATE (WITH 4 MANDATORY VERIFICATION GATES)
 You MUST follow these 8 reasoning stages in exact numerical order:
 
-1. **Stage 1 (Tool-Catalog First Lookup & 4 Mandatory Verification Gates)**:
-   Inspect the raw SOP text against the REGISTERED API TOOLS CATALOG above using these 4 strict Verification Gates:
-   - **Gate 1 (Exact Function Match)**: Does the raw SOP action match an explicit function name declared in the catalog?
-   - **Gate 2 (Active Provider Match)**: Is the provider name active and registered in the catalog?
-   - **Gate 3 (Problem Alignment)**: Does the candidate tool function solve the exact problem described in the raw SOP?
-   - **Gate 4 (Parameter Completeness)**: Are all 'required_inputs' declared by the tool function present or mapable to entities?
+1. **Stage 1 (Dynamic Tool-Catalog Lookup & 4 Mandatory Verification Gates)**:
+   - If the raw SOP describes actions matching a registered platform (e.g. 'auth0', 'mock', 'email', 'airretailer'), invoke `get_platform_tools(platform_name=...)` ONCE to retrieve all active tool functions and parameter schemas.
+   - Inspect the retrieved functions against the raw SOP using these 4 strict Verification Gates:
+     * **Gate 1 (Exact Function Match)**: Does the raw SOP action match an explicit function name declared in the retrieved tools?
+     * **Gate 2 (Active Provider Match)**: Is the provider name active and registered in the catalog?
+     * **Gate 3 (Problem Alignment)**: Does the candidate tool function solve the exact problem described in the raw SOP?
+     * **Gate 4 (Parameter Completeness)**: Are all 'required_inputs' declared by the tool function present or mappable to entities?
 
     * DECISION MANDATE:
       - IF ALL 4 Gates PASS -> Classify as a Tool Playbook step (`"step_type": "tool_call"`). Populate `"provider"`, `"function_name"`, and `"comm_inputs"`.
@@ -44,7 +57,7 @@ You MUST follow these 8 reasoning stages in exact numerical order:
 
 5. **Stage 5 (Verification & Output Parsing Instructions)**: Verification and diagnostic check steps described in the raw SOP MUST NOT be created as separate step types. Instead, create a `tool_call` or `command` step and write clear regex/string inspection rules for `output_parse_instruction` and `expected_output_contains`:
    - For `command` steps: Inspect CLI stdout (e.g. "If output contains 'SUCCESS', set 'kill_confirmed' to 'true'").
-   - For `tool_call` steps: Use the exact JSON field names declared in the tool's `Response Schema` above (e.g. "If response contains status='unlocked', set 'unlock_success' to 'true' and store response.user_id in variables.user_id").
+   - For `tool_call` steps: Use the exact JSON field names declared in the tool's `Response Schema` (e.g. "If response contains status='unlocked', set 'unlock_success' to 'true' and store response.user_id in variables.user_id").
 
 6. **Stage 6 (100% Diagnostic Step Recall Mandate)**: You MUST extract EVERY SINGLE step described in the procedure section of the raw SOP text. Omitting any diagnostic or verification step is STRICTLY PROHIBITED.
 
@@ -60,7 +73,10 @@ You MUST follow these 8 reasoning stages in exact numerical order:
 
 
 ## OUTPUT JSON SCHEMA MANDATE
-Output raw valid JSON only matching this schema:
+CRITICAL FORMATTING MANDATE:
+- All keys and string values MUST be enclosed in standard DOUBLE QUOTES (").
+- NEVER use Python single quotes (') for dictionary keys or strings.
+- Return raw, valid JSON only matching this schema:
 ```json
 {{
     "reasoning_chain": [
