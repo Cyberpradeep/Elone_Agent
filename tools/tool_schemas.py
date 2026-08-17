@@ -21,9 +21,9 @@ PLATFORM_SUMMARIES: List[Dict[str, str]] = [
         "description": "Auth0 User Identity Management tools for searching users, triggering password reset emails, and unlocking accounts."
     },
     {
-        "platform": "system",
-        "provider": "system_operations",
-        "description": "System operation tools including sending resolution and notification emails to users."
+        "platform": "email",
+        "provider": "email_service",
+        "description": "Email and communication service for sending ticket updates, resolution tokens, and notifications to users."
     },
     {
         "platform": "airretailer",
@@ -269,10 +269,42 @@ DETAILED_TOOL_SCHEMAS: Dict[str, Dict[str, Any]] = {
             }
         ]
     },
+    "email": {
+        "platform": "email",
+        "provider": "email_service",
+        "description": "Email and communication service for sending ticket updates, instructions, or resolution tokens.",
+        "functions": [
+            {
+                "function_name": "send_email",
+                "description": "Sends an email to the user with ticket updates, instructions, or resolution tokens.",
+                "required_inputs": ["to_email", "subject", "body"],
+                "response_schema": {
+                    "success": {"status": "ok", "message": "str"},
+                    "error": {"status": "error", "message": "str"}
+                }
+            }
+        ]
+    },
+    "communication": {
+        "platform": "email",
+        "provider": "email_service",
+        "description": "Email and communication service for sending ticket updates, instructions, or resolution tokens.",
+        "functions": [
+            {
+                "function_name": "send_email",
+                "description": "Sends an email to the user with ticket updates, instructions, or resolution tokens.",
+                "required_inputs": ["to_email", "subject", "body"],
+                "response_schema": {
+                    "success": {"status": "ok", "message": "str"},
+                    "error": {"status": "error", "message": "str"}
+                }
+            }
+        ]
+    },
     "system": {
-        "platform": "system",
-        "provider": "system_operations",
-        "description": "System operation tools including email notifications.",
+        "platform": "email",
+        "provider": "email_service",
+        "description": "Email and communication service for sending ticket updates, instructions, or resolution tokens.",
         "functions": [
             {
                 "function_name": "send_email",
