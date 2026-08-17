@@ -127,6 +127,17 @@ _BUILDERS = {
 # Public API
 # ---------------------------------------------------------------------------
 
+def print_active_models():
+    """Prints a formatted summary of all agent roles and their assigned LLMs."""
+    print("\n" + "=" * 65)
+    print("  ACTIVE AGENT LLM CONFIGURATION")
+    print("=" * 65)
+    for role, conf in ROLE_PROVIDER_MAP.items():
+        fb_str = f" | Fallbacks: {[f['provider'] + '/' + f['model'] for f in conf.get('fallbacks', [])]}" if "fallbacks" in conf else ""
+        print(f"  • {role:22s} -> Provider: {conf['provider']:10s} | Model: {conf['model']}{fb_str}")
+    print("=" * 65 + "\n", flush=True)
+
+
 @lru_cache(maxsize=None)
 def get_llm(role: str, temperature: float = 0.2):
     """
@@ -138,6 +149,9 @@ def get_llm(role: str, temperature: float = 0.2):
         raise ValueError(f"Unknown role '{role}'. Add it to ROLE_PROVIDER_MAP first.")
     config = ROLE_PROVIDER_MAP[role]
     builder = _BUILDERS[config["provider"]]
+
+    print(f"[LLM Initializer] Role: '{role}' -> Active: {config['provider'].upper()} ({config['model']}, temp={temperature})", flush=True)
+
     primary_llm = builder(config["model"], temperature=temperature)
 
     if "fallbacks" in config:

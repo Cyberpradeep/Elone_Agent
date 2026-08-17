@@ -1,14 +1,19 @@
 import os
 import json
+import ast
 import re
 import datetime
 import yaml
 import frontmatter
 from typing import Tuple, Dict, Any, Optional
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
 from config.llm_config import get_llm
 from config.tool_catalog import get_formatted_tools_summary
 from core.document_parser import extract_ordered_sop_content
+from tools.tool_schemas import PLATFORM_SUMMARIES
+from tools.tool_functions import DYNAMIC_CATALOG_TOOLS
+from core.document_parser import extract_full_text
 from core.plan_validator import validate_plan_faithfulness_and_linkage
 from core.link_scraper import extract_urls_from_markdown, fetch_and_convert_url
 from core.vlm_inspector import analyze_and_save_image
@@ -173,38 +178,119 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
     for attempt in range(1, max_retries + 1):
         temp = 0.0 if attempt == 1 else 0.1
         llm = get_llm("execution_planning", temperature=temp)
-        tools_summary = get_formatted_tools_summary()
+        # 1. Build lightweight platform overview (~100 tokens)
+        platform_summary_lines = [
+            f"- Platform: '{p['platform']}' (Provider: '{p['provider']}') — {p['description']}"
+            for p in PLATFORM_SUMMARIES
+        ]
+        platforms_overview = "\n".join(platform_summary_lines)
 
         retry_sop_text = enriched_sop_text
         if feedback_history:
             retry_sop_text += "\n\n## PREVIOUS ATTEMPT ERRORS (MUST FIX ON THIS RETRY):\n" + "\n".join(feedback_history)
 
         prompt = JIT_COT_CONVERTER_PROMPT.format(
-            available_tools_summary=tools_summary,
+            available_tools_summary=platforms_overview,
             raw_sop_text=retry_sop_text
         )
 
         if attempt > 1:
             print(f"\n[JIT Converter Auto-Retry] Attempt {attempt}/{max_retries} with feedback injection...")
 
-        # 1. Invoke LLM for structured 8-Stage CoT JSON conversion
-        res = llm.invoke(prompt)
-        content = res.content if hasattr(res, "content") else str(res)
+        # 2. Bind LangChain dynamic tools to LLM
+        tool_map = {t.name: t for t in DYNAMIC_CATALOG_TOOLS}
+        llm_with_tools = llm.bind_tools(DYNAMIC_CATALOG_TOOLS)
 
-        # Scenario 1: JSON Syntax Extraction & Handling
-        match = re.search(r"(\{.*\})", content, re.DOTALL)
-        clean_json = match.group(1) if match else content.strip()
+        # Multi-turn tool calling conversation loop
+        messages = [HumanMessage(content=prompt)]
+        max_tool_turns = 5
+        content = ""
+        executed_tool_cache = {}
+
+        for turn in range(max_tool_turns):
+            res = llm_with_tools.invoke(messages)
+            messages.append(res)
+
+            # Check if LLM invoked any dynamic tools
+            if hasattr(res, "tool_calls") and res.tool_calls:
+                for tc in res.tool_calls:
+                    t_name = tc.get("name", "")
+                    t_args = tc.get("args", {})
+                    t_id = tc.get("id") or f"call_{turn}"
+                    cache_key = f"{t_name}:{json.dumps(t_args, sort_keys=True)}"
+
+                    if cache_key in executed_tool_cache:
+                        t_output = executed_tool_cache[cache_key]
+                        output_json_str = json.dumps(t_output, indent=2, default=str)
+                        messages.append(ToolMessage(content=output_json_str, tool_call_id=t_id))
+                        continue
+
+                    if t_name in tool_map:
+                        try:
+                            t_output = tool_map[t_name].invoke(t_args)
+                        except Exception as t_err:
+                            t_output = {"error": f"Tool execution failed: {t_err}"}
+                    else:
+                        t_output = {"error": f"Unknown tool '{t_name}'. Available: {list(tool_map.keys())}"}
+
+                    executed_tool_cache[cache_key] = t_output
+                    output_json_str = json.dumps(t_output, indent=2, default=str)
+
+                    # Clean atomic CLI logging with flush=True
+                    preview = output_json_str if len(output_json_str) <= 350 else output_json_str[:350] + f"\n... [{len(output_json_str)} total characters]"
+                    safe_preview = preview.encode("ascii", errors="replace").decode("ascii")
+                    log_block = (
+                        f"\n{'='*55}\n"
+                        f"[Dynamic Tool Invocation] LLM called: {t_name}({t_args})\n"
+                        f"[Dynamic Tool Result] Output from '{t_name}':\n{safe_preview}\n"
+                        f"{'='*55}\n"
+                    )
+                    print(log_block, flush=True)
+
+                    messages.append(ToolMessage(content=output_json_str, tool_call_id=t_id))
+            else:
+                raw_c = res.content if hasattr(res, "content") else str(res)
+                if isinstance(raw_c, list):
+                    content = "".join([b.get("text", "") if isinstance(b, dict) else str(b) for b in raw_c])
+                else:
+                    content = str(raw_c)
+                break
+
+        # Scenario 1: JSON Syntax Extraction & Handling (3-Tier Resilient Parser)
+        match = re.search(r"```(?:json|python)?\s*(\{.*?\})\s*```", content, re.DOTALL)
+        clean_json = match.group(1) if match else (re.search(r"(\{.*\})", content, re.DOTALL).group(1) if re.search(r"(\{.*\})", content, re.DOTALL) else content.strip())
         clean_json = re.sub(r"^\s*\{\{", "{", clean_json)
         clean_json = re.sub(r"\}\}\s*$", "}", clean_json)
         clean_json = re.sub(r",\s*([\]}])", r"\1", clean_json)
 
+        data = None
+
+        # Tier 1: Standard RFC JSON
         try:
             data = json.loads(clean_json)
-        except json.JSONDecodeError as json_err:
-            err_msg = f"Scenario 1 Error (Attempt {attempt}): JSON Parsing Failed: {json_err}"
-            print(f"[JIT Converter Warning] {err_msg}")
-            feedback_history.append(f"- {err_msg}")
-            continue
+        except Exception:
+            pass
+
+        # Tier 2: Python AST Literal (handles single quotes, True, False, None)
+        if data is None:
+            try:
+                data = ast.literal_eval(clean_json)
+            except Exception:
+                pass
+
+        # Tier 3: Regex single-to-double quote and boolean normalization fallback
+        if data is None:
+            try:
+                normalized = re.sub(r"'([^'\\]*(?:\\.[^'\\]*)*)'", r'"\1"', clean_json)
+                normalized = re.sub(r"\bTrue\b", "true", normalized)
+                normalized = re.sub(r"\bFalse\b", "false", normalized)
+                normalized = re.sub(r"\bNone\b", "null", normalized)
+                data = json.loads(normalized)
+            except Exception as json_err:
+                err_msg = f"Scenario 1 Error (Attempt {attempt}): JSON Parsing Failed: {json_err}"
+                print(f"[JIT Converter Warning] {err_msg}")
+                feedback_history.append(f"- {err_msg}. MANDATE: Enforce valid JSON output format with standard double quotes.")
+                continue
 
         # Scenario 2: Pydantic Schema Model Validation
         try:

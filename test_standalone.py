@@ -147,6 +147,99 @@ def test_plan_validator_layer1_missing_command():
     print(f"  [PASS] Missing command correctly caught: {errors[0]}")
 
 
+def test_plan_validator_tool_schemas_valid():
+    """Test that Layer 1 validates valid tool_call steps via tool_schemas.py."""
+    print("\n[TEST] Plan Validator Layer 1 (Valid Tool Call via tool_schemas)...")
+    from core.plan_validator import validate_plan_faithfulness_and_linkage
+
+    plan = {
+        "steps": [
+            {
+                "step_number": 1,
+                "step_type": "tool_call",
+                "platform": "auth0",
+                "function_name": "search_user",
+                "comm_inputs": {"email": "user@example.com"},
+                "output_parse_instruction": "Extract user_id if found",
+            }
+        ]
+    }
+    is_valid, errors = validate_plan_faithfulness_and_linkage("short", plan)
+    assert is_valid is True, f"Expected valid, got errors: {errors}"
+    assert len(errors) == 0
+    # Verify auto-population of provider
+    assert plan["steps"][0].get("provider") == "auth0_user_management"
+    print(f"  [PASS] Valid Auth0 tool call accepted and provider auto-populated.")
+
+
+def test_plan_validator_unregistered_platform():
+    """Test that Layer 1 rejects unregistered platforms."""
+    print("\n[TEST] Plan Validator Layer 1 (Unregistered Platform)...")
+    from core.plan_validator import validate_plan_faithfulness_and_linkage
+
+    plan = {
+        "steps": [
+            {
+                "step_number": 1,
+                "step_type": "tool_call",
+                "platform": "fake_cloud_platform",
+                "function_name": "do_something",
+                "comm_inputs": {},
+            }
+        ]
+    }
+    is_valid, errors = validate_plan_faithfulness_and_linkage("short", plan)
+    assert is_valid is False
+    assert any("not registered" in e.lower() for e in errors)
+    print(f"  [PASS] Unregistered platform correctly rejected: {errors[0]}")
+
+
+def test_plan_validator_cross_platform_boundary():
+    """Test that Layer 1 catches cross-platform tool contamination."""
+    print("\n[TEST] Plan Validator Layer 1 (Cross-Platform Boundary Violation)...")
+    from core.plan_validator import validate_plan_faithfulness_and_linkage
+
+    # Auth0 platform trying to call AirRetailer VPN tool
+    plan = {
+        "steps": [
+            {
+                "step_number": 1,
+                "step_type": "tool_call",
+                "platform": "auth0",
+                "function_name": "connect_vpn",
+                "comm_inputs": {"username": "admin", "password": "pwd"},
+            }
+        ]
+    }
+    is_valid, errors = validate_plan_faithfulness_and_linkage("short", plan)
+    assert is_valid is False
+    assert any("tool boundary error" in e.lower() for e in errors)
+    print(f"  [PASS] Cross-platform tool boundary violation correctly rejected: {errors[0]}")
+
+
+def test_plan_validator_missing_required_input():
+    """Test that Layer 1 enforces required_inputs parameter completeness."""
+    print("\n[TEST] Plan Validator Layer 1 (Missing Required Input)...")
+    from core.plan_validator import validate_plan_faithfulness_and_linkage
+
+    # search_user requires 'email', but comm_inputs is empty
+    plan = {
+        "steps": [
+            {
+                "step_number": 1,
+                "step_type": "tool_call",
+                "platform": "auth0",
+                "function_name": "search_user",
+                "comm_inputs": {},
+            }
+        ]
+    }
+    is_valid, errors = validate_plan_faithfulness_and_linkage("short", plan)
+    assert is_valid is False
+    assert any("missing required input parameter" in e.lower() for e in errors)
+    print(f"  [PASS] Missing required input correctly caught: {errors[0]}")
+
+
 def test_url_extraction_and_scraping():
     """Test URL extraction regex and web content scraping."""
     print("\n[TEST] Link Scraper & URL Extraction...")
@@ -285,6 +378,10 @@ def run_all():
         test_plan_validator_layer1_empty_steps,
         test_plan_validator_layer1_valid_command_step,
         test_plan_validator_layer1_missing_command,
+        test_plan_validator_tool_schemas_valid,
+        test_plan_validator_unregistered_platform,
+        test_plan_validator_cross_platform_boundary,
+        test_plan_validator_missing_required_input,
         test_url_extraction_and_scraping,
         test_prompt_brace_formatting,
         test_text_quality_inspector,

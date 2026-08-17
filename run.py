@@ -44,13 +44,17 @@ Examples:
     group.add_argument("--scan", action="store_true", help="Run one ingestion scan cycle over all files in _uploads/.")
     group.add_argument("--watch", action="store_true", help="Start background folder watcher (runs forever).")
     group.add_argument("--status", action="store_true", help="Print scheduler status.")
+    group.add_argument("--models", action="store_true", help="Print currently configured LLM models per agent role.")
 
     parser.add_argument("--sop-id", type=str, default=None, help="Override the auto-generated SOP ID.")
     parser.add_argument("--interval", type=int, default=None, help="Scan interval in minutes (for --watch mode).")
 
     args = parser.parse_args()
 
-    if args.file:
+    if args.models:
+        from config.llm_config import print_active_models
+        print_active_models()
+    elif args.file:
         _process_single_file(args.file, override_sop_id=args.sop_id)
     elif args.scan:
         _run_scan_cycle()

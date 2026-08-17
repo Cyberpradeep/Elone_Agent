@@ -1,28 +1,11 @@
-"""
-Plan Validator — Standalone Version
-=====================================
-Extracted from agents/plan_validator/validator.py + prompts.py in the main app.
-
-2-Layer Validation for JIT Converted SOPs:
-  Layer 1: Fast Deterministic Python Syntax, Variable Linkage & Tool Catalog Check (< 1ms)
-  Layer 2: LLM Human SOP Faithfulness & Hallucination Inspection
-
-Imports from standalone config/ modules instead of shared/.
-"""
-
 import json
 import re
 from typing import Tuple, List, Dict, Any
 from pydantic import BaseModel, Field
 
 from config.llm_config import get_llm
-from config.tool_catalog import TOOL_CATALOG, PROVIDER_NAMES, get_function_names, get_required_inputs
+from tools.tool_validator_helpers import validate_tool_step_schema
 from prompts.validator_prompts import JIT_VALIDATOR_COT_SYSTEM_PROMPT
-
-
-# ---------------------------------------------------------------------------
-# Pydantic model for structured validation result
-# ---------------------------------------------------------------------------
 
 class JITFaithfulnessInspectionResult(BaseModel):
     command_preservation_reasoning: str = Field(
@@ -54,10 +37,6 @@ class JITFaithfulnessInspectionResult(BaseModel):
         description="Summary verdict: 'PASSED FAITHFULNESS INSPECTION' or detailed error list."
     )
 
-
-# ---------------------------------------------------------------------------
-# Main validation function
-# ---------------------------------------------------------------------------
 
 def validate_plan_faithfulness_and_linkage(
     raw_sop_text: str,
@@ -94,46 +73,9 @@ def validate_plan_faithfulness_and_linkage(
 
         # Check required fields and catalog verification for tool_call step_type
         if step_type == "tool_call":
-            provider_name = step.get("provider")
-            function_name = step.get("function_name")
-            comm_inputs = step.get("comm_inputs") or {}
-            matching_tool = None
-
-            if not provider_name:
-                errors.append(f"Layer 1 Error: Step {idx} has step_type='tool_call' but 'provider' is missing.")
-            elif provider_name not in PROVIDER_NAMES:
-                errors.append(f"Layer 1 Catalog Error: Step {idx} provider '{provider_name}' is not active in TOOL_CATALOG.")
-            else:
-                # Find matching tool in TOOL_CATALOG for provider_name
-                for tool in TOOL_CATALOG:
-                    if tool.get("tool_name") == provider_name or provider_name in str(tool):
-                        matching_tool = tool
-                        break
-
-            # Auto-populate platform if missing
-            if matching_tool and not step.get("platform"):
-                step["platform"] = matching_tool.get("platform", "generic")
-
-            if not function_name:
-                errors.append(f"Layer 1 Error: Step {idx} has step_type='tool_call' but 'function_name' is missing.")
-            elif provider_name and provider_name in PROVIDER_NAMES:
-                valid_functions = get_function_names(TOOL_CATALOG, provider_name)
-                if not valid_functions and matching_tool:
-                    valid_functions = {f["function_name"] for f in matching_tool.get("functions", [])}
-                if valid_functions and function_name not in valid_functions:
-                    errors.append(f"Layer 1 Catalog Error: Step {idx} function '{function_name}' is not defined under provider '{provider_name}'.")
-
-            if provider_name and function_name:
-                req_inputs = get_required_inputs(TOOL_CATALOG, provider_name, function_name)
-                if not req_inputs and matching_tool:
-                    for f in matching_tool.get("functions", []):
-                        if f.get("function_name") == function_name:
-                            req_inputs = f.get("required_inputs", [])
-                            break
-                if req_inputs:
-                    for req_in in req_inputs:
-                        if req_in not in comm_inputs or comm_inputs.get(req_in) is None:
-                            errors.append(f"Layer 1 Input Error: Step {idx} function '{function_name}' missing required input parameter '{req_in}' in comm_inputs.")
+            tool_is_valid, tool_errors = validate_tool_step_schema(step, step_idx=idx)
+            if not tool_is_valid:
+                errors.extend(tool_errors)
 
         # Track variables set in parse instructions
         var_matches = re.findall(r"(\w+)\s*=\s*(?:true|false|\w+)", parse_instruction, re.IGNORECASE)
