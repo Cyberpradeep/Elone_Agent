@@ -1,0 +1,360 @@
+============================================================
+  SOP INGESTION PIPELINE — PARSER AUDIT LOG
+============================================================
+  Source File:          sop_software_application_unblock_request_ifeo.pdf
+  Source Absolute Path: D:\elone_ingestion\sop_ingestion_standalone\knowledge_base\_uploads\sop_software_application_unblock_request_ifeo.pdf
+  Parser Engine:        markitdown_parser
+  Character Count:      5927
+  Page Count:           N/A
+  Timestamp:            2026-08-17 10:09:58
+============================================================
+
+--- RAW EXTRACTED TEXT START ---
+SOP-L1-APP-001
+
+Software Application Unblock Request
+
+STANDARD OPERATING PROCEDURE
+
+Software Application Unblock
+Request
+Endpoint Support  ﬁ  Application Management
+
+SOP ID
+
+Support Level
+
+Category
+
+SOP-L1-APP-001
+
+L1 Service Desk
+
+Endpoint Support / Application Management
+
+Primary Remediation Path
+
+IFEO Debugger Entry Removal
+
+Document Version
+
+1.0
+
+Status
+
+Classification
+
+Approved for Use
+
+Internal Use Only
+
+This document defines the standard, command-based process for identifying an
+application block caused by an Image File Execution Options (IFEO) debugger entry
+and removing it as a fallback remediation on a Windows endpoint.
+
+IT Service Desk — Confidential / Internal Use Only
+
+Page 1
+
+SOP-L1-APP-001
+
+Software Application Unblock Request
+
+.  Table of Contents
+
+1.
+
+2.
+
+3.
+
+4.
+
+Objective
+
+Preconditions
+
+Process Flow Overview
+
+Detailed Procedure
+
+Step 1 — Verify Endpoint Connectivity
+
+Step 2 — Identify Application Blocking Mechanism
+
+Step 3 — Remove IFEO Block (Fallback)
+
+Step 4 — Refresh Local Policy
+
+Step 5 — Verify Block Removal
+
+Step 6 — Validate Resolution
+
+Step 7 — Update Ticket
+
+5.
+
+6.
+
+Escalation Criteria
+
+Document Control
+
+IT Service Desk — Confidential / Internal Use Only
+
+Page 2
+
+SOP-L1-APP-001
+
+Software Application Unblock Request
+
+1.  Objective
+
+Restore access to an approved software application that is blocked on a Windows endpoint by identifying the
+blocking mechanism and applying the appropriate remediation. If the block is caused by an Image File
+Execution Options (IFEO) debugger entry, remove the entry as a fallback remediation.
+
+2.  Preconditions
+
+Ticket assigned to L1 Engineer.
+
+(cid:127) Remote administrative access to the endpoint.
+
+(cid:127) User device is online.
+
+Administrative privileges available.
+
+3.  Process Flow Overview
+
+The diagram below summarizes the end-to-end decision flow. Full instructions for each stage are provided in
+Section 4, Detailed Procedure.
+
+1. Verify
+Connectivity
+
+2. Identify Blocking
+Mechanism
+
+3–5. Remove, Refresh
+& Verify
+
+Is the application blocked via an IFEO Debugger entry? (Step 2)
+
+YES — IFEO Debugger Entry Found
+
+NO — Registry Key Not Found
+
+Proceed to Step 3 — remove the Debugger entry
+(and the key itself if it exists solely to block the app),
+then refresh policy and verify.
+
+Application is not blocked through IFEO. Investigate
+AppLocker, WDAC, Intune, or Endpoint Security
+policies, or escalate to L2.
+
+IT Service Desk — Confidential / Internal Use Only
+
+Page 3
+
+(cid:127)
+(cid:127)
+ﬁ
+ﬁ
+SOP-L1-APP-001
+
+Software Application Unblock Request
+
+4.  Detailed Procedure
+
+STEP 1  —  Verify Endpoint Connectivity
+
+Command
+
+Test-Connection <ComputerName> -Count 2
+
+4 Expected Result: Reply received from target system.
+
+If unreachable — Action:
+
+Verify VPN / network connectivity.
+
+(cid:127) Retry.
+
+Escalate if unreachable.
+
+STEP 2  —  Identify Application Blocking Mechanism
+
+Command
+
+reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\<Application>.exe"
+
+Expected Result 1
+
+Debugger    REG_SZ    ...
+
+Result: Application is blocked using IFEO. Proceed to Step 3.
+
+Expected Result 2
+
+ERROR:
+The system was unable to find the specified registry key.
+
+Result: Application is not blocked through IFEO. Investigate other blocking technologies (AppLocker, WDAC,
+Intune, Endpoint Security) or escalate to L2.
+
+STEP 3  —  Remove IFEO Block (Fallback)
+
+Execute only when Step 2 confirms an IFEO Debugger entry.
+
+Remove Debugger Value
+
+reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\<Application>.exe" ^
+  /v Debugger /f
+
+If the application-specific IFEO key was created only for blocking, remove the key:
+
+reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\<Application>.exe" ^
+  /f
+
+STEP 4  —  Refresh Local Policy
+
+Command
+
+gpupdate /force
+
+4 Expected Result: Computer Policy update has completed successfully. User Policy update has completed
+successfully.
+
+IT Service Desk — Confidential / Internal Use Only
+
+Page 4
+
+(cid:127)
+(cid:127)
+SOP-L1-APP-001
+
+Software Application Unblock Request
+
+STEP 5  —  Verify Block Removal
+
+Command
+
+reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\<Application>.exe"
+
+4 Expected Result: ERROR: The system was unable to find the specified registry key — or — Debugger
+value not present.
+
+STEP 6  —  Validate Resolution
+
+Ask the user to launch the application.
+
+4 Expected Result:
+
+Application launches successfully.
+
+(cid:127) No error message displayed.
+
+(cid:127) User confirms issue resolved.
+
+If the application remains blocked:
+
+(cid:127) Check for AppLocker policies.
+
+(cid:127) Check WDAC policies.
+
+(cid:127) Check Endpoint Security policies.
+
+Escalate to L2 Support.
+
+STEP 7  —  Update Ticket
+
+Resolution Notes
+
+Issue:
+Application launch blocked.
+
+Root Cause:
+IFEO Debugger registry entry prevented application execution.
+
+Action Taken:
+Verified IFEO configuration.
+Removed Debugger registry entry.
+Refreshed Group Policy.
+Validated successful application launch.
+
+Status:
+Resolved.
+
+IT Service Desk — Confidential / Internal Use Only
+
+Page 5
+
+(cid:127)
+(cid:127)
+SOP-L1-APP-001
+
+Software Application Unblock Request
+
+5.  Escalation Criteria
+
+Escalate to L2 if:
+
+IFEO key not present.
+
+Application blocked by WDAC.
+
+Application blocked by AppLocker.
+
+Endpoint protection policy prevents execution.
+
+(cid:127) Registry modification fails.
+
+(cid:127) User lacks required permissions.
+
+Application still fails after remediation.
+
+6.  Document Control
+
+Attribute
+
+SOP ID
+
+Title
+
+Category
+
+Value
+
+SOP-L1-APP-001
+
+Software Application Unblock Request
+
+Endpoint Support ﬁ Application Management
+
+Support Level
+
+L1 Service Desk
+
+Primary Remediation Path
+
+IFEO Debugger Entry Removal
+
+Version
+
+Status
+
+1.0
+
+Approved for use
+
+IT Service Desk — Confidential / Internal Use Only
+
+Page 6
+
+(cid:127)
+(cid:127)
+(cid:127)
+(cid:127)
+(cid:127)
+
+--- RAW EXTRACTED TEXT END ---

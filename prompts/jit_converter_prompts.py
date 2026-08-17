@@ -67,7 +67,10 @@ You MUST follow these 8 reasoning stages in exact numerical order:
 
 
 ## OUTPUT JSON SCHEMA MANDATE
-Output raw valid JSON only matching this schema:
+CRITICAL FORMATTING MANDATE:
+- All keys and string values MUST be enclosed in standard DOUBLE QUOTES (").
+- NEVER use Python single quotes (') for dictionary keys or strings.
+- Return raw, valid JSON only matching this schema:
 ```json
 {{
     "reasoning_chain": [

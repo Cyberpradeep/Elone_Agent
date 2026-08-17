@@ -1,5 +1,6 @@
 import os
 import json
+import ast
 import re
 import datetime
 import yaml
@@ -199,20 +200,41 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
                     content = str(raw_c)
                 break
 
-        # Scenario 1: JSON Syntax Extraction & Handling
-        match = re.search(r"(\{.*\})", content, re.DOTALL)
-        clean_json = match.group(1) if match else content.strip()
+        # Scenario 1: JSON Syntax Extraction & Handling (3-Tier Resilient Parser)
+        match = re.search(r"```(?:json|python)?\s*(\{.*?\})\s*```", content, re.DOTALL)
+        clean_json = match.group(1) if match else (re.search(r"(\{.*\})", content, re.DOTALL).group(1) if re.search(r"(\{.*\})", content, re.DOTALL) else content.strip())
         clean_json = re.sub(r"^\s*\{\{", "{", clean_json)
         clean_json = re.sub(r"\}\}\s*$", "}", clean_json)
         clean_json = re.sub(r",\s*([\]}])", r"\1", clean_json)
 
+        data = None
+
+        # Tier 1: Standard RFC JSON
         try:
             data = json.loads(clean_json)
-        except json.JSONDecodeError as json_err:
-            err_msg = f"Scenario 1 Error (Attempt {attempt}): JSON Parsing Failed: {json_err}"
-            print(f"[JIT Converter Warning] {err_msg}")
-            feedback_history.append(f"- {err_msg}")
-            continue
+        except Exception:
+            pass
+
+        # Tier 2: Python AST Literal (handles single quotes, True, False, None)
+        if data is None:
+            try:
+                data = ast.literal_eval(clean_json)
+            except Exception:
+                pass
+
+        # Tier 3: Regex single-to-double quote and boolean normalization fallback
+        if data is None:
+            try:
+                normalized = re.sub(r"'([^'\\]*(?:\\.[^'\\]*)*)'", r'"\1"', clean_json)
+                normalized = re.sub(r"\bTrue\b", "true", normalized)
+                normalized = re.sub(r"\bFalse\b", "false", normalized)
+                normalized = re.sub(r"\bNone\b", "null", normalized)
+                data = json.loads(normalized)
+            except Exception as json_err:
+                err_msg = f"Scenario 1 Error (Attempt {attempt}): JSON Parsing Failed: {json_err}"
+                print(f"[JIT Converter Warning] {err_msg}")
+                feedback_history.append(f"- {err_msg}. MANDATE: Enforce valid JSON output format with standard double quotes.")
+                continue
 
         # Scenario 2: Pydantic Schema Model Validation
         try:
