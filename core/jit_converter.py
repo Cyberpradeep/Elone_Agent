@@ -148,6 +148,7 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
         messages = [HumanMessage(content=prompt)]
         max_tool_turns = 5
         content = ""
+        executed_tool_cache = {}
 
         for turn in range(max_tool_turns):
             res = llm_with_tools.invoke(messages)
@@ -159,8 +160,13 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
                     t_name = tc.get("name", "")
                     t_args = tc.get("args", {})
                     t_id = tc.get("id") or f"call_{turn}"
+                    cache_key = f"{t_name}:{json.dumps(t_args, sort_keys=True)}"
 
-                    print(f"\n[Dynamic Tool Invocation] LLM called: {t_name}({t_args})")
+                    if cache_key in executed_tool_cache:
+                        t_output = executed_tool_cache[cache_key]
+                        output_json_str = json.dumps(t_output, indent=2, default=str)
+                        messages.append(ToolMessage(content=output_json_str, tool_call_id=t_id))
+                        continue
 
                     if t_name in tool_map:
                         try:
@@ -170,11 +176,19 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
                     else:
                         t_output = {"error": f"Unknown tool '{t_name}'. Available: {list(tool_map.keys())}"}
 
+                    executed_tool_cache[cache_key] = t_output
                     output_json_str = json.dumps(t_output, indent=2, default=str)
-                    
-                    # Print formatted tool response for user visibility
-                    preview = output_json_str if len(output_json_str) <= 400 else output_json_str[:400] + f"\n... [{len(output_json_str)} total characters]"
-                    print(f"[Dynamic Tool Output] Result from '{t_name}':\n{preview}\n")
+
+                    # Clean atomic CLI logging with flush=True
+                    preview = output_json_str if len(output_json_str) <= 350 else output_json_str[:350] + f"\n... [{len(output_json_str)} total characters]"
+                    safe_preview = preview.encode("ascii", errors="replace").decode("ascii")
+                    log_block = (
+                        f"\n{'='*55}\n"
+                        f"[Dynamic Tool Invocation] LLM called: {t_name}({t_args})\n"
+                        f"[Dynamic Tool Result] Output from '{t_name}':\n{safe_preview}\n"
+                        f"{'='*55}\n"
+                    )
+                    print(log_block, flush=True)
 
                     messages.append(ToolMessage(content=output_json_str, tool_call_id=t_id))
             else:

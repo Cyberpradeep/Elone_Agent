@@ -1,7 +1,7 @@
 ---
-sop_id: SOP-STG-003
+sop_id: SOP-stg-003-disk-error-diagnosis-and-repair-001
 title: Disk Error Diagnosis and Repair via Chkdsk Reflection Rulebook
-category: system
+category: storage
 type: ReflectionRulebook
 ---
 
