@@ -1,104 +1,109 @@
 ---
 type: Playbook
 sop_id: SOP-L1-APP-001
-title: Software Application Unblock Request (IFEO Debugger Entry Removal)
+title: Software Application Unblock Request
+platform: system
 category: software
 target_os: windows
-description: This playbook automates the identification and removal of an Image File
-  Execution Options (IFEO) debugger entry blocking a software application on a Windows
-  endpoint. It includes connectivity checks, registry queries, block removal, policy
-  refresh, and verification.
-knowledge_base_ref: []
+description: Standard operating procedure to identify and remediate software application
+  blocks caused by Image File Execution Options (IFEO) debugger entries on Windows
+  endpoints.
+confidence_score: 0.95
+confidence_level: High
+confidence_reason: All actionable steps map directly to native Windows PowerShell
+  and registry CLI commands with complete entity placeholders and explicit fallback
+  mechanisms.
 required_entities:
 - hostname
-- executable
+- application_name
 trigger_words:
 - unblock
 - application
+- software
 - IFEO
 - debugger
 - registry
+- blocked
 steps:
 - step_number: 1
-  sop_step_description: Verify endpoint connectivity using Test-Connection.
+  sop_step_description: Verify endpoint network connectivity before performing registry
+    operations.
   step_type: command
   platform: null
-  provider: null
   function_name: null
   comm_inputs: null
-  command: Test-Connection {{entities.computer_name}} -Count 2
+  command: Test-Connection {{entities.hostname}} -Count 2
   fallback_command: null
   fallback_sop_id: null
   parse_instruction: null
   execute_if: null
   timeout_seconds: 30
 - step_number: 2
-  sop_step_description: Identify if the application is blocked by an IFEO Debugger
-    entry.
+  sop_step_description: Identify if the application is blocked using an Image File
+    Execution Options (IFEO) Debugger registry entry.
   step_type: command
   platform: null
-  provider: null
   function_name: null
   comm_inputs: null
   command: reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File
-    Execution Options\{{entities.application_exe}}"
+    Execution Options\{{entities.application_name}}.exe"
   fallback_command: null
   fallback_sop_id: null
   parse_instruction: null
-  execute_if: variables.connectivity_confirmed == 'true'
+  execute_if: null
   timeout_seconds: 30
 - step_number: 3
-  sop_step_description: Remove the IFEO Debugger entry if it exists.
+  sop_step_description: Remove the IFEO Debugger registry value blocking application
+    execution (with fallback to remove the entire key).
   step_type: command
   platform: null
-  provider: null
   function_name: null
   comm_inputs: null
   command: reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File
-    Execution Options\{{entities.application_exe}}" /v Debugger /f
+    Execution Options\{{entities.application_name}}.exe" /v Debugger /f
   fallback_command: reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image
-    File Execution Options\{{entities.application_exe}}" /f
+    File Execution Options\{{entities.application_name}}.exe" /f
   fallback_sop_id: null
   parse_instruction: null
-  execute_if: variables.ifeo_block_found == 'true'
-  timeout_seconds: 90
+  execute_if: variables.ifeo_block_detected == 'true'
+  timeout_seconds: 30
 - step_number: 4
-  sop_step_description: Refresh local Group Policy to apply changes.
+  sop_step_description: Refresh local and computer Group Policy to enforce updated
+    endpoint configuration.
   step_type: command
   platform: null
-  provider: null
   function_name: null
   comm_inputs: null
   command: gpupdate /force
   fallback_command: null
   fallback_sop_id: null
   parse_instruction: null
-  execute_if: variables.ifeo_block_removed == 'true'
-  timeout_seconds: 120
+  execute_if: null
+  timeout_seconds: 90
 - step_number: 5
-  sop_step_description: Verify that the IFEO Debugger entry has been removed.
+  sop_step_description: Verify that the IFEO Debugger entry or key has been successfully
+    removed.
   step_type: command
   platform: null
-  provider: null
   function_name: null
   comm_inputs: null
   command: reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File
-    Execution Options\{{entities.application_exe}}"
+    Execution Options\{{entities.application_name}}.exe"
   fallback_command: null
   fallback_sop_id: null
   parse_instruction: null
-  execute_if: variables.ifeo_block_removed == 'true'
+  execute_if: null
   timeout_seconds: 30
 ---
 
-# Software Application Unblock Request (IFEO Debugger Entry Removal) Playbook
+# Software Application Unblock Request Playbook
 
 ## Overview
-This playbook automates the identification and removal of an Image File Execution Options (IFEO) debugger entry blocking a software application on a Windows endpoint. It includes connectivity checks, registry queries, block removal, policy refresh, and verification.
+Standard operating procedure to identify and remediate software application blocks caused by Image File Execution Options (IFEO) debugger entries on Windows endpoints.
 
 ## Execution Steps
-- **Step 1**: Verify endpoint connectivity using Test-Connection. (`Test-Connection {{entities.computer_name}} -Count 2`)
-- **Step 2**: Identify if the application is blocked by an IFEO Debugger entry. (`reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\{{entities.application_exe}}"`)
-- **Step 3**: Remove the IFEO Debugger entry if it exists. (`reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\{{entities.application_exe}}" /v Debugger /f`) [Fallback: `reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\{{entities.application_exe}}" /f`]
-- **Step 4**: Refresh local Group Policy to apply changes. (`gpupdate /force`)
-- **Step 5**: Verify that the IFEO Debugger entry has been removed. (`reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\{{entities.application_exe}}"`)
+- **Step 1**: Verify endpoint network connectivity before performing registry operations. (`Test-Connection {{entities.hostname}} -Count 2`)
+- **Step 2**: Identify if the application is blocked using an Image File Execution Options (IFEO) Debugger registry entry. (`reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\{{entities.application_name}}.exe"`)
+- **Step 3**: Remove the IFEO Debugger registry value blocking application execution (with fallback to remove the entire key). (`reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\{{entities.application_name}}.exe" /v Debugger /f`) [Fallback: `reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\{{entities.application_name}}.exe" /f`]
+- **Step 4**: Refresh local and computer Group Policy to enforce updated endpoint configuration. (`gpupdate /force`)
+- **Step 5**: Verify that the IFEO Debugger entry or key has been successfully removed. (`reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\{{entities.application_name}}.exe"`)

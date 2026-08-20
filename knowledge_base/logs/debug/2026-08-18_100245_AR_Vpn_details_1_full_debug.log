@@ -1,0 +1,28 @@
+Traceback (most recent call last):
+  File "D:\elone_ingestion\sop_ingestion_standalone\debug_run.py", line 127, in <module>
+    main()
+  File "D:\elone_ingestion\sop_ingestion_standalone\debug_run.py", line 102, in main
+    from core.jit_converter import convert_raw_sop_to_okf
+  File "D:\elone_ingestion\sop_ingestion_standalone\core\jit_converter.py", line 18, in <module>
+    from core.link_scraper import extract_urls_from_markdown, fetch_and_convert_url
+  File "D:\elone_ingestion\sop_ingestion_standalone\core\link_scraper.py", line 6, in <module>
+    from markitdown import MarkItDown
+  File "D:\elone_ingestion\sop_ingestion_standalone\.venv\Lib\site-packages\markitdown\__init__.py", line 6, in <module>
+    from ._markitdown import (
+  File "D:\elone_ingestion\sop_ingestion_standalone\.venv\Lib\site-packages\markitdown\_markitdown.py", line 22, in <module>
+    from .converters import (
+  File "D:\elone_ingestion\sop_ingestion_standalone\.venv\Lib\site-packages\markitdown\converters\__init__.py", line 17, in <module>
+    from ._audio_converter import AudioConverter
+  File "D:\elone_ingestion\sop_ingestion_standalone\.venv\Lib\site-packages\markitdown\converters\_audio_converter.py", line 4, in <module>
+    from ._transcribe_audio import transcribe_audio
+  File "D:\elone_ingestion\sop_ingestion_standalone\.venv\Lib\site-packages\markitdown\converters\_transcribe_audio.py", line 16, in <module>
+    import speech_recognition as sr
+  File "D:\elone_ingestion\sop_ingestion_standalone\.venv\Lib\site-packages\speech_recognition\__init__.py", line 1193, in <module>
+    from .recognizers.whisper_api import groq, openai
+  File "<frozen importlib._bootstrap>", line 1176, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1147, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 690, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 936, in exec_module
+  File "<frozen importlib._bootstrap_external>", line 1032, in get_code
+  File "<frozen importlib._bootstrap_external>", line 1130, in get_data
+KeyboardInterrupt

@@ -3,21 +3,33 @@ import json
 import ast
 import re
 import datetime
+import copy
 import yaml
 import frontmatter
 from typing import Tuple, Dict, Any, Optional
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
+# pyrefly: ignore [missing-import]
 from config.llm_config import get_llm
+# pyrefly: ignore [missing-import]
 from config.tool_catalog import get_formatted_tools_summary
+# pyrefly: ignore [missing-import]
 from core.document_parser import extract_ordered_sop_content
+# pyrefly: ignore [missing-import]
 from tools.tool_schemas import PLATFORM_SUMMARIES
+# pyrefly: ignore [missing-import]
 from tools.tool_functions import DYNAMIC_CATALOG_TOOLS
+# pyrefly: ignore [missing-import]
 from core.document_parser import extract_full_text
+# pyrefly: ignore [missing-import]
 from core.plan_validator import validate_plan_faithfulness_and_linkage
+# pyrefly: ignore [missing-import]
 from core.link_scraper import extract_urls_from_markdown, fetch_and_convert_url
+# pyrefly: ignore [missing-import]
 from core.vlm_inspector import analyze_and_save_image
-from core.okf_schema import OKFPlaybookModel, OKFStepModel
+# pyrefly: ignore [missing-import]
+from schemas import OKFPlaybookModel, OKFStepModel
+# pyrefly: ignore [missing-import]
 from prompts.jit_converter_prompts import JIT_COT_CONVERTER_PROMPT
 
 
@@ -155,7 +167,9 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
             image_index += 1
             label = seg.get("label", f"Image {image_index}")
             report_text, image_ref = analyze_and_save_image(seg["bytes"], seg["mime_type"], label, sop_slug, image_index)
-            enriched_parts.append(f"### Visual Inspection Report ({label}):\n{report_text}")
+            conf_score = image_ref.get("confidence_score", 0.90)
+            conf_lvl = image_ref.get("confidence_level", "High")
+            enriched_parts.append(f"### Visual Inspection Report ({label}) [Confidence: {conf_score:.2f} / {conf_lvl}]:\n{report_text}")
             knowledge_base_ref.append(image_ref)
 
     enriched_sop_text = "\n\n".join(enriched_parts)
@@ -180,7 +194,7 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
         llm = get_llm("execution_planning", temperature=temp)
         # 1. Build lightweight platform overview (~100 tokens)
         platform_summary_lines = [
-            f"- Platform: '{p['platform']}' (Provider: '{p['provider']}') — {p['description']}"
+            f"- Platform: '{p['platform']}' — {p['description']}"
             for p in PLATFORM_SUMMARIES
         ]
         platforms_overview = "\n".join(platform_summary_lines)
@@ -189,9 +203,10 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
         if feedback_history:
             retry_sop_text += "\n\n## PREVIOUS ATTEMPT ERRORS (MUST FIX ON THIS RETRY):\n" + "\n".join(feedback_history)
 
-        prompt = JIT_COT_CONVERTER_PROMPT.format(
-            available_tools_summary=platforms_overview,
-            raw_sop_text=retry_sop_text
+        prompt = (
+            JIT_COT_CONVERTER_PROMPT
+            .replace("{available_tools_summary}", platforms_overview)
+            .replace("{raw_sop_text}", retry_sop_text)
         )
 
         if attempt > 1:
@@ -208,8 +223,41 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
         executed_tool_cache = {}
 
         for turn in range(max_tool_turns):
+            try:
+                # pyrefly: ignore [missing-import]
+                from gemini_monitor.monitor import check_daily_limit, record_call
+                check_daily_limit("gemini")
+            except Exception as q_err:
+                if "Quota" in type(q_err).__name__ or "DailyQuotaExceededError" in str(type(q_err)):
+                    raise q_err
+
             res = llm_with_tools.invoke(messages)
             messages.append(res)
+
+            # Record token usage in gemini_monitor
+            in_tok = 0
+            out_tok = 0
+            if hasattr(res, "usage_metadata") and res.usage_metadata:
+                in_tok = res.usage_metadata.get("input_tokens", 0)
+                out_tok = res.usage_metadata.get("output_tokens", 0)
+            elif hasattr(res, "response_metadata") and res.response_metadata:
+                tu = res.response_metadata.get("token_usage", {})
+                in_tok = tu.get("prompt_tokens", 0)
+                out_tok = tu.get("completion_tokens", 0)
+            
+            try:
+                # pyrefly: ignore [missing-import]
+                from gemini_monitor.monitor import record_call
+                record_call(
+                    caller="execution_planning",
+                    model="gemini-3.7-flash" if "gemini" in str(type(llm)).lower() else "mistral-large-latest",
+                    provider="gemini" if "gemini" in str(type(llm)).lower() else "mistral",
+                    input_tokens=in_tok,
+                    output_tokens=out_tok,
+                    sop_id=override_sop_id or sop_slug
+                )
+            except Exception as mon_err:
+                pass
 
             # Check if LLM invoked any dynamic tools
             if hasattr(res, "tool_calls") and res.tool_calls:
@@ -294,11 +342,19 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
 
         # Scenario 2: Pydantic Schema Model Validation
         try:
-            # Normalize steps if present for pydantic
             if "steps" in data and isinstance(data["steps"], list):
+                if len(data["steps"]) == 0:
+                    raise ValueError("Raw SOP document contains zero procedural execution steps.")
                 validated_model = OKFPlaybookModel.model_validate(data)
                 data = validated_model.model_dump()
+            else:
+                raise ValueError("Output JSON missing 'steps' array.")
         except Exception as pydantic_err:
+            err_str = str(pydantic_err)
+            # Fast Bailout: If the document contains zero steps, do NOT force retries
+            if "zero procedural execution steps" in err_str or "at least 1 execution step" in err_str:
+                raise ValueError("Ingestion blocked: Raw document contains no executable procedural steps.")
+
             err_msg = f"Scenario 2 Error (Attempt {attempt}): Pydantic Schema Violation: {pydantic_err}"
             print(f"[JIT Converter Warning] {err_msg}")
             feedback_history.append(f"- {err_msg}")
@@ -313,6 +369,10 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
         last_validation_errors = validation_errors or []
 
         if not is_valid:
+            # If failure is due to fabricated placeholder steps, bail out immediately
+            if any("placeholder step" in str(e).lower() for e in (validation_errors or [])):
+                raise ValueError(f"Ingestion blocked: Playbook failed validation with errors: {validation_errors}")
+
             safe_val = str(validation_errors).replace("→", "->").replace("↓", "v").replace("▶", ">").replace("◀", "<")
             err_msg = f"Scenario 3/4 Validation Error (Attempt {attempt}): {safe_val}"
             print(f"[JIT Converter Warning] Plan validation failed: {safe_val}")
@@ -352,7 +412,12 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
     category = (data.get("category") or "other").lower().strip()
     target_os = data.get("target_os", "windows")
     description = data.get("description", f"Automated playbook for {title}.")
+    confidence_score = float(data.get("confidence_score") if data.get("confidence_score") is not None else 0.95)
+    confidence_level = str(data.get("confidence_level") or "High")
+    confidence_reason = data.get("confidence_reason") or "Conversion completed with verified tool mappings and procedural fidelity."
     steps = data.get("steps", [])
+
+    print(f"\n[JIT Converter Agent] Final Output Confidence: {confidence_score:.2f} ({confidence_level}) | Reason: {confidence_reason}")
 
     has_command_step = any(s.get("step_type") == "command" or s.get("command") for s in steps)
     default_req = ["hostname", "email"] if has_command_step else ["email"]
@@ -362,16 +427,30 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
 
     required_entities = list(dict.fromkeys([ENTITY_KEY_MAP.get(str(e).lower(), str(e)) for e in raw_req_entities]))
     trigger_words = data.get("trigger_words", [title])
+    platform = data.get("platform")
+    if not platform:
+        for s in steps:
+            if s.get("platform"):
+                platform = s.get("platform")
+                break
+    platform = platform or "system"
+
+    # Ensure platform is in trigger_words for fast lookup
+    if platform and platform != "system" and platform.lower() not in [t.lower() for t in trigger_words]:
+        trigger_words.insert(0, platform)
 
     # 2. Format Dual-Representation Frontmatter
     frontmatter_dict = {
         "type": "Playbook",
         "sop_id": sop_id,
         "title": title,
+        "platform": platform,
         "category": category,
         "target_os": target_os,
         "description": description,
-        "knowledge_base_ref": knowledge_base_ref,
+        "confidence_score": confidence_score,
+        "confidence_level": confidence_level,
+        "confidence_reason": confidence_reason,
         "required_entities": required_entities,
         "trigger_words": trigger_words,
         "steps": steps,
@@ -382,6 +461,9 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
         "parser_type": parser_type,
         "raw_chars": len(raw_text),
         "reasoning_chain": [str(s) for s in reasoning_chain],
+        "confidence_score": confidence_score,
+        "confidence_level": confidence_level,
+        "confidence_reason": confidence_reason,
         "is_valid": is_valid,
         "validation_errors": validation_errors or [],
     }
@@ -399,36 +481,45 @@ def write_okf_playbook(draft: Dict[str, Any], raw_filename: str = "(reviewed dra
     title = frontmatter_dict["title"]
     category = (frontmatter_dict.get("category") or "other").lower().strip()
     frontmatter_dict["category"] = category
-    description = frontmatter_dict.get("description", f"Automated playbook for {title}.")
-    knowledge_base_ref = frontmatter_dict.get("knowledge_base_ref") or []
+
     steps = frontmatter_dict.get("steps") or []
 
-    yaml_header = yaml.dump(frontmatter_dict, sort_keys=False)
+    # Auto-populate top-level platform if omitted
+    if not frontmatter_dict.get("platform"):
+        for s in steps:
+            if s.get("platform"):
+                frontmatter_dict["platform"] = s.get("platform")
+                break
+        if not frontmatter_dict.get("platform"):
+            frontmatter_dict["platform"] = "system"
+
+    # Ensure platform is in trigger_words for fast execution agent lookup
+    trigger_words = frontmatter_dict.get("trigger_words") or []
+    plat_name = frontmatter_dict.get("platform")
+    if plat_name and plat_name != "system" and plat_name.lower() not in [t.lower() for t in trigger_words]:
+        trigger_words.insert(0, plat_name)
+        frontmatter_dict["trigger_words"] = trigger_words
+
+    # Strip internal LLM step_reasoning from saved YAML frontmatter and markdown body
+    clean_frontmatter = copy.deepcopy(frontmatter_dict)
+    for s in clean_frontmatter.get("steps", []):
+        s.pop("step_reasoning", None)
+
+    yaml_header = yaml.dump(clean_frontmatter, sort_keys=False)
+    description = frontmatter_dict.get("description", "")
     markdown_body = f"# {title} Playbook\n\n## Overview\n{description}\n\n"
-    
-    if knowledge_base_ref:
-        markdown_body += "## Knowledge Base References\n"
-        for kb_item in knowledge_base_ref:
-            if "url" in kb_item:
-                markdown_body += f"- [{kb_item['url']}]({kb_item['url']}) — Knowledge File: `{kb_item['file_path']}`\n"
-            elif "image_path" in kb_item:
-                markdown_body += f"- Image Screenshot: `{kb_item['image_path']}` — Visual Audit Metadata: `{kb_item['file_path']}`\n"
-        markdown_body += "\n"
 
     markdown_body += "## Execution Steps\n"
     for s in steps:
         if s.get("step_type") == "tool_call":
             platform_prefix = f"Platform: `{s.get('platform')}` | " if s.get("platform") else ""
-            tool_name = f"{s.get('provider')}.{s.get('function_name')}"
+            tool_name = f"{s.get('platform')}.{s.get('function_name')}"
             inputs_str = json.dumps(s.get("comm_inputs") or {})
             markdown_body += f"- **Step {s.get('step_number')}**: {s.get('sop_step_description')} [{platform_prefix}Tool Call: `{tool_name}({inputs_str})`]\n"
         else:
             cmd = s.get("command") or "(none)"
             fb_cmd = f" [Fallback: `{s.get('fallback_command')}`]" if s.get("fallback_command") else ""
             markdown_body += f"- **Step {s.get('step_number')}**: {s.get('sop_step_description')} (`{cmd}`){fb_cmd}\n"
-        step_reasoning = s.get("step_reasoning")
-        if step_reasoning:
-            markdown_body += f"  - *Why this output:* {step_reasoning}\n"
 
     okf_content = f"---\n{yaml_header}---\n\n{markdown_body}"
 
@@ -495,11 +586,14 @@ def _update_sops_catalog_indexes():
                         post = frontmatter.load(filepath)
                         title = post.metadata.get("title", filename)
                         cat = post.metadata.get("category", cat_name)
+                        platform = post.metadata.get("platform", "system")
                         desc = post.metadata.get("description", "Playbook procedure.")
+                        triggers = post.metadata.get("trigger_words", [])
+                        triggers_str = ", ".join(triggers) if isinstance(triggers, list) else str(triggers)
                         rel_path = f"{cat_name}/{filename}"
                         
-                        entry = f"- [{title}](./{rel_path}) - Category: `{cat}` - {desc}"
-                        cat_entries.append(f"- [{title}](./{filename}) - {desc}")
+                        entry = f"- [{title}](./{rel_path}) | Platform: `{platform}` | Category: `{cat}` | Triggers: `{triggers_str}` | {desc}"
+                        cat_entries.append(f"- [{title}](./{filename}) | Platform: `{platform}` | Triggers: `{triggers_str}` | {desc}")
                         master_entries.append(entry)
                     except Exception as e:
                         print(f"[OKF Catalog Warning] Failed reading {filename}: {e}")

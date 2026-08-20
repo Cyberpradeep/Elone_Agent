@@ -1,0 +1,203 @@
+============================================================
+  SOP INGESTION PIPELINE — CONVERTER INPUT AUDIT LOG
+============================================================
+  Source File:          testing_sop.docx
+  Source Absolute Path: D:\elone_ingestion\sop_ingestion_standalone\knowledge_base\_uploads\testing_sop.docx
+  SOP Slug:             TESTING-SOP
+  Character Count:      12194
+  Timestamp:            2026-08-19 12:45:58
+============================================================
+
+--- ENRICHED SOP TEXT SENT TO CONVERTER START ---
+Reset Your Password via the Self-Service Portal
+Purpose
+Employees who forget their password can restore access in minutes through the self-service portal, without opening a helpdesk ticket.
+Skipping the portal and calling the helpdesk directly adds ticket volume and delays access longer than the self-service flow.
+Procedure
+Inputs
+Company email address or employee ID
+Access to your registered mobile phone or backup email, for the verification code
+A modern web browser (Chrome, Edge, or Safari)
+Steps
+Step 1: Sign-in page opened
+Navigation: Browser address bar → passwordreset.corp.example.com
+Enter your company email address in the box, then select Next. ➡️ Trouble signing in? See the IT Help Center.
+
+### Visual Inspection Report (Image 1 (inline, following the text above)) [Confidence: 0.98 / High]:
+1.  SUMMARY
+    The image displays a web browser window showing a "Company Portal - Sign In" page, which prompts the user to enter their company email address to reset access to their work account.
+
+2.  DETAILED DESCRIPTION
+    The image shows a web browser interface, identifiable by the address bar at the top with standard macOS-style traffic light buttons (red, yellow, green) on the left. The main content area features a white card-like container centered on a light grey background.
+    Inside this container, the page title "Company Portal — Sign In" is prominently displayed. Below the title, there is a descriptive line of text: "Reset access to your work account".
+    Further down, a label "Company email address" is present, followed by a text input field. This input field contains placeholder text "j.employee@corp.example.com".
+    Below the input field, there is a blue button labeled "Next".
+    At the bottom of the white container, a link is visible, stating "Trouble signing in? See the IT Help Center".
+
+3.  EXTRACTED TEXT
+    passwordreset.corp.example.com
+    Company Portal — Sign In
+    Reset access to your work account
+    Company email address
+    j.employee@corp.example.com
+    Next
+    Trouble signing in? See the IT Help Center
+
+4.  ERRORS AND WARNINGS
+    none visible
+
+5.  LIKELY ISSUE CATEGORY AND SEVERITY
+    Account/authentication
+    Severity: Unknown
+    Reason: The image shows a standard sign-in or password reset page. No error or problem is visible in the screenshot itself, so the severity of any potential issue cannot be determined.
+
+6.  OBSERVED FACTS VS INFERENCE
+    OBSERVED FACTS:
+    *   The image displays a web browser window.
+    *   The URL in the address bar is `passwordreset.corp.example.com`.
+    *   The page title is "Company Portal — Sign In".
+    *   The page contains text "Reset access to your work account".
+    *   There is a text input field labeled "Company email address" with placeholder text "j.employee@corp.example.com".
+    *   A blue button labeled "Next" is present.
+    *   A link "Trouble signing in? See the IT Help Center" is visible.
+
+    INFERENCE:
+    *   The user is on a corporate portal's sign-in or password reset page.
+    *   The user is likely attempting to sign in or reset their password for a work account.
+    *   The page is awaiting input of a company email address.
+
+7.  CONFIDENCE SCORE & NOTES
+    CONFIDENCE SCORE: 0.98
+    CONFIDENCE LEVEL: High
+    CONFIDENCE REASON: The image is very clear, all text is perfectly legible, and the UI elements are distinct and easily identifiable. There is no ambiguity in the visual information presented.
+
+Step 2: Identity verified
+Navigation: Verify Your Identity screen → Send code button
+Pick SMS or email delivery, then enter the 6-digit code you receive. ⚠️ The code expires in 5 minutes — request a new one if it lapses.
+
+### Visual Inspection Report (Image 2 (inline, following the text above)) [Confidence: 0.90 / High]:
+VLM Analysis FAILED (non-retryable error): 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+
+Step 3: New password set
+Navigation: Create New Password screen → New Password / Confirm New Password fields
+Enter a new password that meets the company Password Policy (NIST SP 800-63B), then select Reset Password.
+
+### Visual Inspection Report (Image 3 (inline, following the text above)) [Confidence: 0.95 / High]:
+1.  **SUMMARY**
+    The image displays a web browser showing a "Create New Password" form, likely part of a password reset process, with both new password fields filled and indicating that the entered password meets the policy requirements.
+
+2.  **DETAILED DESCRIPTION**
+    *   **Application/Device**: The image shows a web browser interface, indicated by the address bar at the top and standard window control buttons (red, yellow, green circles, typical of macOS).
+    *   **Current Screen/State**: The screen presents a form titled "Create New Password".
+    *   **Overall Layout**: The main content is contained within a light grey, rounded-corner rectangular panel, centered on a slightly darker grey background.
+    *   **UI Elements**:
+        *   **Address Bar**: Located at the top, displaying the URL `passwordreset.corp.example.com/reset`.
+        *   **Page Title**: "Create New Password" is displayed in large, bold text.
+        *   **Input Fields**:
+            *   A field labeled "New password" is present, containing masked characters (dots).
+            *   A field labeled "Confirm new password" is present below the first, also containing masked characters (dots).
+        *   **Password Strength Indicator**: Below the "Confirm new password" field, a horizontal bar is visible, fully filled with green color.
+        *   **Status Text**: Below the green bar, the text "Strong — meets password policy" is displayed in green.
+        *   **Button**: A prominent blue button labeled "Reset Password" is located at the bottom of the form.
+    *   **Unusual Visual Conditions**: None visible. The form appears to be in a valid and ready-to-submit state.
+
+3.  **EXTRACTED TEXT**
+    passwordreset.corp.example.com/reset
+    Create New Password
+    New password
+    Confirm new password
+    Strong — meets password policy
+    Reset Password
+
+4.  **ERRORS AND WARNINGS**
+    none visible
+
+5.  **LIKELY ISSUE CATEGORY AND SEVERITY**
+    Unknown.
+    Severity: Unknown.
+    Reason: The image itself does not show any error, warning, or problematic state. The password reset form appears to be correctly filled and indicates a strong password that meets policy. Without further context from the customer, it's impossible to determine if there is an issue or what category it might fall under.
+
+6.  **OBSERVED FACTS VS INFERENCE**
+    OBSERVED FACTS:
+    *   The image shows a web page in a browser.
+    *   The URL is `passwordreset.corp.example.com/reset`.
+    *   The page title is "Create New Password".
+    *   There are two password input fields, both filled with masked characters.
+    *   A green password strength indicator bar is visible.
+    *   The text "Strong — meets password policy" is displayed in green.
+    *   A blue button labeled "Reset Password" is present.
+    *   No error messages, warnings, or failed states are visible on the page.
+
+    INFERENCE:
+    *   The user is on a password reset page.
+    *   The user has entered a new password and confirmed it.
+    *   The entered password meets the system's password policy requirements.
+    *   The form is ready for submission.
+    *   The domain `corp.example.com` suggests this might be an internal corporate system.
+
+7.  **CONFIDENCE SCORE & NOTES**
+    CONFIDENCE SCORE: 0.95
+    CONFIDENCE LEVEL: High
+    CONFIDENCE REASON: The image is very clear, all text is perfectly legible, and the UI elements are distinct and easily identifiable. The function of the page is unambiguous. The confidence is not 1.0 because the image alone does not convey the customer's actual problem, only the state of the application.
+
+Step 4: Reset confirmed
+A confirmation email arrives at your registered address. ✅ Sign in with the new password to confirm it worked.
+
+### Visual Inspection Report (Image 4 (inline, following the text above)) [Confidence: 1.00 / High]:
+1. SUMMARY
+The image displays a web browser showing a confirmation page titled "Password Reset Successful," indicating that a confirmation email has been sent and instructing the user to sign in with their new password.
+
+2. DETAILED DESCRIPTION
+*   **Application, Website, Operating System, Device, or Interface**: The image shows a web browser interface, identifiable by the address bar at the top and the window control buttons (red, yellow, green circles) typical of a macOS operating system. The website displayed is `passwordreset.corp.example.com/done`.
+*   **Current Screen, Page, Dialog, or State**: The browser is displaying a success page following a password reset operation.
+*   **Overall Layout and Important UI Elements**: The page has a light grey background. Centered on the page is a white rectangular panel with rounded corners, containing the main content.
+*   **Buttons, Menus, Fields, Icons, Notifications, Highlighted Areas**:
+    *   In the top-left of the white panel, there is a large green circular icon with a white checkmark inside it.
+    *   To the right of the icon, a prominent heading reads "Password Reset Successful".
+    *   Below the heading, two lines of text provide further details and instructions.
+*   **Unusual Visual Conditions or Changes**: None visible; the page indicates a successful operation.
+
+3. EXTRACTED TEXT
+passwordreset.corp.example.com/done
+Password Reset Successful
+A confirmation email has been sent to your registered address.
+Sign in with your new password to confirm access.
+
+4. ERRORS AND WARNINGS
+none visible
+
+5. LIKELY ISSUE CATEGORY AND SEVERITY
+*   **Category**: Unknown. The image itself shows a successful operation, not an issue. If the customer is reporting this image, the actual issue might be related to not receiving the confirmation email or inability to sign in, which would fall under Account/authentication or Email/notification.
+*   **Severity**: Unknown. The image shows a successful operation.
+*   **Reason**: The displayed page explicitly states "Password Reset Successful" and provides clear instructions for the next steps. No errors, warnings, or failed statuses are visible within the image.
+
+6. OBSERVED FACTS VS INFERENCE
+*   **OBSERVED FACTS**:
+    *   A web browser window is open, displaying a webpage.
+    *   The URL in the browser's address bar is `passwordreset.corp.example.com/done`.
+    *   A green circular icon with a white checkmark is present on the page.
+    *   The heading "Password Reset Successful" is displayed prominently.
+    *   The text "A confirmation email has been sent to your registered address." is visible.
+    *   The text "Sign in with your new password to confirm access." is visible.
+    *   The page content is contained within a white, rounded-corner panel against a light grey background.
+    *   The browser window features macOS-style window controls (red, yellow, green circles).
+*   **INFERENCE**:
+    *   The user has successfully completed a password reset process for an account associated with `corp.example.com`.
+    *   The system has sent a confirmation email to the user's registered email address.
+    *   The user is expected to use their newly set password to log in and confirm access.
+
+7. CONFIDENCE SCORE & NOTES
+CONFIDENCE SCORE: 1.0
+CONFIDENCE LEVEL: High
+CONFIDENCE REASON: The image is exceptionally clear, all text is perfectly legible, and the visual elements are unambiguous, allowing for a precise description and interpretation.
+
+Outputs
+User successfully signs in with the new password
+Confirmation email received at the registered address
+✅ No helpdesk ticket required
+FAQs
+Q: What if I don't receive the verification code?
+Check your spam folder and wait two minutes before requesting a resend. If it still doesn't arrive, contact IT Support.
+Q: What if I no longer have access to my registered phone or backup email?
+Self-service reset isn't possible without a verification channel. Open a ticket with IT Support so they can verify your identity manually.
+--- ENRICHED SOP TEXT SENT TO CONVERTER END ---

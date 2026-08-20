@@ -1,0 +1,91 @@
+{
+  "2026-08-20": {
+    "date": "2026-08-20",
+    "total_calls": 6,
+    "max_daily_calls": 50,
+    "calls_remaining": 44,
+    "gemini_calls": 3,
+    "nvidia_vision_calls": 0,
+    "mistral_calls": 3,
+    "total_input_tokens": 26849,
+    "total_output_tokens": 7729,
+    "total_image_tokens": 0,
+    "total_tokens": 34578,
+    "total_cost_usd": 0.064072,
+    "total_cost_inr": 5.5743,
+    "call_history": [
+      {
+        "timestamp": "2026-08-20 16:02:15",
+        "caller": "test_runner",
+        "provider": "gemini",
+        "model": "gemini-2.5-flash",
+        "sop_id": "TEST-SOP-001",
+        "input_tokens": 5000,
+        "output_tokens": 1000,
+        "image_tokens": 0,
+        "cost_usd": 0.004,
+        "cost_inr": 0.348
+      },
+      {
+        "timestamp": "2026-08-20 16:09:12",
+        "caller": "test_runner",
+        "provider": "gemini",
+        "model": "gemini-2.5-flash",
+        "sop_id": "TEST-SOP-001",
+        "input_tokens": 5000,
+        "output_tokens": 1000,
+        "image_tokens": 0,
+        "cost_usd": 0.004,
+        "cost_inr": 0.348
+      },
+      {
+        "timestamp": "2026-08-20 16:10:36",
+        "caller": "execution_planning",
+        "provider": "mistral",
+        "model": "mistral-large-latest",
+        "sop_id": "DUMMY-INVALID-SOP",
+        "input_tokens": 3552,
+        "output_tokens": 382,
+        "image_tokens": 0,
+        "cost_usd": 0.009396,
+        "cost_inr": 0.8175
+      },
+      {
+        "timestamp": "2026-08-20 16:10:36",
+        "caller": "test_runner",
+        "provider": "gemini",
+        "model": "gemini-2.5-flash",
+        "sop_id": "TEST-SOP-001",
+        "input_tokens": 5000,
+        "output_tokens": 1000,
+        "image_tokens": 0,
+        "cost_usd": 0.004,
+        "cost_inr": 0.348
+      },
+      {
+        "timestamp": "2026-08-20 16:12:42",
+        "caller": "execution_planning",
+        "provider": "mistral",
+        "model": "mistral-large-latest",
+        "sop_id": "SOP-SOFTWARE-APPLICA",
+        "input_tokens": 4999,
+        "output_tokens": 3614,
+        "image_tokens": 0,
+        "cost_usd": 0.031682,
+        "cost_inr": 2.7563
+      },
+      {
+        "timestamp": "2026-08-20 16:13:01",
+        "caller": "planning_validation",
+        "provider": "mistral",
+        "model": "mistral-large-latest",
+        "sop_id": null,
+        "input_tokens": 3298,
+        "output_tokens": 733,
+        "image_tokens": 0,
+        "cost_usd": 0.010994,
+        "cost_inr": 0.9565
+      }
+    ]
+  }
+}

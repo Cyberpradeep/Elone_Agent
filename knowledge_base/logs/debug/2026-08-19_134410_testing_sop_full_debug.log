@@ -1,0 +1,57 @@
+Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY.
+Traceback (most recent call last):
+  File "D:\elone_ingestion\sop_ingestion_standalone\debug_run.py", line 127, in <module>
+    main()
+  File "D:\elone_ingestion\sop_ingestion_standalone\debug_run.py", line 103, in main
+    okf_path, metadata = convert_raw_sop_to_okf(target_path, override_sop_id=args.sop_id)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\elone_ingestion\sop_ingestion_standalone\core\jit_converter.py", line 109, in convert_raw_sop_to_okf
+    draft = plan_okf_from_raw(raw_filepath, override_sop_id=override_sop_id)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\elone_ingestion\sop_ingestion_standalone\core\jit_converter.py", line 168, in plan_okf_from_raw
+    report_text, image_ref = analyze_and_save_image(seg["bytes"], seg["mime_type"], label, sop_slug, image_index)
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\elone_ingestion\sop_ingestion_standalone\core\vlm_inspector.py", line 176, in analyze_and_save_image
+    report_text = analyze_image_bytes(image_bytes, mime_type)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\elone_ingestion\sop_ingestion_standalone\core\vlm_inspector.py", line 131, in analyze_image_bytes
+    res = llm.invoke([message])
+          ^^^^^^^^^^^^^^^^^^^^^
+  File "D:\elone_ingestion\sop_ingestion_standalone\.venv\Lib\site-packages\langchain_google_genai\chat_models.py", line 2791, in invoke
+    return super().invoke(input, config, stop=stop, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\elone_ingestion\sop_ingestion_standalone\.venv\Lib\site-packages\langchain_core\language_models\chat_models.py", line 476, in invoke
+    self.generate_prompt(
+  File "D:\elone_ingestion\sop_ingestion_standalone\.venv\Lib\site-packages\langchain_core\language_models\chat_models.py", line 1865, in generate_prompt
+    return self.generate(prompt_messages, stop=stop, callbacks=callbacks, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\elone_ingestion\sop_ingestion_standalone\.venv\Lib\site-packages\langchain_core\language_models\chat_models.py", line 1672, in generate
+    self._generate_with_cache(
+  File "D:\elone_ingestion\sop_ingestion_standalone\.venv\Lib\site-packages\langchain_core\language_models\chat_models.py", line 2010, in _generate_with_cache
+    result = self._generate(
+             ^^^^^^^^^^^^^^^
+  File "D:\elone_ingestion\sop_ingestion_standalone\.venv\Lib\site-packages\langchain_google_genai\chat_models.py", line 3389, in _generate
+    response: GenerateContentResponse = self.client.models.generate_content(
+                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\elone_ingestion\sop_ingestion_standalone\.venv\Lib\site-packages\google\genai\models.py", line 6590, in generate_content
+    response = self._generate_content(
+               ^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\elone_ingestion\sop_ingestion_standalone\.venv\Lib\site-packages\google\genai\models.py", line 5028, in _generate_content
+    response = self._api_client.request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\elone_ingestion\sop_ingestion_standalone\.venv\Lib\site-packages\google\genai\_api_client.py", line 1747, in request
+    response = self._request(http_request, http_options, stream=False)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\elone_ingestion\sop_ingestion_standalone\.venv\Lib\site-packages\google\genai\_api_client.py", line 1532, in _request
+    return retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\elone_ingestion\sop_ingestion_standalone\.venv\Lib\site-packages\tenacity\__init__.py", line 480, in __call__
+    self.sleep(do)
+  File "D:\elone_ingestion\sop_ingestion_standalone\.venv\Lib\site-packages\tenacity\nap.py", line 31, in sleep
+    time.sleep(seconds)
+KeyboardInterrupt
+ance/resource, Display/rendering, Unknown.\n   Assess likely severity as: Critical, High, Medium, Low, or Unknown.\n   Briefly state the reason.\n\n6. OBSERVED FACTS VS INFERENCE\n   Provide bullet points clearly separated into:\n   OBSERVED FACTS: Only what is directly visible.\n   INFERENCE: Reasonable technical interpretations based on observed facts.\n\n7. CONFIDENCE SCORE & NOTES\n   State your confidence in interpreting this image using this exact format:\n   CONFIDENCE SCORE: [Decimal between 0.0 and 1.0, e.g., 0.95]\n   CONFIDENCE LEVEL: [High / Medium / Low]\n   CONFIDENCE REASON: [Brief explanation of visual clarity, text legibility, or missing context]\n\n\nAnalyze this image for an L1 support agent."
+  ]
+}
+[31;1m[1;3m[llm/error][0m [1m[llm:ChatGoogleGenerativeAI] [23.90s] LLM run errored with error:
+[0m"KeyboardInterrupt()Traceback (most recent call last):\n\n\n  File \"D:\\elone_ingestion\\sop_ingestion_standalone\\.venv\\Lib\\site-packages\\langchain_core\\language_models\\chat_models.py\", line 1672, in generate\n    self._generate_with_cache(\n\n\n  File \"D:\\elone_ingestion\\sop_ingestion_standalone\\.venv\\Lib\\site-packages\\langchain_core\\language_models\\chat_models.py\", line 2010, in _generate_with_cache\n    result = self._generate(\n             ^^^^^^^^^^^^^^^\n\n\n  File \"D:\\elone_ingestion\\sop_ingestion_standalone\\.venv\\Lib\\site-packages\\langchain_google_genai\\chat_models.py\", line 3389, in _generate\n    response: GenerateContentResponse = self.client.models.generate_content(\n                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n\n  File \"D:\\elone_ingestion\\sop_ingestion_standalone\\.venv\\Lib\\site-packages\\google\\genai\\models.py\", line 6590, in generate_content\n    response = self._generate_content(\n               ^^^^^^^^^^^^^^^^^^^^^^^\n\n\n  File \"D:\\elone_ingestion\\sop_ingestion_standalone\\.venv\\Lib\\site-packages\\google\\genai\\models.py\", line 5028, in _generate_content\n    response = self._api_client.request(\n               ^^^^^^^^^^^^^^^^^^^^^^^^^\n\n\n  File \"D:\\elone_ingestion\\sop_ingestion_standalone\\.venv\\Lib\\site-packages\\google\\genai\\_api_client.py\", line 1747, in request\n    response = self._request(http_request, http_options, stream=False)\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n\n  File \"D:\\elone_ingestion\\sop_ingestion_standalone\\.venv\\Lib\\site-packages\\google\\genai\\_api_client.py\", line 1532, in _request\n    return retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n\n  File \"D:\\elone_ingestion\\sop_ingestion_standalone\\.venv\\Lib\\site-packages\\tenacity\\__init__.py\", line 480, in __call__\n    self.sleep(do)\n\n\n  File \"D:\\elone_ingestion\\sop_ingestion_standalone\\.venv\\Lib\\site-packages\\tenacity\\nap.py\", line 31, in sleep\n    time.sleep(seconds)\n\n\nKeyboardInterrupt"

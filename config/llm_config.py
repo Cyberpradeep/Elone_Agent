@@ -22,21 +22,21 @@ load_dotenv()
 ROLE_PROVIDER_MAP = {
     "execution_planning": {
         "provider": "gemini",
-        "model": "gemini-2.5-flash",
+        "model": "gemini-3.7-flash",
         "fallbacks": [
-            {"provider": "mistral", "model": "mistral-large-latest"},
+            {"provider": "gemini", "model": "gemini-2.5-flash"},
         ],
     },
     "planning_validation": {
-        "provider": "gemini",
-        "model": "gemini-2.5-flash",
+        "provider": "mistral",
+        "model": "mistral-large-latest",
         "fallbacks": [
-            {"provider": "mistral", "model": "mistral-large-latest"},
+            {"provider": "gemini", "model": "gemini-2.5-flash"},
         ],
     },
     "vlm_image_analysis": {
-        "provider": "gemini",
-        "model": "gemini-2.5-flash",
+        "provider": "nvidia",
+        "model": "meta/llama-3.2-11b-vision-instruct",
     },
 }
 
@@ -47,6 +47,14 @@ ROLE_PROVIDER_MAP = {
 
 def _build_gemini_client(model: str, temperature: float = 0.2):
     from langchain_google_genai import ChatGoogleGenerativeAI
+    try:
+        # pyrefly: ignore [missing-import]
+        from gemini_monitor.monitor import check_daily_limit
+        check_daily_limit("gemini")
+    except Exception as e:
+        # Re-raise quota exceeded errors directly
+        if "Quota" in type(e).__name__ or "DailyQuotaExceededError" in str(type(e)):
+            raise e
 
     api_key = os.environ.get("GOOGLE_API_KEY")
     if not api_key:
@@ -112,6 +120,12 @@ def _build_groq_client(model: str, temperature: float = 0.2):
             temperature=temperature,
         )
 
+from langchain_nvidia_ai_endpoints import ChatNVIDIA
+
+def _build_nvidia_client(model: str, temperature: float = 0.2):
+    api_key = os.environ.get("NVIDIA_API_KEY")
+    return ChatNVIDIA(model=model, nvidia_api_key=api_key, temperature=temperature, max_completion_tokens=4096)
+
 
 _BUILDERS = {
     "gemini": _build_gemini_client,
@@ -120,6 +134,7 @@ _BUILDERS = {
     "mistral3": _build_mistral_client3,
     "openrouter": _build_openrouter_client,
     "groq": _build_groq_client,
+    "nvidia": _build_nvidia_client,
 }
 
 

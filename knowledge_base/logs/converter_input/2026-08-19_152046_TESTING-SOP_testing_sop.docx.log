@@ -1,0 +1,377 @@
+============================================================
+  SOP INGESTION PIPELINE — CONVERTER INPUT AUDIT LOG
+============================================================
+  Source File:          testing_sop.docx
+  Source Absolute Path: D:\elone_ingestion\sop_ingestion_standalone\knowledge_base\_uploads\testing_sop.docx
+  SOP Slug:             TESTING-SOP
+  Character Count:      17637
+  Timestamp:            2026-08-19 15:20:46
+============================================================
+
+--- ENRICHED SOP TEXT SENT TO CONVERTER START ---
+Reset Your Password via the Self-Service Portal
+Purpose
+Employees who forget their password can restore access in minutes through the self-service portal, without opening a helpdesk ticket.
+Skipping the portal and calling the helpdesk directly adds ticket volume and delays access longer than the self-service flow.
+Procedure
+Inputs
+Company email address or employee ID
+Access to your registered mobile phone or backup email, for the verification code
+A modern web browser (Chrome, Edge, or Safari)
+Steps
+Step 1: Sign-in page opened
+Navigation: Browser address bar → passwordreset.corp.example.com
+Enter your company email address in the box, then select Next. ➡️ Trouble signing in? See the [IT Help Center](https://support.microsoft.com/en-US/accounts-billing/manage/reset-a-forgotten-microsoft-account-password).
+
+### Visual Inspection Report (Image 1 (inline, following the text above)) [Confidence: 0.98 / High]:
+**1. SUMMARY**  
+The image shows a web browser displaying the “Company Portal — Sign In” page for password reset, with a field pre‑filled with an example email address and a “Next” button.
+
+**2. DETAILED DESCRIPTION**  
+- **Application/Interface:** A macOS‑style browser window (red, yellow, green control buttons visible at top left).  
+- **URL:** `passwordreset.corp.example.com` shown in the address bar.  
+- **Page Content:** A centered white card titled “Company Portal — Sign In”.  
+- **Layout:**  
+  - Sub‑heading: “Reset access to your work account”.  
+  - Label: “Company email address”.  
+  - Input field containing the text `j.employee@corp.example.com`.  
+  - Blue rectangular button labeled “Next”.  
+  - Small blue link below the button: “Trouble signing in? See the IT Help Center”.  
+- **Visual Elements:** No error banners, pop‑ups, or loading indicators are present. The background of the page is a light gray.
+
+**3. EXTRACTED TEXT**  
+```
+passwordreset.corp.example.com
+Company Portal — Sign In
+Reset access to your work account
+Company email address
+j.employee@corp.example.com
+Next
+Trouble signing in? See the IT Help Center
+```
+
+**4. ERRORS AND WARNINGS**  
+none visible
+
+**5. LIKELY ISSUE CATEGORY AND SEVERITY**  
+- **Category:** Account/authentication  
+- **Severity:** Medium  
+- **Reason:** The user is on a password‑reset sign‑in screen, indicating an authentication problem that prevents access to the work account.
+
+**6. OBSERVED FACTS VS INFERENCE**  
+
+*OBSERVED FACTS:*  
+- The browser window shows the URL `passwordreset.corp.example.com`.  
+- The page title is “Company Portal — Sign In”.  
+- The sub‑text states “Reset access to your work account”.  
+- The email field contains the placeholder/example email `j.employee@corp.example.com`.  
+- A blue “Next” button is present and appears clickable.  
+- A link offers help for signing‑in trouble.  
+
+*INFERENCE:*  
+- The user is attempting to reset or regain access to a corporate work account.  
+- The presence of a pre‑filled email suggests the system may be auto‑populating the field or the user has entered an example address.  
+- No explicit error message is shown, so the issue may be that the user cannot proceed (e.g., invalid email, missing verification step) rather than a visible error.
+
+**7. CONFIDENCE SCORE & NOTES**  
+CONFIDENCE SCORE: 0.98  
+CONFIDENCE LEVEL: High  
+CONFIDENCE REASON: The visual elements (URL, UI components, text) are clear and fully legible; no ambiguous or missing information affects the analysis.
+
+Step 2: Identity verified
+Navigation: Verify Your Identity screen → Send code button
+Pick SMS or email delivery, then enter the 6-digit code you receive. ⚠️ The code expires in 5 minutes — request a new one if it lapses.
+
+### Visual Inspection Report (Image 2 (inline, following the text above)) [Confidence: 0.90 / High]:
+**1. SUMMARY**  
+The image displays a web page titled “Verify Your Identity” where a user can request a 6‑digit verification code via SMS or Email and then enter the code to proceed.
+
+**2. DETAILED DESCRIPTION**  
+- **Application/Interface:** A web browser (macOS window controls visible) loading a page from `passwordreset.corp.example.com/verify`.  
+- **Current Screen/State:** A modal‑style form centered on a light‑gray background. The form is for identity verification during a password reset flow.  
+- **Layout & UI Elements:**  
+  - Header “Verify Your Identity” in bold.  
+  - Instruction text: “Choose how you’d like to receive your code”.  
+  - Two radio‑button options: “Send code via SMS” (selected, blue outline) and “Send code via Email” (unselected).  
+  - Input field labeled “6-digit code” with placeholder dots indicating a numeric entry.  
+  - Blue “Verify” button below the input field.  
+  - Footer text in orange: “Code expires in 5 minutes”.  
+- **Visual Highlights:** The “Send code via SMS” option is visually emphasized (blue border). No other error highlights or loading indicators are present.
+
+**3. EXTRACTED TEXT**  
+```
+passwordreset.corp.example.com/verify
+
+Verify Your Identity
+
+Choose how you'd like to receive your code
+
+● Send code via SMS   ○ Send code via Email
+
+6-digit code
+
+Verify
+
+Code expires in 5 minutes
+```
+
+**4. ERRORS AND WARNINGS**  
+- “Code expires in 5 minutes” (informational warning about code validity).
+
+**5. LIKELY ISSUE CATEGORY AND SEVERITY**  
+- **Category:** Account/authentication  
+- **Severity:** Medium  
+- **Reason:** The screen is part of a password reset verification flow; the user must successfully enter a code to continue. Failure to receive or enter the code blocks progress but does not indicate a critical system outage.
+
+**6. OBSERVED FACTS VS INFERENCE**  
+
+*OBSERVED FACTS*  
+- The browser window shows macOS traffic light buttons (red, yellow, green).  
+- The URL bar contains `passwordreset.corp.example.com/verify`.  
+- The page title is “Verify Your Identity”.  
+- Two radio‑button choices are present; “Send code via SMS” is selected.  
+- There is an input field for a 6‑digit code with placeholder dots.  
+- A blue “Verify” button is visible.  
+- Text at the bottom states “Code expires in 5 minutes”.  
+
+*INFERENCE*  
+- The user is in the middle of a password reset process that requires identity verification.  
+- The selected “SMS” option suggests the system will send the code via text message, though no confirmation of delivery is shown.  
+- The presence of the expiration notice implies the user must act within the 5‑minute window, otherwise the code becomes invalid.
+
+**7. CONFIDENCE SCORE & NOTES**  
+- **CONFIDENCE SCORE:** 0.96  
+- **CONFIDENCE LEVEL:** High  
+- **CONFIDENCE REASON:** The visual elements (URL, UI components, text) are clear and fully legible; no ambiguous or missing parts affect the ability to describe the screen accurately.
+
+Step 3: New password set
+Navigation: Create New Password screen → New Password / Confirm New Password fields
+Enter a new password that meets the company [Password Policy (NIST SP 800-63B)](https://pages.nist.gov/800-63-4/sp800-63b.html), then select Reset Password.
+
+### Visual Inspection Report (Image 3 (inline, following the text above)) [Confidence: 0.96 / High]:
+**1. SUMMARY**  
+The image shows a web‑based “Create New Password” form on the URL `passwordreset.corp.example.com/reset`. Both password fields are filled (masked), the strength indicator shows the password is strong and meets policy, and a “Reset Password” button is available.
+
+**2. DETAILED DESCRIPTION**  
+- **Application/Interface:** A browser window (macOS style with red, yellow, green traffic‑light buttons) displaying a corporate password‑reset page.  
+- **Current Screen/State:** The “Create New Password” dialog/page. The user has entered a new password and confirmed it.  
+- **Layout & UI Elements:**  
+  - A white card centered on a light‑gray background.  
+  - Heading “Create New Password” in bold.  
+  - Two input fields labeled “New password” and “Confirm new password”, each containing masked characters (dots).  
+  - A horizontal progress bar beneath the fields; the left portion is green (≈75 % filled) and the right portion is gray.  
+  - Text below the bar: “Strong — meets password policy” in green.  
+  - A blue rectangular button labeled “Reset Password”.  
+- **Visual Conditions:** No error messages, pop‑ups, or loading indicators are visible. All elements appear fully rendered and interactive.
+
+**3. EXTRACTED TEXT**  
+```
+passwordreset.corp.example.com/reset
+Create New Password
+New password
+Confirm new password
+Strong — meets password policy
+Reset Password
+```
+
+**4. ERRORS AND WARNINGS**  
+none visible
+
+**5. LIKELY ISSUE CATEGORY AND SEVERITY**  
+- **Category:** Account/authentication  
+- **Severity:** Low  
+- **Reason:** The user is at the final step of a password reset; the password strength indicator confirms the password complies with policy, and no error or failure is shown.
+
+**6. OBSERVED FACTS VS INFERENCE**  
+
+*OBSERVED FACTS*  
+- Browser address bar shows `passwordreset.corp.example.com/reset`.  
+- Page title/heading is “Create New Password”.  
+- Two input fields contain masked characters (dots), indicating text entry.  
+- A green progress bar with the caption “Strong — meets password policy” is displayed.  
+- A blue “Reset Password” button is present and appears clickable.  
+
+*INFERENCE*  
+- The user has successfully entered a password that satisfies the system’s complexity requirements.  
+- The “Reset Password” button is likely enabled and ready to submit the new credentials.  
+- No visible error indicates a problem with the current input; the process appears to be proceeding normally.
+
+**7. CONFIDENCE SCORE & NOTES**  
+CONFIDENCE SCORE: 0.96  
+CONFIDENCE LEVEL: High  
+CONFIDENCE REASON: The visual elements (URL, form fields, strength indicator, button) are clearly legible and fully rendered; no ambiguity or missing context is present.
+
+Step 4: Reset confirmed
+A confirmation email arrives at your registered address. ✅ Sign in with the new password to confirm it worked.
+
+### Visual Inspection Report (Image 4 (inline, following the text above)) [Confidence: 0.98 / High]:
+**1. SUMMARY**  
+The screenshot shows a web page confirming that a password reset has been completed successfully.
+
+**2. DETAILED DESCRIPTION**  
+- **Application/Interface:** A web browser displaying a URL `passwordreset.corp.example.com/done`. The page appears to be a corporate password‑reset confirmation screen.  
+- **Current Screen/State:** A success message page indicating the password reset process is finished.  
+- **Layout & UI Elements:**  
+  - A white rectangular card centered on a light gray background.  
+  - Inside the card, on the left, a green circle containing a white check‑mark icon.  
+  - To the right of the icon, a bold heading “Password Reset Successful”.  
+  - Below the heading, two lines of body text providing instructions.  
+  - No visible buttons, links, or additional controls on this screen.  
+
+**3. EXTRACTED TEXT**  
+Password Reset Successful  
+A confirmation email has been sent to your registered address.  
+Sign in with your new password to confirm access.  
+
+**4. ERRORS AND WARNINGS**  
+none visible  
+
+**5. LIKELY ISSUE CATEGORY AND SEVERITY**  
+- **Category:** Account/authentication  
+- **Severity:** Low  
+- **Reason:** The page explicitly states that the password reset was successful; there is no error or problem indicated, only a confirmation step for the user.
+
+**6. OBSERVED FACTS VS INFERENCE**  
+
+*OBSERVED FACTS:*  
+- The browser address bar shows `passwordreset.corp.example.com/done`.  
+- A green check‑mark icon is displayed.  
+- The heading reads “Password Reset Successful”.  
+- The body text states a confirmation email was sent and instructs the user to sign in with the new password.  
+
+*INFERENCE:*  
+- The user has likely initiated a password reset request prior to reaching this page.  
+- The system has processed the request and sent the email; the user now needs to check their email and set a new password.  
+- No technical failure or error is evident from the visible content.
+
+**7. CONFIDENCE SCORE & NOTES**  
+CONFIDENCE SCORE: 0.98  
+CONFIDENCE LEVEL: High  
+CONFIDENCE REASON: The page content is fully legible, the URL is clear, and the success message is unambiguous; no visual ambiguities or missing information affect interpretation.
+
+Outputs
+User successfully signs in with the new password
+Confirmation email received at the registered address
+✅ No helpdesk ticket required
+FAQs
+Q: What if I don't receive the verification code?
+Check your spam folder and wait two minutes before requesting a resend. If it still doesn't arrive, contact [IT Support](https://support.microsoft.com/contactus).
+Q: What if I no longer have access to my registered phone or backup email?
+Self-service reset isn't possible without a verification channel. Open a ticket with IT Support so they can verify your identity manually.
+
+## LINKED REFERENCE KNOWLEDGE (Scraped from embedded SOP URLs):
+### Reference Web Page [https://support.microsoft.com/en-US/accounts-billing/manage/reset-a-forgotten-microsoft-account-password]:
+URL: https://support.microsoft.com/en-US/accounts-billing/manage/reset-a-forgotten-microsoft-account-password
+Status Code: 200
+
+--- SCRAPED MARKDOWN CONTENT START ---
+Skip to main content
+
+[![](https://uhf.microsoft.com/images/microsoft/RE1Mu3b.png)
+Microsoft](https://www.microsoft.com)
+
+Support
+
+[Support](https://support.microsoft.com/en-us)
+
+Support
+
+* [Home](https://support.microsoft.com/en-us)
+* [Microsoft 365](https://www.microsoft.com/microsoft-365?ocid=cmmttvzgpuy)
+* [Office](https://www.microsoft.com/microsoft-365/microsoft-office?ocid=cmml7tr0rib)
+* Products
+  + [Microsoft 365](https://support.microsoft.com/en-us/microsoft-365/)
+  + [Outlook](https://support.microsoft.com/en-us/outlook/)
+  + [Microsoft Teams](https://support.microsoft.com/en-us/teams/)
+  + [OneDrive](https://support.microsoft.com/en-us/onedrive/)
+  + [Microsoft Copilot](https://support.microsoft.com/en-us/microsoft-copilot/)
+  + [OneNote](https://support.microsoft.com/en-us/onenote/)
+  + [Windows](https://support.microsoft.com/en-us/windows/)
+  + [more ...](https://support.microsoft.com/en-us/all-products-list)
+* Devices
+  + [Surface](https://support.microsoft.com/en-us/surface/)
+  + [PC Accessories](https://support.microsoft.com/en-us/surface/accessories/pc/)
+  + [Xbox](https://support.xbox.com/)
+  + [PC Gaming](https://support.xbox.com/help/games-apps/my-games-apps/all-about-pc-gaming)
+  + [HoloLens](https://docs.microsoft.com/hololens/)
+  + [Surface Hub](https://learn.microsoft.com/surface-hub/)
+ 
+
+### Reference Web Page [https://pages.nist.gov/800-63-4/sp800-63b.html]:
+URL: https://pages.nist.gov/800-63-4/sp800-63b.html
+Status Code: 200
+
+--- SCRAPED MARKDOWN CONTENT START ---
+* [Home](/800-63-4/)
+* [SP 800-63](/800-63-4/sp800-63.html)
+* [SP 800-63A](/800-63-4/sp800-63a.html)
+* [SP 800-63B](/800-63-4/sp800-63b.html)
+  + [Abstract](/800-63-4/sp800-63b.html#abstract)
+  + [Preface](/800-63-4/sp800-63b.html#preface)
+  + [1Introduction](/800-63-4/sp800-63b.html#introduction)
+  + [2AAL](/800-63-4/sp800-63b.html#AAL_SEC4)
+  + [3Authenticators](/800-63-4/sp800-63b.html#AAL_SEC5)
+  + [4Events](/800-63-4/sp800-63b.html#sec6)
+  + [5Session](/800-63-4/sp800-63b.html#sec7)
+  + [6Security](/800-63-4/sp800-63b.html#sec8)
+  + [7Privacy](/800-63-4/sp800-63b.html#privacy)
+  + [8Customer Experience](/800-63-4/sp800-63b.html#sec10)
+  + [References](/800-63-4/sp800-63b.html#references)
+  + [APasswords](/800-63-4/sp800-63b.html#appA)
+  + [BSyncable](/800-63-4/sp800-63b.html#appB)
+  + [CAbbreviations](/800-63-4/sp800-63b.html#abbr)
+  + [DGlossary](/800-63-4/sp800-63b.html#def-and-acr)
+  + [EChange Log](/800-63-4/sp800-63b.html#s-d)
+* [SP 800-63C](/800-63-4/sp800-63c.html)
+
+View this document as: **a single page** | [multiple pages](/800-63-4/sp800-63b/introduction/).
+
+Tue, 26 Aug 2025 08:51:12 -0500
+
+# ABSTRACT
+
+This guideline focuses on the authentication of subjects who interact with government information systems over networks to establish that a given claimant is a subscriber who has been previously authenticated. The result of the authentication process may b
+
+### Reference Web Page [https://support.microsoft.com/contactus]:
+URL: https://support.microsoft.com/contactus
+Status Code: 200
+
+--- SCRAPED MARKDOWN CONTENT START ---
+Skip to main content
+
+[![](https://uhf.microsoft.com/images/microsoft/RE1Mu3b.png)
+Microsoft](https://www.microsoft.com)
+
+Support
+
+[Support](/en-us/)
+
+Support
+
+* [Home](/en-us/)
+* [Microsoft 365](https://www.microsoft.com/microsoft-365?ocid=cmmttvzgpuy)
+* [Office](https://www.microsoft.com/microsoft-365/microsoft-office?ocid=cmml7tr0rib)
+* [Windows](https://www.microsoft.com/en-us/windows?ocid=smc_marvel_ups_support_uhfwindows)
+* [Surface](https://www.microsoft.com/surface)
+* [Xbox](https://www.xbox.com/)
+* [Deals](https://www.microsoft.com/en-us/store/b/sale?icid=TopNavDealsSale)
+* More
+* [Buy Microsoft 365](https://go.microsoft.com/fwlink/?linkid=849747)
+
+* All Microsoft
+  + ## Global
+
+    - [Microsoft 365](https://www.microsoft.com/microsoft-365)
+    - [Azure](https://azure.microsoft.com/en-us?ocid=cmm4r4ppnhp)
+    - [Copilot](https://copilot.com/?fromcode=cmmuaql67jy)
+    - [Windows](https://www.microsoft.com/en-us/windows/)
+    - [Surface](https://www.microsoft.com/surface)
+    - [XBOX](https://www.xbox.com/)
+    - [Deals](https://www.microsoft.com/en-us/store/b/sale?icid=DSM_TopNavDeals)
+    - [Small Business](https://www.microsoft.com/en-us/store/b/business)
+    - [Support](https://support.microsoft.com/en-us)
+  + Software
+    Software
+    - [Windows Apps](https://apps.microsoft.com/home)
+    - [Outlook](https://www.microsoft.com/en-us/microsoft-365/outlook/email-and-c
+--- ENRICHED SOP TEXT SENT TO CONVERTER END ---

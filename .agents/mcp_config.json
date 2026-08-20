@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "obsidian_vault": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "C:/Users/prade/Documents/Obsidian Vault",
+        "D:/elone_ingestion/sop_ingestion_standalone"
+      ]
+    }
+  }
+}

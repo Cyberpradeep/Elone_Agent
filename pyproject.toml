@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "elone-sop-ingestion"
+version = "1.0.0"
+description = "Autonomous JIT Human SOP to OKF Playbook Ingestion & 2-Layer Validation Engine"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+authors = [
+    { name = "Elone Agent Team" }
+]
+keywords = [
+    "sop",
+    "playbook",
+    "okf",
+    "langchain",
+    "mcp",
+    "vlm",
+    "automation",
+    "l1-support"
+]
+dependencies = [
+    "python-dotenv>=1.0.0",
+    "pyyaml>=6.0",
+    "python-frontmatter>=1.1.0",
+    "pydantic>=2.0",
+    "markitdown>=0.1.0",
+    "PyMuPDF>=1.24.0",
+    "python-docx>=1.1.0",
+    "requests>=2.28.0",
+    "langchain-core>=0.3.0",
+    "langchain-mistralai>=0.2.0",
+    "langchain-google-genai>=2.0.0",
+    "langchain-openai>=0.3.0",
+    "mcp>=1.0.0",
+]
+
+[project.optional-dependencies]
+groq = [
+    "langchain-groq>=0.2.0",
+]
+dev = [
+    "pytest>=7.0.0",
+]
+
+[project.scripts]
+elone-sop = "run:main"
+elone-sop-debug = "debug_run:main"
+elone-sop-mcp = "mcp_server:main"
+
+[tool.setuptools]
+py-modules = ["run", "debug_run", "scheduler", "mcp_server", "test_standalone"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["elone_sop*", "core*", "config*", "tools*", "prompts*"]

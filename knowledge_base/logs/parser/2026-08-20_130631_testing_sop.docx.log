@@ -1,0 +1,47 @@
+============================================================
+  SOP INGESTION PIPELINE — PARSER AUDIT LOG
+============================================================
+  Source File:          testing_sop.docx
+  Source Absolute Path: D:\elone_ingestion\sop_ingestion_standalone\knowledge_base\_uploads\testing_sop.docx
+  Parser Engine:        ordered_docx_walk
+  Character Count:      2014
+  Page Count:           N/A
+  Timestamp:            2026-08-20 13:06:31
+============================================================
+
+--- RAW EXTRACTED TEXT START ---
+Reset Your Password via the Self-Service Portal
+Purpose
+Employees who forget their password can restore access in minutes through the self-service portal, without opening a helpdesk ticket.
+Skipping the portal and calling the helpdesk directly adds ticket volume and delays access longer than the self-service flow.
+Procedure
+Inputs
+Company email address or employee ID
+Access to your registered mobile phone or backup email, for the verification code
+A modern web browser (Chrome, Edge, or Safari)
+Steps
+Step 1: Sign-in page opened
+Navigation: Browser address bar → passwordreset.corp.example.com
+Enter your company email address in the box, then select Next. ➡️ Trouble signing in? See the [IT Help Center](https://support.microsoft.com/en-US/accounts-billing/manage/reset-a-forgotten-microsoft-account-password).
+
+Step 2: Identity verified
+Navigation: Verify Your Identity screen → Send code button
+Pick SMS or email delivery, then enter the 6-digit code you receive. ⚠️ The code expires in 5 minutes — request a new one if it lapses.
+
+Step 3: New password set
+Navigation: Create New Password screen → New Password / Confirm New Password fields
+Enter a new password that meets the company [Password Policy (NIST SP 800-63B)](https://pages.nist.gov/800-63-4/sp800-63b.html), then select Reset Password.
+
+Step 4: Reset confirmed
+A confirmation email arrives at your registered address. ✅ Sign in with the new password to confirm it worked.
+
+Outputs
+User successfully signs in with the new password
+Confirmation email received at the registered address
+✅ No helpdesk ticket required
+FAQs
+Q: What if I don't receive the verification code?
+Check your spam folder and wait two minutes before requesting a resend. If it still doesn't arrive, contact [IT Support](https://support.microsoft.com/contactus).
+Q: What if I no longer have access to my registered phone or backup email?
+Self-service reset isn't possible without a verification channel. Open a ticket with IT Support so they can verify your identity manually.
+--- RAW EXTRACTED TEXT END ---

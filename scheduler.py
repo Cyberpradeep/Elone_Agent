@@ -15,10 +15,12 @@ version).
 import datetime
 import json
 import os
+import sys
 import threading
 import time
 from typing import Optional
 
+# pyrefly: ignore [missing-import]
 from core.jit_converter import convert_raw_sop_to_okf
 
 
@@ -44,6 +46,12 @@ _scheduler_state = {
 _scheduler_lock = threading.Lock()
 
 
+def _log(msg: str):
+    """Writes scheduler log messages safely to stderr so stdio MCP transport is not corrupted."""
+    sys.stderr.write(f"{msg}\n")
+    sys.stderr.flush()
+
+
 # ---------------------------------------------------------------------------
 # Manifest helpers
 # ---------------------------------------------------------------------------
@@ -55,7 +63,7 @@ def _load_manifest() -> dict:
             with open(MANIFEST_PATH, "r", encoding="utf-8") as f:
                 return json.load(f)
         except (json.JSONDecodeError, OSError) as e:
-            print(f"[SOP Scheduler] Warning: could not read manifest, starting fresh ({e})")
+            _log(f"[SOP Scheduler] Warning: could not read manifest, starting fresh ({e})")
     return {}
 
 
@@ -70,7 +78,7 @@ def _save_manifest(manifest: dict):
 # Core scan & convert cycle
 # ---------------------------------------------------------------------------
 
-def _run_ingestion_cycle():
+def run_ingestion_cycle() -> dict:
     """One full scan-and-convert pass over the uploads folder."""
     os.makedirs(UPLOADS_DIR, exist_ok=True)
 
@@ -82,7 +90,7 @@ def _run_ingestion_cycle():
     ]
 
     if not raw_files:
-        print("[SOP Scheduler] No raw SOP files found in _uploads/. Nothing to process.")
+        _log("[SOP Scheduler] No raw SOP files found in _uploads/. Nothing to process.")
         return {"processed": 0, "skipped": 0, "failed": 0, "details": []}
 
     manifest = _load_manifest()
@@ -106,12 +114,12 @@ def _run_ingestion_cycle():
             skipped += 1
             continue
 
-        # New or modified file → convert.
-        print(f"\n[SOP Scheduler] Processing: {filename} ...")
+        # New or modified file -> convert.
+        _log(f"\n[SOP Scheduler] Processing new/modified SOP: {filename} ...")
         try:
             okf_path, metadata = convert_raw_sop_to_okf(filepath)
             sop_id = metadata.get("sop_id", "UNKNOWN")
-            print(f"[SOP Scheduler] Successfully converted '{filename}' -> {os.path.basename(okf_path)} (SOP ID: {sop_id})")
+            _log(f"[SOP Scheduler] Successfully converted '{filename}' -> {os.path.basename(okf_path)} (SOP ID: {sop_id})")
 
             manifest[filename] = {
                 "status": "success",
@@ -124,7 +132,7 @@ def _run_ingestion_cycle():
             details.append({"file": filename, "status": "success", "sop_id": sop_id})
 
         except Exception as err:
-            print(f"[SOP Scheduler] Failed to convert '{filename}': {err}")
+            _log(f"[SOP Scheduler] Failed to convert '{filename}': {err}")
             manifest[filename] = {
                 "status": "failed",
                 "mtime": file_mtime,
@@ -137,7 +145,7 @@ def _run_ingestion_cycle():
     _save_manifest(manifest)
 
     summary = {"processed": processed, "skipped": skipped, "failed": failed, "details": details}
-    print(f"[SOP Scheduler] Cycle complete — Processed: {processed}, Skipped: {skipped}, Failed: {failed}")
+    _log(f"[SOP Scheduler] Cycle complete — Processed: {processed}, Skipped: {skipped}, Failed: {failed}")
     return summary
 
 
@@ -146,20 +154,19 @@ def _run_ingestion_cycle():
 # ---------------------------------------------------------------------------
 
 def _scheduler_loop(interval_minutes: int):
-    """Runs forever on a daemon thread, calling _run_ingestion_cycle every N minutes."""
+    """Runs forever on a daemon thread, calling run_ingestion_cycle every N minutes."""
     interval_seconds = interval_minutes * 60
 
-    # Run the first cycle immediately on startup so any pending files are
-    # processed without waiting for the first interval to elapse.
-    print(f"[SOP Scheduler] Running initial ingestion cycle on startup...")
+    # Run the first cycle immediately on startup so any pending files are processed.
+    _log(f"[SOP Scheduler] Running initial ingestion cycle on startup...")
     try:
-        summary = _run_ingestion_cycle()
+        summary = run_ingestion_cycle()
         with _scheduler_lock:
             _scheduler_state["last_run_at"] = datetime.datetime.now().isoformat()
             _scheduler_state["last_run_summary"] = summary
             _scheduler_state["total_runs"] += 1
     except Exception as e:
-        print(f"[SOP Scheduler] Error during initial cycle: {e}")
+        _log(f"[SOP Scheduler] Error during initial cycle: {e}")
 
     while True:
         next_run = datetime.datetime.now() + datetime.timedelta(seconds=interval_seconds)
@@ -168,15 +175,15 @@ def _scheduler_loop(interval_minutes: int):
 
         time.sleep(interval_seconds)
 
-        print(f"\n[SOP Scheduler] Scheduled cycle triggered at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        _log(f"\n[SOP Scheduler] Scheduled cycle triggered at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         try:
-            summary = _run_ingestion_cycle()
+            summary = run_ingestion_cycle()
             with _scheduler_lock:
                 _scheduler_state["last_run_at"] = datetime.datetime.now().isoformat()
                 _scheduler_state["last_run_summary"] = summary
                 _scheduler_state["total_runs"] += 1
         except Exception as e:
-            print(f"[SOP Scheduler] Error during scheduled cycle: {e}")
+            _log(f"[SOP Scheduler] Error during scheduled cycle: {e}")
 
 
 def start_sop_ingestion_scheduler(interval_minutes: Optional[int] = None):
@@ -188,13 +195,13 @@ def start_sop_ingestion_scheduler(interval_minutes: Optional[int] = None):
 
     with _scheduler_lock:
         if _scheduler_state["running"]:
-            print("[SOP Scheduler] Already running. Ignoring duplicate start request.")
+            _log("[SOP Scheduler] Already running. Ignoring duplicate start request.")
             return
         _scheduler_state["running"] = True
         _scheduler_state["interval_minutes"] = interval
 
-    print(f"[SOP Scheduler] Starting background worker. Scanning every {interval} minutes.")
-    print(f"[SOP Scheduler] Watching folder: {UPLOADS_DIR}")
+    _log(f"[SOP Scheduler] Starting background worker. Scanning every {interval} minutes.")
+    _log(f"[SOP Scheduler] Watching folder: {UPLOADS_DIR}")
 
     thread = threading.Thread(
         target=_scheduler_loop,
