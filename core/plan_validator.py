@@ -3,39 +3,16 @@ import re
 from typing import Tuple, List, Dict, Any
 from pydantic import BaseModel, Field
 
+# pyrefly: ignore [missing-import]
 from config.llm_config import get_llm
+# pyrefly: ignore [missing-import]
 from tools.tool_validator_helpers import validate_tool_step_schema
+# pyrefly: ignore [missing-import]
+from tools.platforms import find_platform_schema
+# pyrefly: ignore [missing-import]
 from prompts.validator_prompts import JIT_VALIDATOR_COT_SYSTEM_PROMPT
-
-class JITFaithfulnessInspectionResult(BaseModel):
-    command_preservation_reasoning: str = Field(
-        default="All CLI commands and API tool calls from raw text were verified in OKF steps.",
-        description="Reasoning verifying if all shell CLI commands and API tool calls from raw human text were preserved in OKF steps."
-    )
-    hallucination_check_reasoning: str = Field(
-        default="Zero extra CLI commands or API tool calls were fabricated.",
-        description="Reasoning checking if any extra shell CLI commands or API tool calls were fabricated."
-    )
-    fallback_referral_reasoning: str = Field(
-        default="Fallback commands and cross-SOP referrals were accurately extracted.",
-        description="Reasoning verifying if fallback commands and cross-SOP referrals were accurately extracted."
-    )
-    is_faithful: bool = Field(
-        default=True,
-        description="True if the converted OKF playbook is 100% faithful to the raw human SOP."
-    )
-    dropped_commands: list[str] = Field(
-        default_factory=list,
-        description="List of CLI commands or API tools present in raw text but missing from OKF steps."
-    )
-    hallucinated_commands: list[str] = Field(
-        default_factory=list,
-        description="List of CLI commands or API tools fabricated in OKF steps that were NOT in raw text."
-    )
-    validation_feedback: str = Field(
-        default="PASSED FAITHFULNESS INSPECTION",
-        description="Summary verdict: 'PASSED FAITHFULNESS INSPECTION' or detailed error list."
-    )
+# pyrefly: ignore [missing-import]
+from schemas import JITFaithfulnessInspectionResult
 
 
 def validate_plan_faithfulness_and_linkage(
@@ -64,8 +41,31 @@ def validate_plan_faithfulness_and_linkage(
         step_num = step.get("step_number")
         cmd = step.get("command")
         step_type = step.get("step_type", "command")
-        parse_instruction = step.get("output_parse_instruction") or ""
+        desc = (step.get("sop_step_description") or "").lower()
+        reasoning = (step.get("step_reasoning") or "").lower()
+        parse_instruction = step.get("output_parse_instruction") or step.get("parse_instruction") or ""
         execute_if = step.get("execute_if")
+
+        # Reject fabricated placeholder/dummy steps created to bypass validation
+        placeholder_markers = [
+            "placeholder step",
+            "satisfy schema validation",
+            "satisfy validation",
+            "dummy step",
+            "no procedural steps to match against",
+        ]
+        if any(marker in desc or marker in reasoning for marker in placeholder_markers):
+            errors.append(
+                f"Layer 1 Error: Step {idx} is a fabricated placeholder step created to bypass validation."
+            )
+
+        # Auto-normalize step_type if function_name is provided
+        if step_type != "tool_call" and step.get("function_name"):
+            target_plat = step.get("platform") or ""
+            matching_schema = find_platform_schema(target_plat) if target_plat else None
+            if matching_schema and any(fn.get("function_name") == step.get("function_name") for fn in matching_schema.get("functions", [])):
+                step["step_type"] = "tool_call"
+                step_type = "tool_call"
 
         # Check required command for command step_type
         if step_type == "command" and not cmd:
@@ -107,18 +107,92 @@ def validate_plan_faithfulness_and_linkage(
     print("[PlanValidator Layer 2] Layer 1 passed. Running LLM Faithfulness Inspection...")
     try:
         llm = get_llm("planning_validation", temperature=0)
-        prompt = JIT_VALIDATOR_COT_SYSTEM_PROMPT.format(
-            raw_sop_text=raw_sop_text[:3000],
-            converted_okf_steps=json.dumps(steps, indent=2)
+        prompt = (
+            JIT_VALIDATOR_COT_SYSTEM_PROMPT
+            .replace("{raw_sop_text}", raw_sop_text)
+            .replace("{converted_okf_steps}", json.dumps(steps, indent=2))
         )
-        res = llm.invoke([{"role": "system", "content": prompt}])
-        content = res.content if hasattr(res, "content") else str(res)
+        try:
+            # pyrefly: ignore [missing-import]
+            from gemini_monitor.monitor import check_daily_limit, record_call
+            check_daily_limit("gemini")
+        except Exception as q_err:
+            if "Quota" in type(q_err).__name__ or "DailyQuotaExceededError" in str(type(q_err)):
+                raise q_err
 
-        if "STATUS: INVALID" in content or '"is_faithful": false' in content.lower():
-            errors.append(f"Layer 2 Faithfulness Error: {content}")
-            return False, errors
+        res = llm.invoke([{"role": "system", "content": prompt}])
+
+        # Record token usage in gemini_monitor
+        in_tok = 0
+        out_tok = 0
+        if hasattr(res, "usage_metadata") and res.usage_metadata:
+            in_tok = res.usage_metadata.get("input_tokens", 0)
+            out_tok = res.usage_metadata.get("output_tokens", 0)
+        elif hasattr(res, "response_metadata") and res.response_metadata:
+            tu = res.response_metadata.get("token_usage", {})
+            in_tok = tu.get("prompt_tokens", 0)
+            out_tok = tu.get("completion_tokens", 0)
+
+        try:
+            # pyrefly: ignore [missing-import]
+            from gemini_monitor.monitor import record_call
+            record_call(
+                caller="planning_validation",
+                model="gemini-2.5-flash" if "gemini" in str(type(llm)).lower() else "mistral-large-latest",
+                provider="gemini" if "gemini" in str(type(llm)).lower() else "mistral",
+                input_tokens=in_tok,
+                output_tokens=out_tok,
+                sop_id=execution_plan.get("sop_id") if isinstance(execution_plan, dict) else None
+            )
+        except Exception as mon_err:
+            pass
+
+        content = res.content if hasattr(res, "content") else str(res)
+        if isinstance(content, list):
+            content = "".join([b.get("text", "") if isinstance(b, dict) else str(b) for b in content])
+
+        # Robust JSON codeblock extraction
+        match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", content, re.DOTALL)
+        json_str = match.group(1) if match else (
+            re.search(r"(\{.*\})", content, re.DOTALL).group(1) if re.search(r"(\{.*\})", content, re.DOTALL) else content.strip()
+        )
+
+        try:
+            parsed_json = json.loads(json_str)
+            inspection_result = JITFaithfulnessInspectionResult.model_validate(parsed_json)
+
+            verdict_str = "PASSED" if inspection_result.is_faithful else "FAILED"
+            print(
+                f"[PlanValidator Layer 2] Faithfulness Verdict: {verdict_str} | "
+                f"Confidence Score: {inspection_result.confidence_score:.2f} ({inspection_result.confidence_level}) | "
+                f"Reason: {inspection_result.confidence_reason}"
+            )
+
+            # Store validation details in execution plan metadata if dict
+            if isinstance(execution_plan, dict):
+                execution_plan["validation_confidence_score"] = inspection_result.confidence_score
+                execution_plan["validation_confidence_level"] = inspection_result.confidence_level
+                execution_plan["validation_confidence_reason"] = inspection_result.confidence_reason
+
+            if not inspection_result.is_faithful:
+                reasons = []
+                if inspection_result.dropped_commands:
+                    reasons.append(f"Dropped commands/actions: {inspection_result.dropped_commands}")
+                if inspection_result.hallucinated_commands:
+                    reasons.append(f"Fabricated/hallucinated commands: {inspection_result.hallucinated_commands}")
+                if inspection_result.validation_feedback and inspection_result.validation_feedback != "PASSED FAITHFULNESS INSPECTION":
+                    reasons.append(f"Feedback: {inspection_result.validation_feedback}")
+                
+                feedback_str = "; ".join(reasons) if reasons else "Playbook steps failed faithfulness inspection."
+                errors.append(f"Layer 2 Faithfulness Error: {feedback_str}")
+                return False, errors
+        except Exception as parse_err:
+            # Fallback if structured json parse failed: check explicit verdict lines
+            if re.search(r'"is_faithful"\s*:\s*false', content, re.IGNORECASE) or "STATUS: INVALID" in content:
+                errors.append(f"Layer 2 Faithfulness Error: {content[:300]}")
+                return False, errors
 
     except Exception as e:
-        print(f"[PlanValidator Layer 2 Info] LLM Faithfulness check completed ({e}). Layer 1 passed.")
+        print(f"[PlanValidator Layer 2 Warning] LLM Faithfulness check encountered an exception ({e}). Layer 1 passed.")
 
     return True, []

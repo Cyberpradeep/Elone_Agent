@@ -4,6 +4,7 @@ import datetime
 from typing import Tuple, Optional, List, Dict, Any
 from langchain_core.messages import HumanMessage
 
+# pyrefly: ignore [missing-import]
 from config.llm_config import get_llm
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -138,7 +139,7 @@ def _fallback_pdf_ocr(filepath: str) -> Tuple[str, str]:
 def _run_vision_ocr(doc, filepath: str) -> str:
     """Uses PyMuPDF to render pages to PNG images and Vision LLM to OCR transcribe."""
     try:
-        llm = get_llm("execution_planning", temperature=0)
+        llm = get_llm("vlm_image_analysis")
         full_ocr = []
 
         for idx, page in enumerate(doc):
@@ -173,11 +174,40 @@ def _run_vision_ocr(doc, filepath: str) -> str:
 # exactly as they appear in the source file, not text-then-all-images-at-end)
 # ---------------------------------------------------------------------------
 
+def _extract_p_text_with_hyperlinks(p_elem, doc) -> str:
+    """Extracts text from a w:p element preserving [text](url) markdown hyperlinks."""
+    from docx.oxml.ns import qn
+    parts = []
+    for child in p_elem:
+        tag = child.tag
+        if tag == qn("w:r"):
+            t = "".join(node.text or "" for node in child.iter(qn("w:t")))
+            if t:
+                parts.append(t)
+        elif tag == qn("w:hyperlink"):
+            r_id = child.get(qn("r:id"))
+            t = "".join(node.text or "" for node in child.iter(qn("w:t")))
+            if r_id and r_id in doc.part.rels:
+                url = doc.part.rels[r_id].target_ref
+                if t and url:
+                    parts.append(f"[{t}]({url})")
+                elif t:
+                    parts.append(t)
+            elif t:
+                parts.append(t)
+        elif tag not in (qn("w:pPr"),):
+            # Fallback for other nested run containers
+            t = "".join(node.text or "" for node in child.iter(qn("w:t")))
+            if t:
+                parts.append(t)
+    return "".join(parts)
+
+
 def _extract_ordered_docx(filepath: str) -> List[Dict[str, Any]]:
     """Walks a DOCX body in true document order (including inside tables),
-    returning text and inline image segments in the exact sequence Word
-    stores them. Each image segment appears right after the paragraph(s)
-    that precede it in the file.
+    returning text (with Markdown hyperlinks) and inline image segments in
+    the exact sequence Word stores them. Each image segment appears right
+    after the paragraph(s) that precede it in the file.
     """
     from docx import Document
     from docx.oxml.ns import qn
@@ -201,7 +231,7 @@ def _extract_ordered_docx(filepath: str) -> List[Dict[str, Any]]:
     for elem in doc.element.body.iter():
         tag = elem.tag
         if tag == qn("w:p"):
-            para_text = "".join(node.text or "" for node in elem.iter(qn("w:t")))
+            para_text = _extract_p_text_with_hyperlinks(elem, doc)
             if para_text.strip():
                 text_buffer.append(para_text)
         elif tag == qn("a:blip"):
@@ -229,7 +259,7 @@ def _extract_ordered_docx(filepath: str) -> List[Dict[str, Any]]:
 def _extract_ordered_pdf(filepath: str) -> List[Dict[str, Any]]:
     """Walks a PDF page-by-page, sorting each page's text and image blocks
     into top-to-bottom reading order so a screenshot stays interleaved with
-    the instruction text it illustrates instead of being pulled out separately.
+    the instruction text it illustrates. Preserves URI hyperlinks as Markdown.
     """
     import fitz  # PyMuPDF
 
@@ -239,6 +269,9 @@ def _extract_ordered_pdf(filepath: str) -> List[Dict[str, Any]]:
 
     for page_index in range(len(doc)):
         page = doc[page_index]
+        page_links = page.get_links() or []
+        uri_links = [l for l in page_links if l.get("kind") == fitz.LINK_URI and l.get("uri")]
+
         raw_blocks = page.get_text("dict").get("blocks", [])
         raw_blocks.sort(key=lambda b: (round(b.get("bbox", [0, 0, 0, 0])[1]), b.get("bbox", [0, 0, 0, 0])[0]))
 
@@ -246,9 +279,26 @@ def _extract_ordered_pdf(filepath: str) -> List[Dict[str, Any]]:
             if block.get("type") == 0:  # text block
                 lines_text = []
                 for line in block.get("lines", []):
-                    spans_text = "".join(span.get("text", "") for span in line.get("spans", []))
-                    if spans_text.strip():
-                        lines_text.append(spans_text)
+                    line_spans = []
+                    for span in line.get("spans", []):
+                        span_text = span.get("text", "")
+                        if not span_text.strip():
+                            line_spans.append(span_text)
+                            continue
+                        span_bbox = fitz.Rect(span.get("bbox", [0, 0, 0, 0]))
+                        matched_uri = None
+                        for l in uri_links:
+                            link_rect = fitz.Rect(l.get("from", [0, 0, 0, 0]))
+                            if span_bbox.intersects(link_rect):
+                                matched_uri = l.get("uri")
+                                break
+                        if matched_uri and span_text.strip():
+                            line_spans.append(f"[{span_text.strip()}]({matched_uri})")
+                        else:
+                            line_spans.append(span_text)
+                    line_str = "".join(line_spans)
+                    if line_str.strip():
+                        lines_text.append(line_str)
                 block_text = "\n".join(lines_text)
                 if block_text.strip():
                     segments.append({"type": "text", "content": block_text})

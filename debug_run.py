@@ -99,6 +99,7 @@ def main():
 
     # 4. Execute Ingestion Pipeline
     try:
+        # pyrefly: ignore [missing-import]
         from core.jit_converter import convert_raw_sop_to_okf
         okf_path, metadata = convert_raw_sop_to_okf(target_path, override_sop_id=args.sop_id)
 
@@ -108,10 +109,21 @@ def main():
         print(f"  Generated Playbook: {okf_path}")
         print(f"  SOP ID:             {metadata.get('sop_id', 'N/A')}")
         print(f"  Category:           {metadata.get('category', 'N/A')}")
+        print(f"  Confidence:         {metadata.get('confidence_score', 'N/A')} ({metadata.get('confidence_level', 'N/A')})")
+        if metadata.get('confidence_reason'):
+            print(f"  Confidence Reason:  {metadata.get('confidence_reason')}")
         print(f"  Required Entities:  {metadata.get('required_entities', [])}")
         print(f"  Total Steps:        {len(metadata.get('steps', []))}")
         print(f"  Complete Log Saved: {log_filepath}")
         print("=" * 70 + "\n")
+
+        # Print Gemini & Vision Monitor Daily Usage Report
+        try:
+            # pyrefly: ignore [missing-import]
+            from gemini_monitor.monitor import print_daily_usage_banner
+            print_daily_usage_banner()
+        except Exception:
+            pass
 
     except Exception as e:
         print("\n" + "=" * 70)

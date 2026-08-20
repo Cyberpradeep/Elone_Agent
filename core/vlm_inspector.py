@@ -1,10 +1,12 @@
 
 import os
 import json
+import re
 import base64
 from typing import List, Tuple, Dict, Any, Optional
 
 from langchain_core.messages import HumanMessage
+# pyrefly: ignore [missing-import]
 from config.llm_config import get_llm
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -12,6 +14,7 @@ KB_DIR = os.path.join(BASE_DIR, "knowledge_base")
 IMAGES_LOG_DIR = os.path.join(KB_DIR, "logs", "images")
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+# pyrefly: ignore [missing-import]
 from prompts.vlm_prompts import VLM_SUPPORT_PROMPT
 
 
@@ -80,8 +83,45 @@ def extract_images_from_docx(docx_path: str) -> List[Tuple[bytes, str]]:
 
 import time
 
+
+def extract_confidence_score(report_text: str) -> Dict[str, Any]:
+    """Extracts CONFIDENCE SCORE / LEVEL / REASON from VLM report text."""
+    score = 0.90
+    level = "High"
+    reason = "Visual evidence interpreted by Vision LLM."
+
+    score_match = re.search(r"CONFIDENCE SCORE:\s*([0-9\.]+)%?", report_text, re.IGNORECASE)
+    if score_match:
+        try:
+            val = float(score_match.group(1))
+            score = val / 100.0 if val > 1.0 else val
+            score = round(max(0.0, min(1.0, score)), 2)
+        except ValueError:
+            pass
+
+    level_match = re.search(r"CONFIDENCE LEVEL:\s*([A-Za-z]+)", report_text, re.IGNORECASE)
+    if level_match:
+        level = level_match.group(1).capitalize()
+    else:
+        level = "High" if score >= 0.80 else ("Medium" if score >= 0.50 else "Low")
+
+    reason_match = re.search(r"CONFIDENCE REASON:\s*(.+)", report_text, re.IGNORECASE)
+    if reason_match:
+        reason = reason_match.group(1).strip()
+
+    return {"score": score, "level": level, "reason": reason}
+
+
 def analyze_image_bytes(image_bytes: bytes, mime_type: str) -> str:
-    """Analyzes image bytes using Gemini VLM via LangChain with rate-limit retry backoff."""
+    """Analyzes image bytes using VLM via LangChain with rate-limit retry backoff and token cost monitoring."""
+    try:
+        # pyrefly: ignore [missing-import]
+        from gemini_monitor.monitor import check_daily_limit, record_call
+        check_daily_limit("nvidia")
+    except Exception as e:
+        if "Quota" in type(e).__name__ or "DailyQuotaExceededError" in str(type(e)):
+            raise e
+
     llm = get_llm("vlm_image_analysis")
     base64_image = base64.b64encode(image_bytes).decode("utf-8")
 
@@ -97,6 +137,28 @@ def analyze_image_bytes(image_bytes: bytes, mime_type: str) -> str:
     for attempt in range(1, max_retries + 1):
         try:
             res = llm.invoke([message])
+
+            # Extract token usage and record cost
+            in_tok = 0
+            out_tok = 0
+            img_tok = 1600  # Standard vision tile token approximation
+            if hasattr(res, "usage_metadata") and res.usage_metadata:
+                in_tok = res.usage_metadata.get("input_tokens", 0)
+                out_tok = res.usage_metadata.get("output_tokens", 0)
+            try:
+                # pyrefly: ignore [missing-import]
+                from gemini_monitor.monitor import record_call
+                record_call(
+                    caller="vlm_image_analysis",
+                    model="meta/llama-3.2-11b-vision-instruct",
+                    provider="nvidia",
+                    input_tokens=in_tok,
+                    output_tokens=out_tok,
+                    image_tokens=img_tok
+                )
+            except Exception as mon_err:
+                print(f"[Gemini Monitor Warning] Failed to log VLM call: {mon_err}")
+
             raw_content = res.content if hasattr(res, "content") else str(res)
             if isinstance(raw_content, list):
                 parts = []
@@ -111,10 +173,10 @@ def analyze_image_bytes(image_bytes: bytes, mime_type: str) -> str:
             last_error = e
             err_str = str(e)
             if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower():
-                print(f"[VLM Rate Limit Warning] Gemini API quota / rate limit reached for image. Retrying in 2s (Attempt {attempt}/{max_retries})...")
+                print(f"[VLM Rate Limit Warning] VLM API quota / rate limit reached for image. Retrying in 2s (Attempt {attempt}/{max_retries})...")
                 time.sleep(2)
             else:
-                print(f"[VLM Inspector Error] Failed to analyze image with Gemini VLM: {e}")
+                print(f"[VLM Inspector Error] Failed to analyze image with VLM: {e}")
                 return f"VLM Analysis FAILED (non-retryable error): {err_str}"
 
     return f"VLM Analysis FAILED (quota/rate-limit exhausted after {max_retries} attempts): {last_error}"
@@ -151,18 +213,24 @@ def analyze_and_save_image(image_bytes: bytes, mime_type: str, label: str, sop_s
     print(safe_report)
     print(f"{'=' * 60}\n")
 
+    conf_info = extract_confidence_score(report_str)
+
     json_meta_path = os.path.join(sop_image_dir, f"{os.path.splitext(img_filename)[0]}_report.json")
     rel_meta_path = os.path.relpath(json_meta_path, BASE_DIR).replace("\\", "/")
     meta_payload = {
         "image_filename": img_filename,
         "label": label,
         "mime_type": mime_type,
+        "confidence_score": conf_info["score"],
+        "confidence_level": conf_info["level"],
+        "confidence_reason": conf_info["reason"],
         "vlm_report": report_text,
     }
     with open(json_meta_path, "w", encoding="utf-8") as f:
         json.dump(meta_payload, f, indent=2)
 
-    image_ref = {"image_path": rel_img_path, "file_path": rel_meta_path}
+    image_ref = {"image_path": rel_img_path, "file_path": rel_meta_path,
+                 "confidence_score": conf_info["score"], "confidence_level": conf_info["level"]}
     return report_str, image_ref
 
 

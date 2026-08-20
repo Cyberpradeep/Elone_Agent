@@ -20,8 +20,7 @@ class OKFStepModel(BaseModel):
                     "(e.g. which of the 4 Verification Gates passed/failed and why, why this exact command/function "
                     "over any alternative, why these particular comm_inputs/placeholders were used).",
     )
-    platform: Optional[str] = Field(None, description="Platform identifier (e.g. system, auth0, airretailer)")
-    provider: Optional[str] = Field(None, description="Tool provider name for tool_call steps")
+    platform: Optional[str] = Field(None, description="Platform identifier (e.g. system, solandra, auth0, airretailer)")
     function_name: Optional[str] = Field(None, description="Tool function name for tool_call steps")
     comm_inputs: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Input parameters for tool_call")
     command: Optional[str] = Field(None, description="CLI command string for command steps")
@@ -45,9 +44,13 @@ class OKFPlaybookModel(BaseModel):
 
     sop_id: str = Field(..., description="Unique SOP ID (e.g. SOP-NET-001)")
     title: str = Field(..., description="Human-readable title of the Playbook")
+    platform: Optional[str] = Field(None, description="Primary platform (e.g. solandra, auth0, airretailer)")
     category: str = Field(..., description="SOP category (e.g. network, identity, system)")
     target_os: Optional[str] = Field("windows", description="Target operating system")
     description: Optional[str] = Field(None, description="Playbook overview description")
+    confidence_score: Optional[float] = Field(0.95, description="Confidence score between 0.0 and 1.0 representing conversion fidelity")
+    confidence_level: Optional[str] = Field("High", description="Confidence level categorization: 'High', 'Medium', or 'Low'")
+    confidence_reason: Optional[str] = Field(None, description="Reasoning justifying the assigned confidence score")
     required_entities: List[str] = Field(default_factory=list, description="Required entity dynamic placeholders")
     trigger_words: List[str] = Field(default_factory=list, description="Trigger keywords for playbook lookup")
     reasoning_chain: List[str] = Field(default_factory=list, description="8-stage CoT reasoning log")

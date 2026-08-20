@@ -52,6 +52,7 @@ Examples:
     args = parser.parse_args()
 
     if args.models:
+        # pyrefly: ignore [missing-import]
         from config.llm_config import print_active_models
         print_active_models()
     elif args.file:
@@ -66,6 +67,7 @@ Examples:
 
 def _process_single_file(filepath: str, override_sop_id: str = None):
     """Convert a single raw SOP file into an OKF Playbook."""
+    # pyrefly: ignore [missing-import]
     from core.jit_converter import convert_raw_sop_to_okf
 
     if not os.path.exists(filepath):
@@ -87,10 +89,21 @@ def _process_single_file(filepath: str, override_sop_id: str = None):
         print(f"  Title:     {metadata.get('title', 'N/A')}")
         print(f"  Category:  {metadata.get('category', 'N/A')}")
         print(f"  Output:    {okf_path}")
+        print(f"  Confidence:{metadata.get('confidence_score', 'N/A')} ({metadata.get('confidence_level', 'N/A')})")
+        if metadata.get('confidence_reason'):
+            print(f"  Reason:    {metadata.get('confidence_reason')}")
         print(f"  Entities:  {metadata.get('required_entities', [])}")
         print(f"  Triggers:  {metadata.get('trigger_words', [])}")
         print(f"  Steps:     {len(metadata.get('steps', []))}")
         print(f"{'='*60}\n")
+
+        # Print Gemini & Vision Monitor Daily Usage Report
+        try:
+            # pyrefly: ignore [missing-import]
+            from gemini_monitor.monitor import print_daily_usage_banner
+            print_daily_usage_banner()
+        except Exception:
+            pass
 
     except Exception as e:
         safe_err = str(e).encode("ascii", "replace").decode("ascii")
@@ -102,6 +115,7 @@ def _process_single_file(filepath: str, override_sop_id: str = None):
 
 def _run_scan_cycle():
     """Run one full ingestion scan cycle."""
+    # pyrefly: ignore [missing-import]
     from scheduler import _run_ingestion_cycle
 
     print(f"\n{'='*60}")
@@ -118,6 +132,7 @@ def _run_scan_cycle():
 
 def _start_watcher(interval_minutes: int = None):
     """Start background watcher that runs forever."""
+    # pyrefly: ignore [missing-import]
     from scheduler import start_sop_ingestion_scheduler
 
     interval = interval_minutes or int(os.environ.get("SOP_SCAN_INTERVAL_MINUTES", "10"))
@@ -141,6 +156,7 @@ def _start_watcher(interval_minutes: int = None):
 
 def _print_status():
     """Print the scheduler status."""
+    # pyrefly: ignore [missing-import]
     from scheduler import get_scheduler_status
 
     status = get_scheduler_status()

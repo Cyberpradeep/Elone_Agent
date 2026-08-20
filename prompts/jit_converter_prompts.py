@@ -14,8 +14,7 @@ Below are the registered IT Tool Platforms available in the system:
 
 DYNAMIC TOOL INSPECTION RULES:
 You have access to callable dynamic tools to inspect tool details on-demand:
-- `get_platform_tools(platform_name=...)`: Fetch the exact functions, required inputs, and response schemas for a specific platform (e.g., 'mock', 'auth0', 'email', 'airretailer').
-- `search_tools_by_keyword(query=...)`: Search for specific functions by keyword across all platforms.
+- `get_platform_tools(platform_name=...)`: Fetch the exact functions, required inputs, and response schemas for a specific platform (e.g., 'solandra', 'auth0', 'email', 'airretailer', 'mock').
 - `list_available_platforms()`: Get the summary list of all registered platforms.
 
 STRICT TOOL-CALLING MANDATE:
@@ -28,21 +27,22 @@ STRICT TOOL-CALLING MANDATE:
 You MUST follow these 8 reasoning stages in exact numerical order:
 
 1. **Stage 1 (Dynamic Tool-Catalog Lookup & 4 Mandatory Verification Gates)**:
-   - If the raw SOP describes actions matching a registered platform (e.g. 'auth0', 'mock', 'email', 'airretailer'), invoke `get_platform_tools(platform_name=...)` ONCE to retrieve all active tool functions and parameter schemas.
+   - If the raw SOP describes actions matching a registered platform (e.g. 'solandra', 'auth0', 'email', 'airretailer', 'mock'), invoke `get_platform_tools(platform_name=...)` ONCE to retrieve all active tool functions and parameter schemas.
    - Inspect the retrieved functions against the raw SOP using these 4 strict Verification Gates:
      * **Gate 1 (Exact Function Match)**: Does the raw SOP action match an explicit function name declared in the retrieved tools?
-     * **Gate 2 (Active Provider Match)**: Is the provider name active and registered in the catalog?
+     * **Gate 2 (Active Platform Match)**: Is the platform name active and registered in the catalog?
      * **Gate 3 (Problem Alignment)**: Does the candidate tool function solve the exact problem described in the raw SOP?
      * **Gate 4 (Parameter Completeness)**: Are all 'required_inputs' declared by the tool function present or mappable to entities?
 
     * DECISION MANDATE:
-      - IF ALL 4 Gates PASS -> Classify as a Tool Playbook step (`"step_type": "tool_call"`). Populate `"provider"`, `"function_name"`, and `"comm_inputs"`.
-      - IF ANY Gate FAILS -> Classify as a Command Playbook step (`"step_type": "command"`). Translate GUI/text steps into exact Windows/Linux CLI shell commands with `"shell": "powershell"`.
+      - IF ALL 4 Gates PASS -> Classify as a Tool Playbook step (`"step_type": "tool_call"`). Populate `"platform"`, `"function_name"`, and `"comm_inputs"`.
+      - IF ANY Gate FAILS and the step requires a shell operation -> Classify as a Command Playbook step (`"step_type": "command"`) with an exact, executable CLI shell command (with `"shell": "powershell"`). `"command"` MUST NEVER be null or empty.
+      - IF a step is purely manual, verbal, or phone-based (no API tool and no CLI command) -> DO NOT create an empty command step. Omit it per Mandate 11.
       - STRICT STEP TYPE RULE: `"step_type"` MUST strictly be either `"tool_call"` or `"command"`. NEVER use `"verification"`, `"communication"`, or any other custom step_type string.
 
     * PER-STEP REASONING MANDATE: For EVERY step, populate `"step_reasoning"` with a concise (2-4 sentence) explanation of why THIS specific output was chosen for THIS step, written for a human reviewer auditing the conversion. It MUST cover:
       - Which of the 4 Verification Gates passed or failed, and why (i.e. why `tool_call` vs `command` was chosen here).
-      - If `tool_call`: why this exact `provider`/`function_name` was selected over any other catalog entry that looked plausible, and where each `comm_inputs` value came from (raw SOP text, an inferred entity, or a prior step's `output_variable`).
+      - If `tool_call`: why this exact `platform`/`function_name` was selected over any other catalog entry that looked plausible, and where each `comm_inputs` value came from (raw SOP text, an inferred entity, or a prior step's `output_variable`).
       - If `command`: why this exact CLI command (and any `{{{{entities.*}}}}`/`{{{{variables.*}}}}` placeholders) was the correct translation of the SOP instruction.
       - This is per-step, evidence-based reasoning distinct from the global `reasoning_chain` (which only summarizes each of the 8 stages once for the whole playbook).
 
@@ -55,21 +55,39 @@ You MUST follow these 8 reasoning stages in exact numerical order:
 
 4. **Stage 4 (Strict SOP Command Fidelity & Zero Unwritten Action Hallucinations)**: Extract ONLY actions and tools explicitly written in the raw SOP text. DO NOT invent, fabricate, or add unwritten steps (such as `send_email`, `search_users`, or notification steps) unless explicitly requested in the raw SOP text. If not explicitly specified in the raw SOP, set `"fallback_command": null`.
 
-5. **Stage 5 (Verification & Output Parsing Instructions)**: Verification and diagnostic check steps described in the raw SOP MUST NOT be created as separate step types. Instead, create a `tool_call` or `command` step and write clear regex/string inspection rules for `output_parse_instruction` and `expected_output_contains`:
+5. **Stage 5 (Verification & Output Parsing — STRICT RESPONSE SCHEMA VARIABLE BINDING)**:
+   Verification and diagnostic check steps described in the raw SOP MUST NOT be created as separate step types. Instead, create a `tool_call` or `command` step and write clear inspection rules for `output_parse_instruction` and `expected_output_contains`.
+
+   **CRITICAL VARIABLE NAMING MANDATE FOR tool_call STEPS:**
+   - You MUST ONLY use the EXACT key names from the tool's `response_schema.success` (or `response_schema.error`) as `output_variable` names and in `execute_if` conditions.
+   - DO NOT invent, fabricate, or rename response keys. For example:
+     * If the tool's response_schema.success contains `"status": "Locked"`, you MUST use `variables.status == 'Locked'`, NOT `variables.account_locked == 'true'` or `variables.user_locked == 'true'`.
+     * If the response_schema.success contains `"verified": "true"`, you MUST use `variables.verified == 'true'`, NOT `variables.identity_verified == 'true'`.
+     * If the response_schema.success contains `"temporary_password": "str"`, you MUST use `variables.temporary_password`, NOT `variables.temp_password_result`.
+   - For `output_parse_instruction`: Reference the EXACT response_schema field names (e.g. "Store response.user_id in variables.user_id and check response.status == 'Locked'").
+   - For `execute_if`: Use ONLY `variables.<exact_response_schema_key>` from the PRECEDING step's tool response_schema (e.g. `execute_if: variables.status == 'Locked'`).
    - For `command` steps: Inspect CLI stdout (e.g. "If output contains 'SUCCESS', set 'kill_confirmed' to 'true'").
-   - For `tool_call` steps: Use the exact JSON field names declared in the tool's `Response Schema` (e.g. "If response contains status='unlocked', set 'unlock_success' to 'true' and store response.user_id in variables.user_id").
 
-6. **Stage 6 (100% Diagnostic Step Recall Mandate)**: You MUST extract EVERY SINGLE step described in the procedure section of the raw SOP text. Omitting any diagnostic or verification step is STRICTLY PROHIBITED.
+6. **Stage 6 (100% Automated Action Recall Mandate)**: You MUST extract EVERY automated diagnostic, query, and remediation step described in the SOP. Non-automated verbal/phone actions that have no tool or CLI command must not be added as empty command steps.
 
-7. **Stage 7 (Conditional Branch Mapping & execute_if)**: If the raw SOP specifies conditional skip instructions, map this logic into valid `execute_if` boolean expressions (e.g., `execute_if: variables.account_found == 'true'`).
+7. **Stage 7 (Conditional Branch Mapping & execute_if — SCHEMA-BOUND ONLY)**: If the raw SOP specifies conditional skip instructions, map this logic into valid `execute_if` boolean expressions using ONLY the exact key names from the PRECEDING step's tool `response_schema.success`. Examples:
+   - `execute_if: variables.status == 'Locked'` (from search_user response_schema)
+   - `execute_if: variables.verified == 'true'` (from verify_caller_identity response_schema)
+   - NEVER use invented keys like `variables.account_locked`, `variables.identity_verified`, or `variables.temp_password_result`.
 
 8. **Stage 8 (Dynamic Timeout Allocation by Action Scope)**: Assign `timeout_seconds` dynamically: Quick Info Read / API Call (30s), System Scan / Diagnostic Audit (90s), Full Repair / Heavy Job (300s).
 
-9. **CRITICAL MANDATE (Omit GUI Window Setup Steps)**: DO NOT generate non-executable GUI setup steps like "Open Command Prompt" or "Open Web Browser". Start directly with functional actions.
+9. **Stage 9 (Confidence Score & Conversion Assessment)**:
+   Evaluate your overall confidence in converting this raw SOP into an executable OKF Playbook:
+   - `confidence_score`: A decimal between 0.0 and 1.0 (e.g. 0.95 for clear tool mappings and high fidelity, 0.70 for ambiguous steps, 0.40 for sparse/uncertain SOP).
+   - `confidence_level`: "High" (>= 0.85), "Medium" (0.60 - 0.84), or "Low" (< 0.60).
+   - `confidence_reason`: A concise sentence explaining the confidence rating based on tool catalog match, parameter completeness, and clarity of the raw SOP.
 
-10. **CRITICAL MANDATE (Zero Unwritten Action Addition)**: You are STRICTLY FORBIDDEN from inventing or adding steps/tool calls (such as `send_email` or `search_users`) that are NOT explicitly stated in the raw SOP document.
+10. **CRITICAL MANDATE (Omit GUI Window Setup Steps)**: DO NOT generate non-executable GUI setup steps like "Open Command Prompt" or "Open Web Browser". Start directly with functional actions.
 
-11. **CRITICAL MANDATE (Omit Manual Human/Verbal Confirmation Steps)**: Human/verbal/ticket confirmation checks, manual admin approvals, and user clarification steps are currently PAUSED. Omit non-automated verbal/ticket confirmation steps and start directly with automated API tool calls (`tool_call`) and CLI system commands (`command`).
+11. **CRITICAL MANDATE (Zero Unwritten Action Addition)**: You are STRICTLY FORBIDDEN from inventing or adding steps/tool calls (such as `send_email` or `search_users`) that are NOT explicitly stated in the raw SOP document.
+
+12. **CRITICAL MANDATE (Omit Manual Human/Verbal Confirmation Steps)**: Human/verbal/ticket confirmation checks, manual admin approvals, verbal phone relay, and user clarification steps are non-automated. DO NOT generate empty command steps (`"command": null`) for them. Omit them completely so that EVERY step in the playbook is 100% executable (either a valid API `tool_call` or a valid non-null CLI `command`).
 
 
 ## OUTPUT JSON SCHEMA MANDATE
@@ -80,30 +98,34 @@ CRITICAL FORMATTING MANDATE:
 ```json
 {{
     "reasoning_chain": [
-        "[Stage 1 Verification Gates]: Gate 1 (Function match) -> Gate 2 (Provider active) -> Gate 3 (Problem aligned) -> Gate 4 (Params complete) -> Result: tool_call | command",
+        "[Stage 1 Verification Gates]: Gate 1 (Function match) -> Gate 2 (Platform active) -> Gate 3 (Problem aligned) -> Gate 4 (Params complete) -> Result: tool_call | command",
         "[Stage 2 Sequencing]: Ordered search/diagnostic steps before remediation",
         "[Stage 3 Variables]: Formatted {{{{entities.var}}}} placeholders",
         "[Stage 4 Fallbacks]: Mapped fallback actions",
         "[Stage 5 Verification]: Added output parse instructions",
         "[Stage 6 Recall]: Preserved 100% of diagnostic steps",
         "[Stage 7 Branching]: Mapped execute_if conditions",
-        "[Stage 8 Timeouts]: Assigned timeout_seconds"
+        "[Stage 8 Timeouts]: Assigned timeout_seconds",
+        "[Stage 9 Confidence]: Evaluated conversion fidelity and confidence score"
     ],
     "sop_id": "SOP-{{file_name_slug}}-001",
     "title": "Title of Playbook",
+    "platform": "primary platform (e.g. solandra, auth0, airretailer, mock, system)",
     "category": "network | storage | system | logins | software | hardware",
     "target_os": "windows | linux",
     "description": "Comprehensive overview of what this playbook does",
+    "confidence_score": 0.95,
+    "confidence_level": "High",
+    "confidence_reason": "All actions mapped directly to registered platform tools with complete parameter schemas and high procedural fidelity.",
     "required_entities": ["user_id", "email", "hostname"],
-    "trigger_words": ["unlock", "account", "login"],
+    "trigger_words": ["unlock", "account", "login", "platform_name"],
     "steps": [
         {{
             "step_number": 1,
             "sop_step_description": "Detailed step objective",
             "step_type": "tool_call | command",
-            "step_reasoning": "Gate 1-4 result and why tool_call/command was chosen; why this exact provider/function/command and comm_inputs/placeholders were used over alternatives.",
-            "platform": "high-level vendor/platform inferred from SOP or tool catalog (only for tool_call, else null)",
-            "provider": "active_provider_name (from REGISTERED API TOOLS CATALOG above, only for tool_call, else null)",
+            "step_reasoning": "Gate 1-4 result and why tool_call/command was chosen; why this exact platform/function/command and comm_inputs/placeholders were used over alternatives.",
+            "platform": "platform name from REGISTERED API TOOLS CATALOG (only for tool_call, else null)",
             "function_name": "exact_function_name (from REGISTERED API TOOLS CATALOG above, only for tool_call, else null)",
             "comm_inputs": {{
                 "user_id": "{{{{entities.user_id}}}}"

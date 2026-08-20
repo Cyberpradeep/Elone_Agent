@@ -56,6 +56,9 @@ Analyze the image and produce a clear, detailed plain-text report using the foll
    OBSERVED FACTS: Only what is directly visible.
    INFERENCE: Reasonable technical interpretations based on observed facts.
 
-7. CONFIDENCE NOTES
-   Note any factors affecting confidence (e.g., cropped image, blurry text, low resolution, missing context).
+7. CONFIDENCE SCORE & NOTES
+   State your confidence in interpreting this image using this exact format:
+   CONFIDENCE SCORE: [Decimal between 0.0 and 1.0, e.g., 0.95]
+   CONFIDENCE LEVEL: [High / Medium / Low]
+   CONFIDENCE REASON: [Brief explanation of visual clarity, text legibility, or missing context]
 """
