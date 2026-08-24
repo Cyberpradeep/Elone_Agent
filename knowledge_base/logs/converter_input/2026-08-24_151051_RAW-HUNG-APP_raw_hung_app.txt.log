@@ -1,0 +1,18 @@
+============================================================
+  SOP INGESTION PIPELINE — CONVERTER INPUT AUDIT LOG
+============================================================
+  Source File:          raw_hung_app.txt
+  Source Absolute Path: C:\Users\prade\AppData\Local\Temp\pytest-of-prade\pytest-65\test_jit_converter_command_pla0\raw_hung_app.txt
+  SOP Slug:             RAW-HUNG-APP
+  Character Count:      252
+  Timestamp:            2026-08-24 15:10:51
+============================================================
+
+--- ENRICHED SOP TEXT SENT TO CONVERTER START ---
+
+    Standard Operating Procedure: Terminate Frozen Application
+    1. Open Command Prompt or PowerShell on target Windows computer.
+    2. Run 'taskkill /F /IM Code.exe' to forcibly terminate unresponsive process.
+    3. Verify process is terminated.
+
+--- ENRICHED SOP TEXT SENT TO CONVERTER END ---

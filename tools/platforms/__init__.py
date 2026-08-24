@@ -4,23 +4,23 @@ import re
 # pyrefly: ignore [missing-import]
 from tools.platforms.solandra import SOLANDRA_SCHEMA
 # pyrefly: ignore [missing-import]
-# from tools.platforms.auth0 import AUTH0_SCHEMA
+from tools.platforms.auth0 import AUTH0_SCHEMA
 # pyrefly: ignore [missing-import]
 from tools.platforms.email import EMAIL_SCHEMA
 # pyrefly: ignore [missing-import]
-# from tools.platforms.airretailer import AIRRETAILER_SCHEMA
+from tools.platforms.airretailer import AIRRETAILER_SCHEMA
 # pyrefly: ignore [missing-import]
-# from tools.platforms.mock import MOCK_SCHEMA
+from tools.platforms.mock import MOCK_SCHEMA
 
 # ---------------------------------------------------------------------------
 # Master Detailed Platform Tool Schemas
 # ---------------------------------------------------------------------------
 DETAILED_TOOL_SCHEMAS: Dict[str, Dict[str, Any]] = {
     "solandra": SOLANDRA_SCHEMA,
-    # "auth0": AUTH0_SCHEMA,
+    "auth0": AUTH0_SCHEMA,
     "email": EMAIL_SCHEMA,
-    # "airretailer": AIRRETAILER_SCHEMA,
-    # "mock": MOCK_SCHEMA,
+    "airretailer": AIRRETAILER_SCHEMA,
+    "mock": MOCK_SCHEMA,
 }
 
 # ---------------------------------------------------------------------------
@@ -39,7 +39,6 @@ def _normalize_name(name: str) -> str:
     """Normalizes string for fuzzy alias matching."""
     if not name:
         return ""
-    # Lowercase, replace underscores/hyphens with spaces, remove special chars
     clean = re.sub(r"[^a-zA-Z0-9\s]", " ", str(name).lower())
     return " ".join(clean.split())
 
@@ -65,12 +64,10 @@ def find_platform_schema(platform_name: str) -> Optional[Dict[str, Any]]:
 
     # 2. Check each schema's platform and declared aliases
     for plat_key, schema in DETAILED_TOOL_SCHEMAS.items():
-        # Check platform name
         schema_plat = schema.get("platform", "").lower().strip()
         if raw_key == schema_plat or norm_key == _normalize_name(schema_plat):
             return schema
 
-        # Check declared aliases
         aliases = schema.get("aliases", [])
         for alias in aliases:
             clean_alias = str(alias).lower().strip()

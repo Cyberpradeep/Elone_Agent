@@ -21,6 +21,23 @@ from schemas import (
 )
 # pyrefly: ignore [missing-import]
 from config.tool_catalog import get_formatted_tools_summary
+# pyrefly: ignore [missing-import]
+from tools.platforms import (
+    DETAILED_TOOL_SCHEMAS,
+    PLATFORM_SUMMARIES,
+    find_platform_schema,
+    get_all_valid_platform_names,
+)
+# pyrefly: ignore [missing-import]
+from tools.platforms.solandra import SOLANDRA_SCHEMA
+# pyrefly: ignore [missing-import]
+from tools.platforms.email import EMAIL_SCHEMA
+# pyrefly: ignore [missing-import]
+from tools.platforms.auth0 import AUTH0_SCHEMA
+# pyrefly: ignore [missing-import]
+from tools.platforms.airretailer import AIRRETAILER_SCHEMA
+# pyrefly: ignore [missing-import]
+from tools.platforms.mock import MOCK_SCHEMA
 
 __version__ = "1.0.0"
 __all__ = [
@@ -34,4 +51,13 @@ __all__ = [
     "OKFStepModel",
     "JITFaithfulnessInspectionResult",
     "get_formatted_tools_summary",
+    "DETAILED_TOOL_SCHEMAS",
+    "PLATFORM_SUMMARIES",
+    "find_platform_schema",
+    "get_all_valid_platform_names",
+    "SOLANDRA_SCHEMA",
+    "EMAIL_SCHEMA",
+    "AUTH0_SCHEMA",
+    "AIRRETAILER_SCHEMA",
+    "MOCK_SCHEMA",
 ]

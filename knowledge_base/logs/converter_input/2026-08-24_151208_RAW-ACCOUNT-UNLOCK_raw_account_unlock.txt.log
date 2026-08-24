@@ -1,0 +1,21 @@
+============================================================
+  SOP INGESTION PIPELINE — CONVERTER INPUT AUDIT LOG
+============================================================
+  Source File:          raw_account_unlock.txt
+  Source Absolute Path: C:\Users\prade\AppData\Local\Temp\pytest-of-prade\pytest-65\test_jit_converter_tool_playbo0\raw_account_unlock.txt
+  SOP Slug:             RAW-ACCOUNT-UNLOCK
+  Character Count:      365
+  Timestamp:            2026-08-24 15:12:08
+============================================================
+
+--- ENRICHED SOP TEXT SENT TO CONVERTER START ---
+
+    Standard Operating Procedure: Reset Customer Password
+    Overview: Resets customer passwords using the Solandra Support Platform API.
+
+    Procedure:
+    1. Look up user account in solandra using search_user with required parameter employee_id.
+    2. Invoke generate_temporary_password with required parameter employee_id.
+    3. Resolve ticket in solandra.
+
+--- ENRICHED SOP TEXT SENT TO CONVERTER END ---

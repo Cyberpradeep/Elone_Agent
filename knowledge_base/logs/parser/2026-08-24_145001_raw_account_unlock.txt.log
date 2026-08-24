@@ -1,0 +1,22 @@
+============================================================
+  SOP INGESTION PIPELINE — PARSER AUDIT LOG
+============================================================
+  Source File:          raw_account_unlock.txt
+  Source Absolute Path: C:\Users\prade\AppData\Local\Temp\pytest-of-prade\pytest-62\test_jit_converter_tool_playbo0\raw_account_unlock.txt
+  Parser Engine:        markitdown_parser
+  Character Count:      352
+  Page Count:           N/A
+  Timestamp:            2026-08-24 14:50:01
+============================================================
+
+--- RAW EXTRACTED TEXT START ---
+
+    Standard Operating Procedure: Unlock Customer Account
+    Overview: Unlocks locked user accounts using the Solandra Support Platform REST API.
+
+    Procedure:
+    1. Look up user account in solandra using search_users by customer email.
+    2. Invoke unlock_user_account with required parameter user_id.
+    3. Verify response status is unlocked.
+
+--- RAW EXTRACTED TEXT END ---

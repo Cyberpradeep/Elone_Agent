@@ -10,7 +10,7 @@ from langchain_core.messages import HumanMessage
 from config.llm_config import get_llm
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-KB_DIR = os.path.join(BASE_DIR, "knowledge_base")
+KB_DIR = os.getenv("ELONE_KB_DIR", os.path.join(BASE_DIR, "knowledge_base"))
 IMAGES_LOG_DIR = os.path.join(KB_DIR, "logs", "images")
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}

@@ -25,13 +25,16 @@ Requires-Dist: langchain-groq>=0.2.0; extra == "groq"
 Provides-Extra: dev
 Requires-Dist: pytest>=7.0.0; extra == "dev"
 
-# SOP Ingestion Pipeline — Standalone Engine
+# SOP Ingestion Pipeline — Standalone Engine & MCP Server
 
 [![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11-blue.svg)](https://www.python.org/)
 [![Schema](https://img.shields.io/badge/schema-OKF%20v1.0-emerald.svg)](core/okf_schema.py)
 [![Architecture](https://img.shields.io/badge/architecture-Dual--Agent%20%2B%202--Layer%20Audit-purple.svg)](core/jit_converter.py)
+[![Protocol](https://img.shields.io/badge/protocol-MCP%202.0-orange.svg)](mcp_server.py)
 
 A self-contained, enterprise-grade ingestion and translation engine that converts unstructured human Standard Operating Procedures (PDFs, Word documents with screenshots, plain text, and scan images) into deterministic, machine-executable **OKF (Operational Knowledge Framework) Playbooks** for autonomous IT support agents.
+
+Shipped both as an installable **Python Package / Plugin** and as a standard **Model Context Protocol (MCP) Server**.
 
 ---
 
@@ -41,7 +44,7 @@ A self-contained, enterprise-grade ingestion and translation engine that convert
 flowchart TD
     subgraph INGESTION["1. Document Ingestion & Multimodal Parser"]
         A["Raw SOP Document<br/>(PDF, DOCX, TXT)"] --> B["DocumentParser<br/>(MarkItDown Engine)"]
-        A -. "Screenshots & Diagrams" .-> C["VLM Inspector<br/>(Gemini 3 Flash Preview)"]
+        A -. "Screenshots & Diagrams" .-> C["VLM Inspector<br/>(Gemini VLM Engine)"]
         B --> D["Unified Ordered Context<br/>(Interleaved Text + UI Descriptions)"]
         C --> D
     end
@@ -102,6 +105,8 @@ flowchart TD
   - **Layer 2**: Independent LLM inspector performing a 3-check audit (Recall Preservation, Anti-Hallucination, Fallback Accuracy) with automated retry correction.
 - **Dual-Representation Playbooks**:
   - Produces structured YAML frontmatter for machine execution (Elone Agent runtime) and formatted GitHub-flavored Markdown for human L1/L2 engineering audits.
+- **Model Context Protocol (MCP) Server**:
+  - Standard JSON-RPC stdio server exposing SOP ingestion, planning, validation, and catalog discovery to any MCP client host (Antigravity IDE, Claude Desktop, Cursor).
 
 ---
 
@@ -109,12 +114,17 @@ flowchart TD
 
 ```
 sop_ingestion_standalone/
-├── run.py                      # Production CLI runner (--file, --scan, --watch, --status)
-├── debug_run.py                # Debug CLI runner with untruncated internal reasoning logs
-├── scheduler.py                # Background folder watcher daemon
-├── test_standalone.py          # Unit test test suite (Layer 1, Schema, Parser)
+├── pyproject.toml              # PEP 621 Python Packaging & Entrypoints
 ├── requirements.txt            # Python dependencies
 ├── .env.example                # API key configuration template
+├── mcp_server.py               # Model Context Protocol (MCP) Server & Test Harness
+├── run.py                      # Standalone CLI runner (--file, --scan, --watch, --status)
+├── debug_run.py                # Debug CLI runner with untruncated internal reasoning logs
+├── scheduler.py                # Background folder watcher daemon
+├── test_standalone.py          # Unit test test suite (17 passed, 0 failed)
+│
+├── elone_sop/                  # Top-Level Python Package Exports
+│   └── __init__.py             # Public API functions and OKF models
 │
 ├── config/                     # Configuration and dynamic tools
 │   ├── llm_config.py           # Multi-provider LLM factory (Gemini + Mistral fallback)
@@ -159,8 +169,8 @@ python -m venv .venv
 .\.venv\Scripts\activate    # Windows
 # source .venv/bin/activate  # Linux/macOS
 
-# Install dependencies
-pip install -r requirements.txt
+# Install in editable mode
+pip install -e .
 ```
 
 ### 2. Configure API Keys
@@ -188,39 +198,100 @@ python test_standalone.py
 
 ---
 
-## Usage Guide
+## Model Context Protocol (MCP) Server
+
+The engine includes a native MCP Server (`mcp_server.py`) exposing the pipeline to any MCP-compatible client.
+
+### Excluded MCP Tools:
+1. `ingest_sop(file_path, override_sop_id)`: Converts a raw document into a validated OKF playbook.
+2. `plan_sop(file_path)`: Read-only Phase 1 conversion drafting without disk writes.
+3. `validate_playbook_plan(raw_sop_text, steps_json)`: Runs Layer 1 and Layer 2 validation.
+4. `list_knowledge_base_playbooks()`: Returns the active knowledge base catalog index.
+5. `get_registered_tool_catalog()`: Returns the dynamic summary of registered tool platforms.
+
+### MCP Testing & Execution:
+
+```powershell
+# 1. Run MCP Built-in CLI Test Harness:
+python mcp_server.py --test
+
+# 2. Test a specific file via MCP tool:
+python mcp_server.py --test --file sample_account_unlock.txt
+
+# 3. Launch MCP stdio server:
+elone-sop-mcp
+```
+
+### IDE / Agent Client Configuration:
+
+```json
+{
+  "mcpServers": {
+    "elone-sop": {
+      "command": "python",
+      "args": ["-m", "mcp_server"],
+      "cwd": "/path/to/sop_ingestion_standalone"
+    }
+  }
+}
+```
+
+---
+
+## Python Package / Plugin Usage
+
+You can import and use the pipeline directly inside any Python application or agent framework:
+
+```python
+import elone_sop
+
+# 1. Convert a raw SOP document directly:
+okf_path, frontmatter = elone_sop.convert_raw_sop_to_okf("knowledge_base/_uploads/sample_account_unlock.txt")
+print(f"Generated Playbook: {okf_path}")
+
+# 2. Plan and validate without writing to disk:
+draft = elone_sop.plan_okf_from_raw("knowledge_base/_uploads/sample_account_unlock.txt")
+
+# 3. Run 2-Layer Validation on steps:
+is_valid, errors = elone_sop.validate_plan_faithfulness_and_linkage(
+    raw_sop_text="Step 1: Check IP",
+    steps_dict={"steps": [{"step_number": 1, "sop_step_description": "Check IP", "step_type": "command", "command": "ipconfig"}]}
+)
+```
+
+---
+
+## CLI Usage Guide
+
+Installed CLI scripts:
+- `elone-sop`: Standard CLI runner.
+- `elone-sop-debug`: Debug runner with internal reasoning logs.
+- `elone-sop-mcp`: MCP stdio server.
 
 ### A. Convert a Single SOP File
 
-Process any document in `knowledge_base/_uploads/`:
-
 ```powershell
-python run.py --file knowledge_base/_uploads/sample_account_unlock.txt
+elone-sop --file knowledge_base/_uploads/sample_account_unlock.txt
+# OR: python run.py --file knowledge_base/_uploads/sample_account_unlock.txt
 ```
 
 ### B. Run Full Internal Reasoning Debug Traces
 
-To inspect the complete internal reasoning of both Agent 1 (JIT Converter) and Agent 2 (Plan Validator) saved directly to disk:
-
 ```powershell
-# Pass just the file name; it auto-searches knowledge_base/_uploads/
-python debug_run.py -f sop_software_application_unblock_request_ifeo.pdf
+elone-sop-debug -f sop_software_application_unblock_request_ifeo.pdf
+# OR: python debug_run.py -f sop_software_application_unblock_request_ifeo.pdf
 ```
 
 ### C. Batch Scan All Unprocessed SOPs
 
-Scan the entire `_uploads/` directory and convert all pending documents:
-
 ```powershell
-python run.py --scan
+elone-sop --scan
 ```
 
 ### D. Start the Automated Folder Watcher Daemon
 
-Watch `knowledge_base/_uploads/` continuously in the background:
-
 ```powershell
-python run.py --watch --interval 5
+elone-sop --watch --interval 5
 ```
 
 ---

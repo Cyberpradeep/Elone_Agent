@@ -2,9 +2,11 @@ config
 core
 debug_run
 elone_sop
+gemini_monitor
 mcp_server
 prompts
 run
 scheduler
+schemas
 test_standalone
 tools

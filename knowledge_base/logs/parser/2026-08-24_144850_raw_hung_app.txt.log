@@ -1,0 +1,19 @@
+============================================================
+  SOP INGESTION PIPELINE — PARSER AUDIT LOG
+============================================================
+  Source File:          raw_hung_app.txt
+  Source Absolute Path: C:\Users\prade\AppData\Local\Temp\pytest-of-prade\pytest-62\test_jit_converter_command_pla0\raw_hung_app.txt
+  Parser Engine:        markitdown_parser
+  Character Count:      252
+  Page Count:           N/A
+  Timestamp:            2026-08-24 14:48:50
+============================================================
+
+--- RAW EXTRACTED TEXT START ---
+
+    Standard Operating Procedure: Terminate Frozen Application
+    1. Open Command Prompt or PowerShell on target Windows computer.
+    2. Run 'taskkill /F /IM Code.exe' to forcibly terminate unresponsive process.
+    3. Verify process is terminated.
+
+--- RAW EXTRACTED TEXT END ---

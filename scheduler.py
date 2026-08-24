@@ -27,7 +27,7 @@ from core.input_validator import ALLOWED_EXTENSIONS, validate_sop_file
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-KB_DIR = os.path.join(BASE_DIR, "knowledge_base")
+KB_DIR = os.getenv("ELONE_KB_DIR", os.path.join(BASE_DIR, "knowledge_base"))
 UPLOADS_DIR = os.path.join(KB_DIR, "_uploads")
 MANIFEST_PATH = os.path.join(UPLOADS_DIR, "_processed_manifest.json")
 

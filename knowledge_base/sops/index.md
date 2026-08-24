@@ -1,3 +1,5 @@
 # Active Playbooks Catalog
 
 - [Account Unlock Procedure](./logins/SOP-Account-Unlock-Procedure-001.md) | Platform: `solandra` | Category: `logins` | Triggers: `solandra, unlock, account, login, locked` | This playbook automates the process of searching for a user account, checking its lock status, attempting to unlock it (by generating a temporary password), verifying the unlock, and sending a confirmation email.
+- [Software Application Unblock Request](./software/SOP-l1-app-001-001.md) | Platform: `system` | Category: `software` | Triggers: `unblock, ifeo, application, debugger, registry` | Identifies and removes Image File Execution Options (IFEO) debugger registry entries blocking software application execution on a Windows endpoint, followed by policy refresh and verification.
+- [Check and Terminate a Hung Application – Windows](./system/SOP-check-and-terminate-hung-application-001.md) | Platform: `system` | Category: `system` | Triggers: `hung, terminate, application, unresponsive, taskkill, tasklist` | This playbook verifies if a specified application is running on a Windows system and, if confirmed, forcibly terminates the unresponsive process.

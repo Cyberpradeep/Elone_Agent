@@ -6,10 +6,12 @@ from langchain_core.messages import HumanMessage
 
 # pyrefly: ignore [missing-import]
 from config.llm_config import get_llm
+# pyrefly: ignore [missing-import]
 from core.input_validator import validate_sop_file, SOPInputValidationError
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LOGS_PARSER_DIR = os.path.join(BASE_DIR, "knowledge_base", "logs", "parser")
+KB_DIR = os.getenv("ELONE_KB_DIR", os.path.join(BASE_DIR, "knowledge_base"))
+LOGS_PARSER_DIR = os.path.join(KB_DIR, "logs", "parser")
 
 
 def _log_parsed_text(filepath: str, parser_engine: str, raw_text: str, page_count: Optional[int] = None) -> str:

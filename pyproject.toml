@@ -56,4 +56,4 @@ py-modules = ["run", "debug_run", "scheduler", "mcp_server", "test_standalone"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["elone_sop*", "core*", "config*", "tools*", "prompts*"]
+include = ["elone_sop*", "core*", "config*", "tools*", "prompts*", "schemas*", "gemini_monitor*"]

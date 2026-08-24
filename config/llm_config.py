@@ -22,7 +22,7 @@ load_dotenv()
 ROLE_PROVIDER_MAP = {
     "execution_planning": {
         "provider": "gemini",
-        "model": "gemini-2.5-flash",
+        "model": "gemini-3.6-flash",
         "fallbacks": [
             {"provider": "gemini", "model": "gemini-2.5-flash"},
         ],

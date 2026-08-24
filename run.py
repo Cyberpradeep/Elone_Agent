@@ -144,13 +144,13 @@ def _process_single_file(filepath: str, override_sop_id: str = None):
 def _run_scan_cycle():
     """Run one full ingestion scan cycle."""
     # pyrefly: ignore [missing-import]
-    from scheduler import _run_ingestion_cycle
+    from scheduler import run_ingestion_cycle
 
     print(f"\n{'='*60}")
     print(f"  SOP Ingestion Pipeline — Full Scan Cycle")
     print(f"{'='*60}\n")
 
-    summary = _run_ingestion_cycle()
+    summary = run_ingestion_cycle()
     print(f"\n{'='*60}")
     print(f"  SCAN CYCLE COMPLETE")
     print(f"{'='*60}")
