@@ -22,12 +22,13 @@ import threading
 import time
 from typing import Optional
 
-from agents.jit_converter.node import convert_raw_sop_to_okf
-
+# pyrefly: ignore [missing-import]
+from elone_sop import convert_raw_sop_to_okf
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-KB_DIR = os.path.join(BASE_DIR, "knowledge_base")
+KB_DIR = os.getenv("ELONE_KB_DIR", os.path.join(BASE_DIR, "knowledge_base"))
 UPLOADS_DIR = os.path.join(KB_DIR, "_uploads")
+
 MANIFEST_PATH = os.path.join(UPLOADS_DIR, "_processed_manifest.json")
 
 SUPPORTED_EXTENSIONS = (".pdf", ".docx", ".doc", ".txt", ".xlsx", ".xls", ".pptx")

@@ -24,8 +24,13 @@ from shared.tool_catalog import (
     get_tool_names,
     get_function_names,
 )
-from agents.jit_converter.node import plan_okf_from_raw, write_okf_playbook
-from agents.plan_validator.validator import validate_plan_faithfulness_and_linkage
+# pyrefly: ignore [missing-import]
+from elone_sop import (
+    plan_okf_from_raw,
+    write_okf_playbook,
+    validate_plan_faithfulness_and_linkage,
+    convert_raw_sop_to_okf,
+)
 from shared.ticket_logger import save_ticket_log, load_ticket_log, list_saved_tickets
 from ingestion_pipe.scheduler import start_sop_ingestion_scheduler, get_scheduler_status
 
@@ -33,7 +38,8 @@ from ingestion_pipe.scheduler import start_sop_ingestion_scheduler, get_schedule
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 
-UPLOAD_DIR = os.path.join(BASE_DIR, "knowledge_base", "_uploads")
+KB_DIR = os.getenv("ELONE_KB_DIR", os.path.join(BASE_DIR, "knowledge_base"))
+UPLOAD_DIR = os.path.join(KB_DIR, "_uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 app = FastAPI(title="EloneAgent API")
