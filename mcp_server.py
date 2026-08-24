@@ -32,6 +32,8 @@ from core.jit_converter import (
 # pyrefly: ignore [missing-import]
 from core.plan_validator import validate_plan_faithfulness_and_linkage
 # pyrefly: ignore [missing-import]
+from core.input_validator import validate_sop_file
+# pyrefly: ignore [missing-import]
 from config.tool_catalog import get_formatted_tools_summary
 # pyrefly: ignore [missing-import]
 from scheduler import (
@@ -83,6 +85,11 @@ def ingest_sop(file_path: str, override_sop_id: Optional[str] = None) -> str:
     if not os.path.exists(resolved_path):
         return f"[ERROR]: SOP file not found at '{file_path}' (resolved: '{resolved_path}')."
 
+    # Pre-ingestion security check: size <= 10MB, pages <= 10, format allowlist
+    is_valid, val_err, meta = validate_sop_file(resolved_path)
+    if not is_valid:
+        return f"[SECURITY REJECTION]: File '{os.path.basename(resolved_path)}' failed input validation: {val_err}"
+
     try:
         okf_path, frontmatter = convert_raw_sop_to_okf(
             resolved_path,
@@ -119,6 +126,15 @@ def plan_sop(file_path: str) -> str:
     resolved_path = _resolve_sop_path(file_path)
     if not os.path.exists(resolved_path):
         return f"Error: SOP file not found at '{file_path}'."
+
+    # Pre-ingestion security check: size <= 10MB, pages <= 10, format allowlist
+    is_valid, val_err, meta = validate_sop_file(resolved_path)
+    if not is_valid:
+        return json.dumps({
+            "is_valid": False,
+            "validation_errors": [f"Input validation rejected '{os.path.basename(resolved_path)}': {val_err}"],
+            "metadata": meta
+        }, indent=2)
 
     try:
         draft = plan_okf_from_raw(resolved_path)

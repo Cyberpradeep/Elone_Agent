@@ -139,21 +139,21 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
     if not raw_text or len(raw_text.strip()) < 10:
         raise ValueError(f"Could not extract text from raw file: {raw_filepath}")
 
-    # Extract embedded URLs and scrape reference knowledge
-    embedded_urls = extract_urls_from_markdown(raw_text)
-    scraped_context_blocks = []
+    # Extract embedded URLs and scrape reference knowledge (DISABLED: External link content omitted from LLM prompt for security)
+    # embedded_urls = extract_urls_from_markdown(raw_text)
+    # scraped_context_blocks = []
     knowledge_base_ref = []
 
-    if embedded_urls:
-        print(f"[JIT OKF Converter Agent] Found {len(embedded_urls)} embedded URLs in SOP. Scraping reference pages...")
-        for url in embedded_urls[:5]:  # Limit to top 5 links
-            success, web_md, rel_cache_path = fetch_and_convert_url(url)
-            if success and len(web_md.strip()) > 30:
-                scraped_context_blocks.append(f"### Reference Web Page [{url}]:\n{web_md[:1500]}")
-                knowledge_base_ref.append({
-                    "url": url,
-                    "file_path": rel_cache_path
-                })
+    # if embedded_urls:
+    #     print(f"[JIT OKF Converter Agent] Found {len(embedded_urls)} embedded URLs in SOP. Scraping reference pages...")
+    #     for url in embedded_urls[:5]:  # Limit to top 5 links
+    #         success, web_md, rel_cache_path = fetch_and_convert_url(url)
+    #         if success and len(web_md.strip()) > 30:
+    #             scraped_context_blocks.append(f"### Reference Web Page [{url}]:\n{web_md[:1500]}")
+    #             knowledge_base_ref.append({
+    #                 "url": url,
+    #                 "file_path": rel_cache_path
+    #             })
 
     # Rebuild the SOP text in the exact same order as the source document:
     # each image is analyzed by the Vision LLM and its report is spliced in
@@ -167,18 +167,26 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
             image_index += 1
             label = seg.get("label", f"Image {image_index}")
             report_text, image_ref = analyze_and_save_image(seg["bytes"], seg["mime_type"], label, sop_slug, image_index)
-            conf_score = image_ref.get("confidence_score", 0.90)
-            conf_lvl = image_ref.get("confidence_level", "High")
-            enriched_parts.append(f"### Visual Inspection Report ({label}) [Confidence: {conf_score:.2f} / {conf_lvl}]:\n{report_text}")
+            conf_score = float(image_ref.get("confidence_score", 0.90))
+
+            if conf_score >= 0.85:
+                directive = f"[HIGH CONFIDENCE: {conf_score:.2f} — Fully trust and extract visible UI buttons, IDs, and parameters]"
+            elif conf_score >= 0.60:
+                directive = f"[MEDIUM CONFIDENCE: {conf_score:.2f} — Use for supplementary context; prioritize written text if conflicting]"
+            else:
+                directive = f"[LOW CONFIDENCE: {conf_score:.2f} / UNRELIABLE — Rely strictly on surrounding written SOP text and do not guess unverified parameters]"
+
+            enriched_parts.append(f"### Visual Inspection Report ({label}) {directive}:\n{report_text}")
             knowledge_base_ref.append(image_ref)
 
     enriched_sop_text = "\n\n".join(enriched_parts)
 
-    if scraped_context_blocks:
-        enriched_sop_text += "\n\n## LINKED REFERENCE KNOWLEDGE (Scraped from embedded SOP URLs):\n" + "\n\n".join(scraped_context_blocks)
+    # Scraped link context disabled for security (prevent indirect prompt injection)
+    # if scraped_context_blocks:
+    #     enriched_sop_text += "\n\n## LINKED REFERENCE KNOWLEDGE (Scraped from embedded SOP URLs):\n" + "\n\n".join(scraped_context_blocks)
 
     # Audit log: persist the exact document-order text (raw + interleaved VLM
-    # image reports + scraped links) that will be fed into the converter LLM.
+    # image reports) that will be fed into the converter LLM.
     _log_converter_input(raw_filepath, sop_slug, enriched_sop_text)
 
     # Closed-Loop Auto-Retry Engine (Max 3 Retries)

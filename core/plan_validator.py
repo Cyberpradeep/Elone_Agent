@@ -15,14 +15,29 @@ from prompts.validator_prompts import JIT_VALIDATOR_COT_SYSTEM_PROMPT
 from schemas import JITFaithfulnessInspectionResult
 
 
+# Deterministic High-Risk Security / Prompt Injection Command Patterns
+MALICIOUS_COMMAND_PATTERNS = [
+    (r"(?:powershell|pwsh).*(?:-enc|-encodedcommand)\s+[A-Za-z0-9+/=]{10,}", "Encoded PowerShell payload execution"),
+    (r"(?:invoke-expression|iex)\s*[\(\$]", "Arbitrary script evaluation (Invoke-Expression / IEX)"),
+    (r"certutil(?:\.exe)?\s+-(?:urlcache|decode|decodehex)", "Certutil binary download/decode exploitation"),
+    (r"bitsadmin(?:\.exe)?\s+/transfer", "Bitsadmin background downloader"),
+    (r"net\s+user\s+[^/\s]+\s+[^/\s]+\s+/add", "Unauthorized backdoor local user creation (net user /add)"),
+    (r"net\s+localgroup\s+administrators\s+[^/\s]+\s+/add", "Privilege escalation to local administrator"),
+    (r"(?:curl|wget)\s+.*https?://\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}", "Outbound network request to raw public IP"),
+    (r"curl\s+-[dF]\s+[@\$]", "Outbound file exfiltration via curl POST/form"),
+    (r"(?:chmod\s+777|chown\s+root|useradd|usermod\s+-aG\s+sudo)", "Privilege escalation / insecure file permission alteration"),
+    (r"mimikatz|Invoke-Mimikatz|sekurlsa", "Credential dumping tool execution"),
+]
+
+
 def validate_plan_faithfulness_and_linkage(
     raw_sop_text: str,
     execution_plan: Dict[str, Any]
 ) -> Tuple[bool, List[str]]:
     """2-Layer Validation for JIT Converted SOPs.
 
-    Layer 1: Fast Deterministic Python Syntax, Variable Linkage & Tool Catalog Check (< 1ms).
-    Layer 2: LLM Human SOP Faithfulness & Hallucination Inspection.
+    Layer 1: Fast Deterministic Python Syntax, Variable Linkage, Tool Catalog & Security Scan (< 1ms).
+    Layer 2: LLM Human SOP Faithfulness, Hallucination & Prompt Injection Inspection.
 
     Returns: (is_valid_bool, validation_errors_list)
     """
@@ -30,7 +45,7 @@ def validate_plan_faithfulness_and_linkage(
     steps = execution_plan.get("steps", [])
 
     # =========================================================================
-    # LAYER 1: FAST DETERMINISTIC PYTHON SYNTAX & VARIABLE LINKAGE CHECK (< 1ms)
+    # LAYER 1: FAST DETERMINISTIC PYTHON SYNTAX, LINKAGE & SECURITY CHECK (< 1ms)
     # =========================================================================
     if not steps:
         return False, ["Layer 1 Error: Converted SOP contains zero execution steps."]
@@ -45,6 +60,14 @@ def validate_plan_faithfulness_and_linkage(
         reasoning = (step.get("step_reasoning") or "").lower()
         parse_instruction = step.get("output_parse_instruction") or step.get("parse_instruction") or ""
         execute_if = step.get("execute_if")
+
+        # Deterministic High-Risk Malicious / Injected Command Filter
+        if cmd:
+            for pattern, threat_desc in MALICIOUS_COMMAND_PATTERNS:
+                if re.search(pattern, cmd, re.IGNORECASE):
+                    errors.append(
+                        f"Layer 1 Security Violation: Step {idx} command '{cmd}' matched high-risk attack pattern ({threat_desc})."
+                    )
 
         # Reject fabricated placeholder/dummy steps created to bypass validation
         placeholder_markers = [
@@ -102,9 +125,9 @@ def validate_plan_faithfulness_and_linkage(
         return True, []
 
     # =========================================================================
-    # LAYER 2: LLM SEMANTIC HUMAN SOP FAITHFULNESS INSPECTION
+    # LAYER 2: LLM SEMANTIC HUMAN SOP FAITHFULNESS & INJECTION INSPECTION
     # =========================================================================
-    print("[PlanValidator Layer 2] Layer 1 passed. Running LLM Faithfulness Inspection...")
+    print("[PlanValidator Layer 2] Layer 1 passed. Running LLM Faithfulness & Prompt Injection Inspection...")
     try:
         llm = get_llm("planning_validation", temperature=0)
         prompt = (
@@ -165,6 +188,7 @@ def validate_plan_faithfulness_and_linkage(
             print(
                 f"[PlanValidator Layer 2] Faithfulness Verdict: {verdict_str} | "
                 f"Confidence Score: {inspection_result.confidence_score:.2f} ({inspection_result.confidence_level}) | "
+                f"Injection Detected: {inspection_result.injection_detected} | "
                 f"Reason: {inspection_result.confidence_reason}"
             )
 
@@ -173,6 +197,18 @@ def validate_plan_faithfulness_and_linkage(
                 execution_plan["validation_confidence_score"] = inspection_result.confidence_score
                 execution_plan["validation_confidence_level"] = inspection_result.confidence_level
                 execution_plan["validation_confidence_reason"] = inspection_result.confidence_reason
+                execution_plan["injection_detected"] = inspection_result.injection_detected
+                execution_plan["injection_reasoning"] = inspection_result.injection_reasoning
+
+            # Prompt Injection Detection Failure Gate
+            if inspection_result.injection_detected:
+                sec_err = (
+                    f"Layer 2 Security Error: Prompt injection or malicious command payload detected! "
+                    f"Reason: {inspection_result.injection_reasoning} "
+                    f"(Flagged steps: {inspection_result.malicious_steps})"
+                )
+                errors.append(sec_err)
+                return False, errors
 
             if not inspection_result.is_faithful:
                 reasons = []

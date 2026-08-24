@@ -22,7 +22,7 @@ load_dotenv()
 ROLE_PROVIDER_MAP = {
     "execution_planning": {
         "provider": "gemini",
-        "model": "gemini-3.7-flash",
+        "model": "gemini-2.5-flash",
         "fallbacks": [
             {"provider": "gemini", "model": "gemini-2.5-flash"},
         ],
@@ -36,7 +36,9 @@ ROLE_PROVIDER_MAP = {
     },
     "vlm_image_analysis": {
         "provider": "nvidia",
-        "model": "meta/llama-3.2-11b-vision-instruct",
+         "model": "meta/llama-3.2-11b-vision-instruct",
+        # "model":"nvidia/nemotron-nano-12b-v2-vl",
+        # "model":"nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
     },
 }
 
@@ -124,7 +126,7 @@ from langchain_nvidia_ai_endpoints import ChatNVIDIA
 
 def _build_nvidia_client(model: str, temperature: float = 0.2):
     api_key = os.environ.get("NVIDIA_API_KEY")
-    return ChatNVIDIA(model=model, nvidia_api_key=api_key, temperature=temperature, max_completion_tokens=4096)
+    return ChatNVIDIA(model=model, nvidia_api_key=api_key, temperature=temperature, max_completion_tokens=350)
 
 
 _BUILDERS = {

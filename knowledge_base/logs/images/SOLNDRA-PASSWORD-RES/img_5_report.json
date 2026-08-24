@@ -2,8 +2,8 @@
   "image_filename": "img_5.png",
   "label": "Image 5 (inline, following the text above)",
   "mime_type": "image/png",
-  "confidence_score": 0.9,
-  "confidence_level": "High",
-  "confidence_reason": "Visual evidence interpreted by Vision LLM.",
-  "vlm_report": "The image shows a screenshot of the CoreID Admin Console, with a ticket resolution page open. The page displays the ticket number, status, and resolution notes.\n\n*   **CoreID Admin Console**\n    *   The CoreID Admin Console is displayed on the left side of the image.\n    *   It has a dark blue background with white text.\n    *   The menu options are: Admin Console, Dashboard, Tickets, Users, Reports, and Settings.\n*   **Ticket #SOL-84213 - Resolution**\n    *   The ticket number is SOL-84213.\n    *   The status is Resolved.\n    *   The resolution notes are: Identity verified (2 of 4 checks). Temporary password issued via CoreID. Force-change-at-next-sign-in enabled. No OTP sent - admin-mediated reset per policy.\n*   **Resolution notes**\n    *   The resolution notes are displayed in a text box below the ticket information.\n    *   They provide details about the resolution of the ticket, including the verification of identity and the issuance of a temporary password.\n\nThe image shows a screenshot of the CoreID Admin Console, with a ticket resolution page open. The page displays the ticket number, status, and resolution notes. The resolution notes provide details about the resolution of the ticket, including the verification of identity and the issuance of a temporary password."
+  "confidence_score": 0.5,
+  "confidence_level": "Low",
+  "confidence_reason": "**",
+  "vlm_report": "The image shows a screenshot of the CoreID Admin Console, with a ticket resolution panel open. The panel displays the ticket number, status, and resolution notes.\n\n**SCREEN / CONTEXT:**\nCoreID Admin Console > Ticket Resolution Panel\n\n**UI ACTION:**\nNone visible\n\n**VISIBLE ENTITIES:**\nTicket: #SOL-84213\nStatus: Resolved\nResolution Notes: Identity verified (2 of 4 checks). Temporary password issued via CoreID. Force-change-at-next-sign-in enabled. No OTP sent - admin-mediated reset per policy.\n\n**ERRORS:**\nNone visible\n\n**CONFIDENCE SCORE:**\n1.0\n**CONFIDENCE LEVEL:**\nHigh\n**CONFIDENCE REASON:**\nThe image is clear and legible, with all necessary information visible."
 }

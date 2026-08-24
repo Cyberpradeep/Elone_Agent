@@ -1,13 +1,9 @@
-"""
-Gemini Monitor & Daily Quota Guard
-==================================
-Monitors API token usage, calculates per-call USD/INR costs, and enforces
-a strict hard ceiling of 50 calls per day.
-"""
 
 import os
 import json
 import datetime
+import threading
+import uuid
 from typing import Dict, Any, Optional, List
 from langchain_core.callbacks.base import BaseCallbackHandler
 
@@ -19,6 +15,53 @@ USAGE_FILE = os.path.join(MONITOR_DIR, "daily_usage.json")
 
 # Default daily limit (50 calls per day max)
 DEFAULT_MAX_DAILY_CALLS = 50
+
+# ── Per-Execution Session Tracker ──────────────────────────────────────
+# Thread-local storage so concurrent runs (if ever) don't collide
+_session_local = threading.local()
+
+
+def start_execution_session(sop_filename: str = "unknown") -> str:
+    """Call at the start of each pipeline run. Returns a unique session_id."""
+    session_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:6]
+    _session_local.session = {
+        "session_id": session_id,
+        "sop_filename": sop_filename,
+        "started_at": datetime.datetime.now().isoformat(),
+        "total_calls": 0,
+        "gemini_calls": 0,
+        "nvidia_vision_calls": 0,
+        "mistral_calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "image_tokens": 0,
+        "total_tokens": 0,
+        "cost_usd": 0.0,
+        "cost_inr": 0.0,
+        "calls": []  # per-call breakdown
+    }
+    return session_id
+
+
+def _get_active_session() -> Optional[Dict[str, Any]]:
+    """Returns the active session dict, or None if no session is active."""
+    return getattr(_session_local, "session", None)
+
+
+def end_execution_session() -> Optional[Dict[str, Any]]:
+    """Finalizes the session and returns the summary. Returns None if no session."""
+    session = _get_active_session()
+    if session is None:
+        return None
+    session["ended_at"] = datetime.datetime.now().isoformat()
+    summary = dict(session)
+    _session_local.session = None
+    return summary
+
+
+def get_execution_summary() -> Optional[Dict[str, Any]]:
+    """Returns the current session summary without ending it."""
+    return _get_active_session()
 
 
 class DailyQuotaExceededError(RuntimeError):
@@ -170,6 +213,33 @@ def record_call(
     day_entry["total_cost_usd"] = round(day_entry["total_cost_usd"] + cost_info["total_cost_usd"], 6)
     day_entry["total_cost_inr"] = round(day_entry["total_cost_inr"] + cost_info["total_cost_inr"], 4)
 
+    # ── Track in active execution session (if any) ──
+    session = _get_active_session()
+    if session is not None:
+        session["total_calls"] += 1
+        session["input_tokens"] += input_tokens
+        session["output_tokens"] += output_tokens
+        session["image_tokens"] += image_tokens
+        session["total_tokens"] += (input_tokens + output_tokens + image_tokens)
+        session["cost_usd"] = round(session["cost_usd"] + cost_info["total_cost_usd"], 6)
+        session["cost_inr"] = round(session["cost_inr"] + cost_info["total_cost_inr"], 4)
+        prov_lower_s = provider.lower()
+        if "gemini" in prov_lower_s:
+            session["gemini_calls"] += 1
+        elif "nvidia" in prov_lower_s or "vision" in caller.lower():
+            session["nvidia_vision_calls"] += 1
+        elif "mistral" in prov_lower_s:
+            session["mistral_calls"] += 1
+        session["calls"].append({
+            "caller": caller,
+            "provider": provider,
+            "model": model,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "image_tokens": image_tokens,
+            "cost_usd": cost_info["total_cost_usd"]
+        })
+
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     history_record = {
         "timestamp": timestamp,
@@ -230,6 +300,40 @@ class GeminiMonitorCallback(BaseCallbackHandler):
             output_tokens=output_tokens,
             sop_id=self.sop_id
         )
+
+
+def print_execution_session_banner(session: Optional[Dict[str, Any]] = None) -> None:
+    """Prints a per-execution session summary banner."""
+    if session is None:
+        session = _get_active_session()
+    if session is None:
+        return
+
+    print("\n" + "=" * 70)
+    print("  THIS EXECUTION — LLM CALL SUMMARY")
+    print("=" * 70)
+    print(f"  Session ID:         {session['session_id']}")
+    print(f"  SOP File:           {session['sop_filename']}")
+    print(f"  Total LLM Calls:    {session['total_calls']}")
+    print(f"    Gemini:           {session['gemini_calls']}")
+    print(f"    NVIDIA Vision:    {session['nvidia_vision_calls']}")
+    print(f"    Mistral:          {session['mistral_calls']}")
+    print("  --------------------------------------------------------------------")
+    print(f"  Input Tokens:       {session['input_tokens']:,}")
+    print(f"  Output Tokens:      {session['output_tokens']:,}")
+    print(f"  Image Tokens:       {session['image_tokens']:,}")
+    print(f"  Total Tokens:       {session['total_tokens']:,}")
+    print("  --------------------------------------------------------------------")
+    print(f"  Execution Cost:     ${session['cost_usd']:.4f} USD (~Rs. {session['cost_inr']:.2f} INR)")
+    print("=" * 70)
+
+    # Per-call breakdown table
+    if session["calls"]:
+        print(f"  {'#':<4} {'Caller':<25} {'Provider':<12} {'In Tok':>8} {'Out Tok':>8} {'Img Tok':>8} {'Cost':>10}")
+        print(f"  {'—'*4} {'—'*25} {'—'*12} {'—'*8} {'—'*8} {'—'*8} {'—'*10}")
+        for i, c in enumerate(session["calls"], 1):
+            print(f"  {i:<4} {c['caller']:<25} {c['provider']:<12} {c['input_tokens']:>8,} {c['output_tokens']:>8,} {c['image_tokens']:>8,} ${c['cost_usd']:>8.5f}")
+    print("=" * 70 + "\n", flush=True)
 
 
 def print_daily_usage_banner() -> None:

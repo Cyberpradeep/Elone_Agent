@@ -1,9 +1,0 @@
-{
-  "image_filename": "img_1.png",
-  "label": "Image 1 (inline, following the text above)",
-  "mime_type": "image/png",
-  "confidence_score": 0.9,
-  "confidence_level": "High",
-  "confidence_reason": "Visual evidence interpreted by Vision LLM.",
-  "vlm_report": "The image shows a screenshot of a ticketing system, with the title \"Ticket #SOL-84213\" at the top. The purpose of the image is to display information about a specific ticket.\n\n* A ticketing system screenshot:\n\t+ The background is light gray.\n\t+ The left side has a dark gray sidebar with white text.\n\t+ The right side has a white main content area.\n* A title that reads \"Ticket #SOL-84213\":\n\t+ The title is in large, bold font.\n\t+ It is centered at the top of the page.\n* A list of categories and subcategories:\n\t+ The categories are listed in a table format.\n\t+ Each category has a corresponding subcategory.\n\t+ The categories include \"Category\", \"Requester\", \"Employee ID\", \"Manager\", \"Department\", and \"Opened\".\n* A table with information about the ticket:\n\t+ The table has two columns: \"Category\" and \"Value\".\n\t+ The values include \"Password Reset - Escalated\", \"J. Employee\", \"SOL-04821\", \"A. Menon\", \"Finance\", and \"Today, 10:42 AM\".\n\nThe image provides a clear overview of the ticketing system and the information associated with the ticket #SOL-84213. The categories and subcategories help to organize the information, making it easier to understand and navigate."
-}

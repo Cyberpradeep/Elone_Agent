@@ -32,10 +32,13 @@ def guess_mime_type(path: str) -> str:
 def extract_images_from_pdf(pdf_path: str) -> List[Tuple[int, int, bytes, str]]:
     """Returns a list of (page_number, image_index_on_page, image_bytes, mime_type)."""
     try:
-        import fitz  # PyMuPDF
+        import pymupdf as fitz
     except ImportError:
-        print("[VLM Inspector Warning] PyMuPDF (fitz) is not installed. PDF image extraction skipped.")
-        return []
+        try:
+            import fitz
+        except ImportError:
+            print("[VLM Inspector Warning] PyMuPDF is not installed. PDF image extraction skipped.")
+            return []
 
     results = []
     try:
@@ -85,9 +88,21 @@ import time
 
 
 def extract_confidence_score(report_text: str) -> Dict[str, Any]:
-    """Extracts CONFIDENCE SCORE / LEVEL / REASON from VLM report text."""
-    score = 0.90
-    level = "High"
+    """Extracts CONFIDENCE SCORE / LEVEL / REASON from VLM report text.
+    
+    Assigns score = 0.0 (Low) if the VLM call failed or returned an API error.
+    """
+    # 1. Detect VLM failure / API error strings
+    if not report_text or "VLM Analysis FAILED" in report_text or ("FAILED" in report_text and "CONFIDENCE SCORE:" not in report_text):
+        return {
+            "score": 0.0,
+            "level": "Low",
+            "reason": "VLM vision analysis failed or encountered an upstream API error."
+        }
+
+    # 2. Extract score with regex
+    score = 0.50
+    level = "Medium"
     reason = "Visual evidence interpreted by Vision LLM."
 
     score_match = re.search(r"CONFIDENCE SCORE:\s*([0-9\.]+)%?", report_text, re.IGNORECASE)
@@ -103,7 +118,7 @@ def extract_confidence_score(report_text: str) -> Dict[str, Any]:
     if level_match:
         level = level_match.group(1).capitalize()
     else:
-        level = "High" if score >= 0.80 else ("Medium" if score >= 0.50 else "Low")
+        level = "High" if score >= 0.85 else ("Medium" if score >= 0.60 else "Low")
 
     reason_match = re.search(r"CONFIDENCE REASON:\s*(.+)", report_text, re.IGNORECASE)
     if reason_match:

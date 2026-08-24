@@ -106,10 +106,38 @@ def _process_single_file(filepath: str, override_sop_id: str = None):
             pass
 
     except Exception as e:
-        safe_err = str(e).encode("ascii", "replace").decode("ascii")
-        print(f"\n[ERROR] Ingestion failed: {safe_err}")
-        import traceback
-        traceback.print_exc()
+        # pyrefly: ignore [missing-import]
+        from core.input_validator import SOPInputValidationError
+
+        print("\n" + "=" * 60)
+        if isinstance(e, SOPInputValidationError):
+            print("  [SECURITY REJECTION] INGESTION BLOCKED")
+            print("=" * 60)
+            print(f"  Source File:  {e.filename}")
+            print(f"  Status:       REJECTED (Pre-Ingestion Gate)")
+            print(f"  Reason:       {e.reason}")
+            if e.metadata:
+                ext = e.metadata.get('extension')
+                size_mb = e.metadata.get('size_mb')
+                pages = e.metadata.get('page_count')
+                if ext:
+                    print(f"  Detected Ext: {ext}")
+                if size_mb is not None:
+                    print(f"  File Size:    {size_mb} MB (Max allowed: 10.0 MB)")
+                if pages is not None:
+                    print(f"  Page Count:   {pages} pages (Max allowed: 10 pages)")
+            print("=" * 60)
+            print("\n  [Audit Note] Pipeline halted before parsing/LLM execution. Zero tokens consumed.\n")
+        elif isinstance(e, ValueError):
+            print(f"  [VALIDATION ERROR]: {e}")
+            print("=" * 60 + "\n")
+        else:
+            safe_err = str(e).encode("ascii", "replace").decode("ascii")
+            print(f"  [UNEXPECTED ERROR]: {safe_err}")
+            print("=" * 60)
+            import traceback
+            traceback.print_exc()
+            print()
         sys.exit(1)
 
 

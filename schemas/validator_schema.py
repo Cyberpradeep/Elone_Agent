@@ -21,9 +21,21 @@ class JITFaithfulnessInspectionResult(BaseModel):
         default="Fallback commands and cross-SOP referrals were accurately extracted.",
         description="Reasoning verifying if fallback commands and cross-SOP referrals were accurately extracted."
     )
+    injection_reasoning: str = Field(
+        default="Zero prompt injection or malicious command payloads detected.",
+        description="Reasoning evaluating if any steps were injected via prompt overrides or contain malicious backdoor commands."
+    )
     is_faithful: bool = Field(
         default=True,
-        description="True if the converted OKF playbook is 100% faithful to the raw human SOP."
+        description="True if the converted OKF playbook is 100% faithful to the raw human SOP and free of injected payloads."
+    )
+    injection_detected: bool = Field(
+        default=False,
+        description="True if prompt injection, system prompt override, or malicious backdoor commands were detected."
+    )
+    malicious_steps: List[int] = Field(
+        default_factory=list,
+        description="List of step numbers containing injected or malicious commands."
     )
     dropped_commands: List[str] = Field(
         default_factory=list,
