@@ -6,6 +6,7 @@ from langchain_core.messages import HumanMessage
 
 # pyrefly: ignore [missing-import]
 from config.llm_config import get_llm
+from core.input_validator import validate_sop_file, SOPInputValidationError
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOGS_PARSER_DIR = os.path.join(BASE_DIR, "knowledge_base", "logs", "parser")
@@ -73,6 +74,14 @@ def extract_full_text(filepath: str) -> Tuple[str, str]:
 
     filename = os.path.basename(filepath)
 
+    # 0. STRICT PRE-INGESTION INPUT VALIDATION GATE (Size <= 10MB, Pages <= 10, Allowlist formats)
+    is_valid, validation_err, meta = validate_sop_file(filepath)
+    if not is_valid:
+        err_msg = f"Input validation rejected '{filename}': {validation_err}"
+        print(f"[DocumentParser Security Rejection] {err_msg}")
+        _log_parsed_text(filepath, "security_validation_rejected", f"SECURITY ERROR: {err_msg}")
+        raise SOPInputValidationError(filename, validation_err, meta)
+
     # 1. PRIMARY ENGINE: Microsoft MarkItDown for all document formats
     try:
         from markitdown import MarkItDown
@@ -116,7 +125,10 @@ def extract_full_text(filepath: str) -> Tuple[str, str]:
 
 def _fallback_pdf_ocr(filepath: str) -> Tuple[str, str]:
     """Fallback PDF extractor using PyMuPDF and Vision OCR for scanned images."""
-    import fitz  # PyMuPDF
+    try:
+        import pymupdf as fitz
+    except ImportError:
+        import fitz
 
     doc = fitz.open(filepath)
     page_count = len(doc)
@@ -261,7 +273,10 @@ def _extract_ordered_pdf(filepath: str) -> List[Dict[str, Any]]:
     into top-to-bottom reading order so a screenshot stays interleaved with
     the instruction text it illustrates. Preserves URI hyperlinks as Markdown.
     """
-    import fitz  # PyMuPDF
+    try:
+        import pymupdf as fitz
+    except ImportError:
+        import fitz
 
     doc = fitz.open(filepath)
     segments: List[Dict[str, Any]] = []
@@ -337,6 +352,14 @@ def extract_ordered_sop_content(filepath: str) -> Tuple[str, List[Dict[str, Any]
     """
     ext = os.path.splitext(filepath)[1].lower()
     filename = os.path.basename(filepath)
+
+    # 0. STRICT PRE-INGESTION INPUT VALIDATION GATE (Size <= 10MB, Pages <= 10, Allowlist formats)
+    is_valid, validation_err, meta = validate_sop_file(filepath)
+    if not is_valid:
+        err_msg = f"Input validation rejected '{filename}': {validation_err}"
+        print(f"[DocumentParser Security Rejection] {err_msg}")
+        _log_parsed_text(filepath, "security_validation_rejected", f"SECURITY ERROR: {err_msg}")
+        raise SOPInputValidationError(filename, validation_err, meta)
 
     try:
         if ext == ".docx":

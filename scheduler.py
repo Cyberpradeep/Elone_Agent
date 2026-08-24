@@ -22,6 +22,8 @@ from typing import Optional
 
 # pyrefly: ignore [missing-import]
 from core.jit_converter import convert_raw_sop_to_okf
+# pyrefly: ignore [missing-import]
+from core.input_validator import ALLOWED_EXTENSIONS, validate_sop_file
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -29,7 +31,7 @@ KB_DIR = os.path.join(BASE_DIR, "knowledge_base")
 UPLOADS_DIR = os.path.join(KB_DIR, "_uploads")
 MANIFEST_PATH = os.path.join(UPLOADS_DIR, "_processed_manifest.json")
 
-SUPPORTED_EXTENSIONS = (".pdf", ".docx", ".doc", ".txt", ".xlsx", ".xls", ".pptx")
+SUPPORTED_EXTENSIONS = tuple(ALLOWED_EXTENSIONS)
 
 # Configurable via .env; falls back to 10 minutes.
 DEFAULT_INTERVAL_MINUTES = int(os.environ.get("SOP_SCAN_INTERVAL_MINUTES", "10"))

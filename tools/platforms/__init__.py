@@ -4,23 +4,23 @@ import re
 # pyrefly: ignore [missing-import]
 from tools.platforms.solandra import SOLANDRA_SCHEMA
 # pyrefly: ignore [missing-import]
-from tools.platforms.auth0 import AUTH0_SCHEMA
+# from tools.platforms.auth0 import AUTH0_SCHEMA
 # pyrefly: ignore [missing-import]
 from tools.platforms.email import EMAIL_SCHEMA
 # pyrefly: ignore [missing-import]
-from tools.platforms.airretailer import AIRRETAILER_SCHEMA
+# from tools.platforms.airretailer import AIRRETAILER_SCHEMA
 # pyrefly: ignore [missing-import]
-from tools.platforms.mock import MOCK_SCHEMA
+# from tools.platforms.mock import MOCK_SCHEMA
 
 # ---------------------------------------------------------------------------
 # Master Detailed Platform Tool Schemas
 # ---------------------------------------------------------------------------
 DETAILED_TOOL_SCHEMAS: Dict[str, Dict[str, Any]] = {
     "solandra": SOLANDRA_SCHEMA,
-    "auth0": AUTH0_SCHEMA,
+    # "auth0": AUTH0_SCHEMA,
     "email": EMAIL_SCHEMA,
-    "airretailer": AIRRETAILER_SCHEMA,
-    "mock": MOCK_SCHEMA,
+    # "airretailer": AIRRETAILER_SCHEMA,
+    # "mock": MOCK_SCHEMA,
 }
 
 # ---------------------------------------------------------------------------

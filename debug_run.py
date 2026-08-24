@@ -50,6 +50,11 @@ def main():
         default=None,
         help="Optional override for the generated SOP ID."
     )
+    parser.add_argument(
+        "--images-only", "-i",
+        action="store_true",
+        help="Run ONLY the image extraction and VLM description report generation without downstream JIT conversion."
+    )
 
     args = parser.parse_args()
 
@@ -97,8 +102,53 @@ def main():
     except ImportError:
         print("[DEBUG RUNNER] Warning: langchain_core.globals not found. Running with standard output.\n")
 
-    # 4. Execute Ingestion Pipeline
+    # 4. Start Per-Execution Session Tracker
+    from gemini_monitor.monitor import start_execution_session
+    sop_basename = os.path.basename(target_path)
+    session_id = start_execution_session(sop_filename=sop_basename)
+    print(f"[DEBUG RUNNER] Execution session started: {session_id}\n")
+
+    # 5. Execute Pipeline
     try:
+        if args.images_only:
+            print("=" * 70)
+            print("  SOP IMAGE EXTRACTION & VLM ANALYSIS MODE (Images Only)")
+            print("=" * 70)
+            # pyrefly: ignore [missing-import]
+            from core.document_parser import extract_ordered_sop_content
+            # pyrefly: ignore [missing-import]
+            from core.vlm_inspector import analyze_and_save_image
+
+            sop_slug = os.path.splitext(os.path.basename(target_path))[0].upper()[:20]
+            parser_type, segments = extract_ordered_sop_content(target_path)
+            image_segments = [s for s in segments if s.get("type") == "image"]
+            print(f"  Document parsed using '{parser_type}' engine.")
+            print(f"  Found {len(image_segments)} embedded image(s) in document.\n")
+
+            if not image_segments:
+                print("  [INFO] No embedded images found in this document.")
+            else:
+                for idx, img_seg in enumerate(image_segments, start=1):
+                    label = img_seg.get("label", f"Image {idx}")
+                    mime = img_seg.get("mime_type", "image/png")
+                    size_kb = len(img_seg["bytes"]) / 1024.0
+                    print(f"--- [Image {idx}/{len(image_segments)}] {label} ({mime}, {size_kb:.1f} KB) ---")
+                    report_text, img_ref = analyze_and_save_image(
+                        img_seg["bytes"], mime, label, sop_slug, idx
+                    )
+                    print(f"\n[VLM Output Report]:\n{report_text}\n")
+                    print(f"  Confidence:  {img_ref.get('confidence_score')} ({img_ref.get('confidence_level')})")
+                    print(f"  Reason:      {img_ref.get('confidence_reason')}")
+                    print(f"  Report Log:  {img_ref.get('file_path')}\n")
+
+            try:
+                # pyrefly: ignore [missing-import]
+                from gemini_monitor.monitor import print_daily_usage_banner
+                print_daily_usage_banner()
+            except Exception:
+                pass
+            return
+
         # pyrefly: ignore [missing-import]
         from core.jit_converter import convert_raw_sop_to_okf
         okf_path, metadata = convert_raw_sop_to_okf(target_path, override_sop_id=args.sop_id)
@@ -117,6 +167,15 @@ def main():
         print(f"  Complete Log Saved: {log_filepath}")
         print("=" * 70 + "\n")
 
+        # Print Per-Execution Session Summary (THIS RUN ONLY)
+        try:
+            # pyrefly: ignore [missing-import]
+            from gemini_monitor.monitor import print_execution_session_banner, end_execution_session
+            session_summary = end_execution_session()
+            print_execution_session_banner(session_summary)
+        except Exception:
+            pass
+
         # Print Gemini & Vision Monitor Daily Usage Report
         try:
             # pyrefly: ignore [missing-import]
@@ -126,12 +185,41 @@ def main():
             pass
 
     except Exception as e:
+        # pyrefly: ignore [missing-import]
+        from core.input_validator import SOPInputValidationError
+
         print("\n" + "=" * 70)
-        print(f"  [ERROR] Ingestion Failed: {e}")
-        print("=" * 70)
-        import traceback
-        traceback.print_exc()
-        print(f"\n  Full error trace saved to: {log_filepath}")
+        if isinstance(e, SOPInputValidationError):
+            print("  [SECURITY / VALIDATION REJECTION] INGESTION BLOCKED")
+            print("=" * 70)
+            print(f"  Source File:  {e.filename}")
+            print(f"  Status:       REJECTED (Pre-Ingestion Gate)")
+            print(f"  Reason:       {e.reason}")
+            if e.metadata:
+                ext = e.metadata.get('extension')
+                size_mb = e.metadata.get('size_mb')
+                pages = e.metadata.get('page_count')
+                if ext:
+                    print(f"  Detected Ext: {ext}")
+                if size_mb is not None:
+                    print(f"  File Size:    {size_mb} MB (Max allowed: 10.0 MB)")
+                if pages is not None:
+                    print(f"  Page Count:   {pages} pages (Max allowed: 10 pages)")
+            print("=" * 70)
+            print(f"\n  [Audit Note] Pipeline halted before parsing/LLM execution. Zero tokens consumed.")
+            print(f"  Security log: {log_filepath}\n")
+        elif isinstance(e, ValueError):
+            print("  [INGESTION VALIDATION ERROR]")
+            print("=" * 70)
+            print(f"  Reason: {e}")
+            print("=" * 70)
+            print(f"\n  Full details saved to: {log_filepath}\n")
+        else:
+            print(f"  [UNEXPECTED PIPELINE ERROR]: {e}")
+            print("=" * 70)
+            import traceback
+            traceback.print_exc()
+            print(f"\n  Full crash traceback saved to: {log_filepath}\n")
         sys.exit(1)
 
 

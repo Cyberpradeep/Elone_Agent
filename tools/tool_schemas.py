@@ -10,13 +10,13 @@ from tools.platforms import (
 # pyrefly: ignore [missing-import]
 from tools.platforms.solandra import SOLANDRA_SCHEMA
 # pyrefly: ignore [missing-import]
-from tools.platforms.auth0 import AUTH0_SCHEMA
+# from tools.platforms.auth0 import AUTH0_SCHEMA
 # pyrefly: ignore [missing-import]
 from tools.platforms.email import EMAIL_SCHEMA
 # pyrefly: ignore [missing-import]
-from tools.platforms.airretailer import AIRRETAILER_SCHEMA
+# from tools.platforms.airretailer import AIRRETAILER_SCHEMA
 # pyrefly: ignore [missing-import]
-from tools.platforms.mock import MOCK_SCHEMA
+# from tools.platforms.mock import MOCK_SCHEMA
 
 __all__ = [
     "DETAILED_TOOL_SCHEMAS",
@@ -24,8 +24,8 @@ __all__ = [
     "find_platform_schema",
     "get_all_valid_platform_names",
     "SOLANDRA_SCHEMA",
-    "AUTH0_SCHEMA",
+    # "AUTH0_SCHEMA",
     "EMAIL_SCHEMA",
-    "AIRRETAILER_SCHEMA",
-    "MOCK_SCHEMA",
+    # "AIRRETAILER_SCHEMA",
+    # "MOCK_SCHEMA",
 ]
