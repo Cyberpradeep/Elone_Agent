@@ -6,7 +6,8 @@ from typing import Tuple, List
 from markitdown import MarkItDown
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-WEB_CACHE_DIR = os.path.join(BASE_DIR, "knowledge_base", "logs", "web_cache")
+KB_DIR = os.getenv("ELONE_KB_DIR", os.path.join(BASE_DIR, "knowledge_base"))
+WEB_CACHE_DIR = os.path.join(KB_DIR, "logs", "web_cache")
 
 IGNORED_EXTENSIONS = (
     ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp",

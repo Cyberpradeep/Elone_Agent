@@ -72,7 +72,8 @@ def main():
 
     # 1. Setup Debug Log Directory & Filepath
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    debug_logs_dir = os.path.join(base_dir, "knowledge_base", "logs", "debug")
+    kb_dir = os.getenv("ELONE_KB_DIR", os.path.join(base_dir, "knowledge_base"))
+    debug_logs_dir = os.path.join(kb_dir, "logs", "debug")
     os.makedirs(debug_logs_dir, exist_ok=True)
 
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")

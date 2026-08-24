@@ -34,7 +34,7 @@ from prompts.jit_converter_prompts import JIT_COT_CONVERTER_PROMPT
 
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-KB_DIR = os.path.join(BASE_DIR, "knowledge_base")
+KB_DIR = os.getenv("ELONE_KB_DIR", os.path.join(BASE_DIR, "knowledge_base"))
 SOPS_DIR = os.path.join(KB_DIR, "sops")
 PATTERNS_DIR = os.path.join(KB_DIR, "patterns")
 LOGS_DIR = os.path.join(KB_DIR, "logs")

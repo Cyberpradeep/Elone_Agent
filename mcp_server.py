@@ -43,8 +43,9 @@ from scheduler import (
 )
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-UPLOADS_DIR = os.path.join(BASE_DIR, "knowledge_base", "_uploads")
-SOPS_INDEX_PATH = os.path.join(BASE_DIR, "knowledge_base", "sops", "index.md")
+KB_DIR = os.getenv("ELONE_KB_DIR", os.path.join(BASE_DIR, "knowledge_base"))
+UPLOADS_DIR = os.path.join(KB_DIR, "_uploads")
+SOPS_INDEX_PATH = os.path.join(KB_DIR, "sops", "index.md")
 
 
 def _safe_str(text: str) -> str:
@@ -183,7 +184,7 @@ def read_playbook(sop_id: str) -> str:
     Args:
         sop_id: The SOP ID (e.g. 'SOP-SOL-PWD-RESET-L1-002') or category path.
     """
-    sops_root = os.path.join(BASE_DIR, "knowledge_base", "sops")
+    sops_root = os.path.join(KB_DIR, "sops")
     clean_id = str(sop_id).strip()
     if not clean_id.endswith(".md"):
         clean_id += ".md"
