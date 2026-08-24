@@ -22,7 +22,7 @@ def resolve_template_variables(text: str, entities: Dict[str, Any] = None, varia
             return str(val)
         return match.group(0)
 
-    resolved_text = re.sub(r"\{\{entities\.(.*?)\}\}", replace_entity, text)
+    resolved_text = re.sub(r"\{+entities\.(.*?)\}+", replace_entity, text)
 
     # 2. Replace {{variables.path}}
     def replace_variable(match):
@@ -52,7 +52,7 @@ def resolve_template_variables(text: str, entities: Dict[str, Any] = None, varia
         
         return match.group(0)
 
-    resolved_text = re.sub(r"\{\{variables\.(.*?)\}\}", replace_variable, resolved_text)
+    resolved_text = re.sub(r"\{+variables\.(.*?)\}+", replace_variable, resolved_text)
 
     # 3. Replace single-brace {key} placeholders (e.g. {user_id} or {variables.default_gateway_ip})
     def replace_single_brace(match):

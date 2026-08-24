@@ -8,10 +8,10 @@ class BaseProvider(ABC):
     @property
     @abstractmethod
     def provider_name(self) -> str:
-        """Name of the provider (e.g. 'auth0', 'okta', 'jira')."""
+        """Name of the provider (e.g. 'auth0', 'okta', 'jira', 'mock')."""
         pass
 
-    @abstractmethod
     def get_tool_metadata(self) -> List[Dict[str, Any]]:
-        """Returns tool schema metadata for catalog discovery."""
-        pass
+        """Optional tool schema metadata for providers."""
+        return []
+

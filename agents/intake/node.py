@@ -5,11 +5,10 @@ from langgraph.types import Command
 
 from shared.state import SupportState
 from shared.asset_lookup import extract_and_lookup_asset
-from okf_engine.loader import parse_sops_catalog_index
+from okf_engine import parse_sops_catalog_index
 from .schemas import TriageResult
 from .llm import run_triage
 from .tools import (
-    get_raw_uploads_list,
     lookup_matching_playbook,
     lookup_user_asset,
     check_software_permission,
@@ -20,8 +19,15 @@ def intake_agent(state: SupportState) -> Command[Literal["planner_agent", "orche
     """Intake Agent Node with Dual Confidence Scoring & Catalog Scanning."""
 
     catalog_map = parse_sops_catalog_index()
-    raw_uploads = get_raw_uploads_list()
-    active_intents = list(catalog_map.keys()) + [r["clean_title"] for r in raw_uploads]
+    print(f"\n==================================================")
+    print(f"--- [INTAKE AGENT: TRIAGE & CATALOG SCAN] ---")
+    print(f"  Loaded {len(catalog_map)} active playbooks from sops/index.md:")
+    if catalog_map:
+        for idx, (title, info) in enumerate(catalog_map.items(), start=1):
+            print(f"    [{idx}] '{title}' -> Path: sops/{info.get('rel_path')} (Category: {info.get('category')})")
+    else:
+        print(f"    (No active playbooks found in sops/index.md)")
+    print(f"==================================================")
 
     ticket_raw = state.get("ticket_raw", "")
     category = state.get("category")
@@ -66,6 +72,11 @@ def intake_agent(state: SupportState) -> Command[Literal["planner_agent", "orche
             ticket_details_confidence=0.4,
             sop_match_confidence=0.2,
         )
+
+    print(f"\n  [Intake Triage Result]:")
+    print(f"    Intent: '{result.intent}' | Category: '{result.category}'")
+    print(f"    SOP Match Confidence: {result.sop_match_confidence:.2f} | Details Confidence: {result.ticket_details_confidence:.2f}")
+    print(f"    Matched SOP Path: {result.matched_file_path or '(None - No match in catalog)'}")
 
     # Dynamic Application & Identity Entity Population
     if result.application_name:

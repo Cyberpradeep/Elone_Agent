@@ -1,6 +1,6 @@
-import pytest
-from agents.intake.node import intake_agent, get_raw_uploads_list
+from agents.intake.node import intake_agent
 from shared.asset_lookup import extract_and_lookup_asset
+from okf_engine import parse_sops_catalog_index
 
 
 def test_asset_lookup_enrichment():
@@ -11,11 +11,10 @@ def test_asset_lookup_enrichment():
     assert entities.get("username") == "prapa"
 
 
-def test_raw_uploads_scanner():
-    uploads = get_raw_uploads_list()
-    assert isinstance(uploads, list)
-    titles = [u["clean_title"] for u in uploads]
-    assert "Network Sop" in titles or len(titles) >= 0
+def test_sops_catalog_scanner():
+    catalog = parse_sops_catalog_index()
+    assert isinstance(catalog, dict)
+    assert len(catalog) >= 0
 
 
 def test_intake_agent_node_routing():

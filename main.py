@@ -1,3 +1,7 @@
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
 import uuid
 # pyrefly: ignore [missing-import]
 from langgraph.types import Command

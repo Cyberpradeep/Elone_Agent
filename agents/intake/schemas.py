@@ -32,16 +32,16 @@ class TriageResult(BaseModel):
         default=1.0,
         ge=0.0,
         le=1.0,
-        description="Confidence score (0.0 to 1.0) evaluating how closely the reported symptoms match an active OKF playbook or raw PDF upload."
+        description="Confidence score (0.0 to 1.0) evaluating how closely the reported symptoms match an active OKF playbook in the catalog."
     )
     
-    sop_source: Optional[Literal["okf_playbook", "raw_pdf"]] = Field(
+    sop_source: Optional[Literal["okf_playbook"]] = Field(
         default="okf_playbook",
-        description="Indicates whether the matched SOP is an active OKF playbook or a raw PDF file requiring JIT conversion."
+        description="Indicates that the matched SOP is an active OKF playbook."
     )
     matched_file_path: Optional[str] = Field(
         default=None,
-        description="Relative or absolute path to the matched OKF playbook or raw PDF upload file."
+        description="Relative path to the matched OKF playbook file (e.g. sops/logins/SOP-Account-Unlock-001.md)."
     )
     
     detailed_description: str = Field(

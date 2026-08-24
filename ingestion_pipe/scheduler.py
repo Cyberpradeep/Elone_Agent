@@ -6,8 +6,8 @@ and converts any new or modified raw SOP files into OKF Playbooks using the
 existing JIT converter + plan validator.
 
 Reuses:
-  - agents.jit_converter.node.convert_raw_sop_to_okf
-  - agents.plan_validator.validator.validate_plan_faithfulness_and_linkage
+  - elone_sop.convert_raw_sop_to_okf
+  - elone_sop.validate_plan_faithfulness_and_linkage
     (called internally by convert_raw_sop_to_okf)
 
 Processed files are tracked via a JSON manifest so they are not re-processed

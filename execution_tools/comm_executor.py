@@ -30,10 +30,23 @@ def execute_comm_tool(func_name: str, inputs: Dict[str, Any], provider_name: str
 
     try:
         from shared.tool_catalog import PROVIDERS
-        target_providers = PROVIDERS
+        from elone_sop import find_platform_schema
+
+        target_providers = list(PROVIDERS)
         if provider_name:
             norm_p_name = provider_name.lower().strip()
+            # 1. Direct name match
             matched = [p for p in PROVIDERS if p.provider_name == norm_p_name or norm_p_name in p.provider_name or p.provider_name in norm_p_name]
+
+            # 2. Match via platform schema aliases (e.g. solandra, coreid -> MockProvider)
+            if not matched:
+                schema = find_platform_schema(norm_p_name)
+                if schema:
+                    plat_name = schema.get("platform", "").lower()
+                    matched = [p for p in PROVIDERS if p.provider_name == plat_name or plat_name in p.provider_name or p.provider_name in plat_name]
+                    if not matched and plat_name in ("solandra", "mock", "mock_support_platform"):
+                        matched = [p for p in PROVIDERS if "mock" in p.provider_name]
+
             if matched:
                 target_providers = matched
 
