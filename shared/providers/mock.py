@@ -241,209 +241,78 @@ class MockProvider(BaseProvider):
             return {"user_id": user_id, "logs": [{"action": "LOGIN_SUCCESS", "timestamp": "2026-08-07T09:00:00"}]}
 
     # ---------------------------------------------------------------------------
-    # 📑 Tool Catalog Discovery Metadata
+    # 🏢 Solandra & CoreID Platform Compatibility Methods
     # ---------------------------------------------------------------------------
 
-    def get_tool_metadata(self) -> List[Dict[str, Any]]:
-        return [
-            {
-                "tool_name": "l1_testing_platform_api",
-                "description": "REST API client for L1 Support Platform — covers auth, password management, MFA, admin user management, and audit logging.",
-                "functions": [
-                    # --- Auth ---
-                    {
-                        "function_name": "signup",
-                        "description": "POST /api/auth/signup — Create a new user account.",
-                        "required_inputs": ["email", "password"],
-                        "response_schema": {
-                            "success": {"message": "str", "user": {"id": "int", "email": "str", "full_name": "str"}},
-                            "error": {"error": "str", "code": "int"},
-                        },
-                    },
-                    {
-                        "function_name": "login",
-                        "description": "POST /api/auth/login — Login with email and password. Returns access_token on success, or mfa_required + temp_token if MFA is enabled.",
-                        "required_inputs": ["email", "password"],
-                        "response_schema": {
-                            "success": {"message": "str", "access_token": "str", "user": {"id": "int", "email": "str"}},
-                            "mfa_required": {"mfa_required": True, "temp_token": "str"},
-                            "error": {"error": "str", "code": "int"},
-                        },
-                    },
-                    {
-                        "function_name": "verify_mfa_login",
-                        "description": "POST /api/auth/login/mfa — Verify MFA code after login.",
-                        "required_inputs": ["temp_token", "mfa_code"],
-                        "response_schema": {
-                            "success": {"message": "str", "access_token": "str", "user": {"id": "int", "email": "str"}},
-                            "error": {"error": "str", "code": "int"},
-                        },
-                    },
-                    {
-                        "function_name": "logout",
-                        "description": "POST /api/auth/logout — Invalidate the current access token.",
-                        "required_inputs": [],
-                        "response_schema": {
-                            "success": {"message": "str"},
-                            "error": {"error": "str", "code": "int"},
-                        },
-                    },
-                    {
-                        "function_name": "get_current_user",
-                        "description": "GET /api/auth/me — Get the current authenticated user profile.",
-                        "required_inputs": [],
-                        "response_schema": {
-                            "success": {"id": "int", "email": "str", "full_name": "str", "locked": "bool", "mfa_enabled": "bool"},
-                            "error": {"error": "str", "code": "int"},
-                        },
-                    },
-                    # --- Password Management ---
-                    {
-                        "function_name": "request_password_reset",
-                        "description": "POST /api/password/reset-request — Request a password reset token by email.",
-                        "required_inputs": ["email"],
-                        "response_schema": {
-                            "success": {"message": "str", "reset_token": "str"},
-                            "error": {"error": "str", "code": "int"},
-                        },
-                    },
-                    {
-                        "function_name": "confirm_password_reset",
-                        "description": "POST /api/password/reset-confirm — Confirm password reset with token.",
-                        "required_inputs": ["reset_token", "new_password"],
-                        "response_schema": {
-                            "success": {"message": "str"},
-                            "error": {"error": "str", "code": "int"},
-                        },
-                    },
-                    {
-                        "function_name": "change_password",
-                        "description": "PUT /api/password/change — Change password for the current user.",
-                        "required_inputs": ["current_password", "new_password"],
-                        "response_schema": {
-                            "success": {"message": "str"},
-                            "error": {"error": "str", "code": "int"},
-                        },
-                    },
-                    # --- MFA ---
-                    {
-                        "function_name": "get_mfa_status",
-                        "description": "GET /api/mfa/status — Get MFA state (enabled/verified).",
-                        "required_inputs": [],
-                        "response_schema": {
-                            "success": {"mfa_enabled": "bool", "mfa_verified": "bool"},
-                            "error": {"error": "str", "code": "int"},
-                        },
-                    },
-                    {
-                        "function_name": "enable_mfa",
-                        "description": "POST /api/mfa/enable — Enable MFA, returns new secret and provisioning URI.",
-                        "required_inputs": [],
-                        "response_schema": {
-                            "success": {"message": "str", "mfa_secret": "str", "provisioning_uri": "str"},
-                            "error": {"error": "str", "code": "int"},
-                        },
-                    },
-                    {
-                        "function_name": "verify_mfa_setup",
-                        "description": "POST /api/mfa/verify-setup — Verify MFA setup with a TOTP code.",
-                        "required_inputs": ["mfa_code"],
-                        "response_schema": {
-                            "success": {"message": "str", "mfa_verified": "bool"},
-                            "error": {"error": "str", "code": "int"},
-                        },
-                    },
-                    {
-                        "function_name": "disable_mfa",
-                        "description": "POST /api/mfa/disable — Disable MFA for the current user.",
-                        "required_inputs": [],
-                        "response_schema": {
-                            "success": {"message": "str", "mfa_enabled": False},
-                            "error": {"error": "str", "code": "int"},
-                        },
-                    },
-                    {
-                        "function_name": "reset_mfa",
-                        "description": "POST /api/mfa/reset — Reset MFA, returns new secret and provisioning URI.",
-                        "required_inputs": [],
-                        "response_schema": {
-                            "success": {"message": "str", "mfa_secret": "str", "provisioning_uri": "str"},
-                            "error": {"error": "str", "code": "int"},
-                        },
-                    },
-                    # --- Admin ---
-                    {
-                        "function_name": "list_users",
-                        "description": "GET /api/admin/users — Get paginated list of all users.",
-                        "required_inputs": [],
-                        "response_schema": {
-                            "success": {"users": [{"id": "int", "email": "str", "full_name": "str", "locked": "bool"}], "total": "int", "page": "int", "per_page": "int"},
-                            "error": {"error": "str", "code": "int"},
-                        },
-                    },
-                    {
-                        "function_name": "search_users",
-                        "description": "GET /api/admin/users/search?email= — Search users by email.",
-                        "required_inputs": ["email"],
-                        "response_schema": {
-                            "success": {"users": [{"id": "int", "email": "str", "full_name": "str", "locked": "bool"}]},
-                            "error": {"error": "str", "code": "int"},
-                        },
-                    },
-                    {
-                        "function_name": "get_user_details",
-                        "description": "GET /api/admin/users/{id} — Get detailed user profile.",
-                        "required_inputs": ["user_id"],
-                        "response_schema": {
-                            "success": {"id": "int", "email": "str", "full_name": "str", "status": "str", "locked": "bool", "mfa_enabled": "bool", "failed_login_attempts": "int"},
-                            "error": {"error": "str", "code": "int"},
-                        },
-                    },
-                    {
-                        "function_name": "lock_user_account",
-                        "description": "POST /api/admin/users/{id}/lock — Lock a user account.",
-                        "required_inputs": ["user_id"],
-                        "response_schema": {
-                            "success": {"message": "str", "status": "locked", "user_id": "str"},
-                            "error": {"error": "str", "code": "int"},
-                        },
-                    },
-                    {
-                        "function_name": "unlock_user_account",
-                        "description": "POST /api/admin/users/{id}/unlock — Unlock a user account.",
-                        "required_inputs": ["user_id"],
-                        "response_schema": {
-                            "success": {"message": "str", "status": "unlocked", "user_id": "str", "failed_login_attempts": 0},
-                            "error": {"error": "str", "code": "int"},
-                        },
-                    },
-                    {
-                        "function_name": "admin_reset_password",
-                        "description": "POST /api/admin/users/{id}/reset-password — Admin password reset.",
-                        "required_inputs": ["user_id"],
-                        "response_schema": {
-                            "success": {"message": "str", "status": "success", "user_id": "str", "temporary_password": "str"},
-                            "error": {"error": "str", "code": "int"},
-                        },
-                    },
-                    {
-                        "function_name": "admin_reset_mfa",
-                        "description": "POST /api/admin/users/{id}/reset-mfa — Admin MFA reset.",
-                        "required_inputs": ["user_id"],
-                        "response_schema": {
-                            "success": {"message": "str", "status": "mfa_reset_success", "user_id": "str", "mfa_enabled": False},
-                            "error": {"error": "str", "code": "int"},
-                        },
-                    },
-                    {
-                        "function_name": "get_user_audit_log",
-                        "description": "GET /api/admin/audit-log/{user_id} — Get user audit log.",
-                        "required_inputs": ["user_id"],
-                        "response_schema": {
-                            "success": {"user_id": "str", "logs": [{"action": "str", "timestamp": "str", "details": "str"}]},
-                            "error": {"error": "str", "code": "int"},
-                        },
-                    },
-                ],
-            }
-        ]
+    def search_user(self, employee_id: str = None, email: str = None, user_id: str = None, **kwargs) -> Dict[str, Any]:
+        """Searches user directory by employee_id or email with fallback."""
+        target = email or employee_id or user_id
+        if not target:
+            return {"found": "false", "user_id": None}
+        
+        # Try search_users if email-like
+        if "@" in str(target):
+            res = self.search_users(str(target))
+            users = res.get("users", []) if isinstance(res, dict) else []
+            if users:
+                u = users[0]
+                return {
+                    "found": "true",
+                    "user_id": str(u.get("id") or u.get("user_id")),
+                    "employee_id": employee_id or str(u.get("id")),
+                    "name": u.get("full_name") or u.get("name", "User"),
+                    "status": "Locked" if u.get("locked") else "Active",
+                }
+
+        # Mock / Local response
+        return {
+            "found": "true",
+            "user_id": str(user_id or "usr_99812"),
+            "employee_id": str(employee_id or "EMP-001"),
+            "name": "Alex Mercer",
+            "manager_name": "Sarah Connor",
+            "department": "Engineering",
+            "status": "Locked",
+        }
+
+    def verify_caller_identity(self, user_id: str = None, employee_id: str = None, manager_name: str = None, department: str = None, phone_last4: str = None, **kwargs) -> Dict[str, Any]:
+        """Verifies caller identity checklist."""
+        matched = []
+        if employee_id:
+            matched.append("employee_id")
+        if manager_name:
+            matched.append("manager_name")
+        if department:
+            matched.append("department")
+        if phone_last4:
+            matched.append("phone_last4")
+        
+        count = max(len(matched), 2)
+        return {
+            "verified": "true",
+            "user_id": str(user_id or "usr_99812"),
+            "matched_items": matched or ["employee_id", "manager_name"],
+            "matched_count": count,
+            "minimum_required": 2,
+        }
+
+    def generate_temporary_password(self, user_id: str = None, **kwargs) -> Dict[str, Any]:
+        """Generates temporary password for user."""
+        import secrets
+        temp_pw = f"TempPass_{secrets.token_hex(4)}!"
+        return {
+            "status": "success",
+            "user_id": str(user_id or "usr_99812"),
+            "temporary_password": temp_pw,
+            "force_change_at_next_sign_in": "true",
+        }
+
+    def resolve_ticket(self, ticket_id: str = None, resolution_note: str = None, **kwargs) -> Dict[str, Any]:
+        """Resolves IT support ticket."""
+        return {
+            "status": "Resolved",
+            "ticket_id": str(ticket_id or "TICK-001"),
+            "resolution_note": resolution_note or "Ticket resolved successfully by L1 Support Agent.",
+            "audit_logged": "true",
+        }
+

@@ -7,7 +7,7 @@ from okf_engine.loader import load_okf_concept
 
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-KB_DIR = os.path.join(BASE_DIR, "knowledge_base")
+KB_DIR = os.getenv("ELONE_KB_DIR", os.path.join(BASE_DIR, "knowledge_base"))
 PATTERNS_DIR = os.path.join(KB_DIR, "patterns")
 HOSTS_DIR = os.path.join(PATTERNS_DIR, "hosts")
 LOGS_DIR = os.path.join(KB_DIR, "logs")

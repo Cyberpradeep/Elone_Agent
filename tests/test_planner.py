@@ -46,17 +46,20 @@ def test_missing_executable_entity_validation():
 def test_unified_planner_agent_node():
     from agents.planner.node import planner_agent
     state = {
-        "intent": "Software Application Unblock via IFEO Debugger Entry Removal",
-        "category": "software",
-        "ticket_raw": "Unblock VS Code on host Carnage",
-        "entities": {"hostname": "Carnage", "executable": "Code.exe", "email": "pradeepnaveen930@gmail.com"},
-        "matched_file_path": "software/SOP-APP-001.md",
+        "intent": "Account Unlock Procedure",
+        "category": "logins",
+        "ticket_raw": "Unlock my account for email pradeepnaveen930@gmail.com",
+        "entities": {"email": "pradeepnaveen930@gmail.com", "user_id": "usr_99812"},
+        "matched_file_path": "logins/SOP-Account-Unlock-Procedure-001.md",
+        "sop_source": "okf_playbook",
         "audit_log": []
     }
     cmd = planner_agent(state)
     assert cmd.goto == "orchestration_agent"
     assert cmd.update.get("plan_valid") is True
     assert cmd.update.get("execution_plan") is not None
+    assert len(cmd.update.get("execution_plan", {}).get("steps", [])) == 4
+
 
 
 

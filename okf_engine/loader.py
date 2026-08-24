@@ -1,15 +1,40 @@
 import os
 import re
-import frontmatter
 from typing import Any
+import frontmatter
+from dotenv import load_dotenv
 
-
+# Ensure environment variables from .env are always loaded first
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-KB_DIR = os.path.join(BASE_DIR, "knowledge_base")
-SOPS_DIR = os.path.join(KB_DIR, "sops")
-PATTERNS_DIR = os.path.join(KB_DIR, "patterns")
-HOSTS_DIR = os.path.join(PATTERNS_DIR, "hosts")
-LOGS_DIR = os.path.join(KB_DIR, "logs")
+load_dotenv(os.path.join(BASE_DIR, ".env"))
+load_dotenv()
+
+
+def get_kb_dir() -> str:
+    return os.getenv("ELONE_KB_DIR", os.path.join(BASE_DIR, "knowledge_base"))
+
+
+def get_sops_dir() -> str:
+    return os.path.join(get_kb_dir(), "sops")
+
+
+def get_patterns_dir() -> str:
+    return os.path.join(get_kb_dir(), "patterns")
+
+
+def get_hosts_dir() -> str:
+    return os.path.join(get_patterns_dir(), "hosts")
+
+
+def get_logs_dir() -> str:
+    return os.path.join(get_kb_dir(), "logs")
+
+
+KB_DIR = get_kb_dir()
+SOPS_DIR = get_sops_dir()
+PATTERNS_DIR = get_patterns_dir()
+HOSTS_DIR = get_hosts_dir()
+LOGS_DIR = get_logs_dir()
 
 
 def load_okf_concept(filepath: str) -> tuple[dict[str, Any], str]:
@@ -25,20 +50,10 @@ def load_okf_concept(filepath: str) -> tuple[dict[str, Any], str]:
 
 
 def parse_sops_catalog_index() -> dict[str, dict[str, str]]:
-    """Parses knowledge_base/sops/index.md directly for OKF Progressive Disclosure Triage.
-
-    Returns mapping:
-    {
-        "L1 Network Connectivity Troubleshooting": {
-            "sop_id": "SOP-NET-001",
-            "category": "network",
-            "rel_path": "network/SOP-NET-001.md",
-            "description": "Diagnoses and resolves a user's inability to connect to internet..."
-        }
-    }
-    """
+    """Parses knowledge_base/sops/index.md directly for OKF Progressive Disclosure Triage."""
     catalog_map = {}
-    master_index_path = os.path.join(SOPS_DIR, "index.md")
+    sops_dir = get_sops_dir()
+    master_index_path = os.path.join(sops_dir, "index.md")
 
     if not os.path.exists(master_index_path):
         return _fallback_scan_sops_dir()
@@ -47,19 +62,50 @@ def parse_sops_catalog_index() -> dict[str, dict[str, str]]:
         lines = f.readlines()
 
     for line in lines:
-        match = re.search(r"-\s*\[(.*?)\]\(\./(.*?)\)\s*-\s*Category:\s*`(\w+)`(?:\s*-\s*(.*))?", line.strip())
-        if match:
-            title, rel_path, category, description = match.groups()
-            description = (description or "").strip()
-            sop_id_match = re.search(r"(SOP-[A-Z0-9-]+)", rel_path)
-            sop_id = sop_id_match.group(1) if sop_id_match else os.path.splitext(os.path.basename(rel_path))[0]
+        line_str = line.strip()
+        if not line_str.startswith("-"):
+            continue
 
-            catalog_map[title] = {
-                "sop_id": sop_id,
-                "category": category,
-                "rel_path": rel_path,
-                "description": description or f"Playbook for {title}."
-            }
+        # Extract title and relative path: - [Title](./rel_path) or - [Title](rel_path)
+        link_match = re.search(r"-\s*\[(.*?)\]\(\.?\/?(.*?)\)", line_str)
+        if not link_match:
+            continue
+
+        title, raw_rel_path = link_match.groups()
+        rel_path = raw_rel_path.lstrip("./").lstrip("/")
+
+        # Extract category: Category: `logins` or Category: logins
+        cat_match = re.search(r"Category:\s*[`'\"]?(\w+)[`'\"]?", line_str, re.IGNORECASE)
+        category = cat_match.group(1) if cat_match else "other"
+
+        # Extract sop_id:
+        sop_id_match = re.search(r"(SOP-[A-Z0-9-]+)", rel_path, re.IGNORECASE)
+        sop_id = sop_id_match.group(1) if sop_id_match else os.path.splitext(os.path.basename(rel_path))[0]
+
+        # Extract description:
+        description = ""
+        if "|" in line_str:
+            parts = [p.strip() for p in line_str.split("|")]
+            desc_parts = [
+                p for p in parts
+                if not p.startswith("- [")
+                and not p.lower().startswith("platform:")
+                and not p.lower().startswith("category:")
+                and not p.lower().startswith("triggers:")
+            ]
+            if desc_parts:
+                description = desc_parts[-1]
+        else:
+            hyphen_match = re.search(r"Category:\s*`\w+`\s*-\s*(.*)", line_str)
+            if hyphen_match:
+                description = hyphen_match.group(1).strip()
+
+        catalog_map[title] = {
+            "sop_id": sop_id,
+            "category": category,
+            "rel_path": rel_path,
+            "description": description or f"Playbook for {title}.",
+        }
 
     if not catalog_map:
         return _fallback_scan_sops_dir()
@@ -69,10 +115,11 @@ def parse_sops_catalog_index() -> dict[str, dict[str, str]]:
 
 def _fallback_scan_sops_dir() -> dict[str, dict[str, str]]:
     catalog_map = {}
-    if not os.path.exists(SOPS_DIR):
+    sops_dir = get_sops_dir()
+    if not os.path.exists(sops_dir):
         return catalog_map
 
-    for root, _, files in os.walk(SOPS_DIR):
+    for root, _, files in os.walk(sops_dir):
         for filename in files:
             if filename.endswith(".md") and filename != "index.md":
                 filepath = os.path.join(root, filename)
@@ -82,7 +129,7 @@ def _fallback_scan_sops_dir() -> dict[str, dict[str, str]]:
                     category = metadata.get("category", "other")
                     desc = metadata.get("description", f"Playbook for {title}.")
                     sop_id = metadata.get("sop_id", filename)
-                    rel_path = os.path.relpath(filepath, SOPS_DIR).replace("\\", "/")
+                    rel_path = os.path.relpath(filepath, sops_dir).replace("\\", "/")
 
                     if title:
                         catalog_map[title] = {
@@ -106,12 +153,13 @@ def get_active_intent_category_map_from_okf() -> dict[str, str]:
 def load_reflection_rulebook(sop_id: str, category: str | None = None) -> str:
     """Loads reflection rules table for sop_id from knowledge_base/patterns/<category>/rules_<sop_id>.md."""
     clean_id = sop_id.replace(" ", "_").replace("-", "_")
+    patterns_dir = get_patterns_dir()
 
     possible_paths = [
-        os.path.join(PATTERNS_DIR, category or "", f"rules_{clean_id}.md"),
-        os.path.join(PATTERNS_DIR, category or "", f"rules_{sop_id}.md"),
-        os.path.join(PATTERNS_DIR, f"rules_{clean_id}.md"),
-        os.path.join(PATTERNS_DIR, f"rules_{sop_id}.md"),
+        os.path.join(patterns_dir, category or "", f"rules_{clean_id}.md"),
+        os.path.join(patterns_dir, category or "", f"rules_{sop_id}.md"),
+        os.path.join(patterns_dir, f"rules_{clean_id}.md"),
+        os.path.join(patterns_dir, f"rules_{sop_id}.md"),
     ]
 
     for path in possible_paths:
@@ -122,14 +170,15 @@ def load_reflection_rulebook(sop_id: str, category: str | None = None) -> str:
             except Exception as e:
                 print(f"[OKF Engine Warning] Failed reading rules from {path}: {e}")
 
-    for root, _, files in os.walk(PATTERNS_DIR):
-        for f in files:
-            if f in [f"rules_{clean_id}.md", f"rules_{sop_id}.md"]:
-                try:
-                    _, body = load_okf_concept(os.path.join(root, f))
-                    return body
-                except Exception:
-                    pass
+    if os.path.exists(patterns_dir):
+        for root, _, files in os.walk(patterns_dir):
+            for f in files:
+                if f in [f"rules_{clean_id}.md", f"rules_{sop_id}.md"]:
+                    try:
+                        _, body = load_okf_concept(os.path.join(root, f))
+                        return body
+                    except Exception:
+                        pass
 
     return "(No reflection rules recorded yet for this SOP.)"
 
@@ -139,7 +188,8 @@ def load_device_profile(hostname: str) -> str:
     if not hostname or hostname in ["(none)", "(unknown)"]:
         return "(No host specified)"
 
-    host_path = os.path.join(HOSTS_DIR, f"{hostname}.md")
+    hosts_dir = get_hosts_dir()
+    host_path = os.path.join(hosts_dir, f"{hostname}.md")
     if os.path.exists(host_path):
         try:
             _, body = load_okf_concept(host_path)

@@ -2,27 +2,8 @@
 
 import os
 from shared.asset_lookup import extract_and_lookup_asset, is_application_allowed
-from okf_engine.loader import parse_sops_catalog_index
+from okf_engine import parse_sops_catalog_index, KB_DIR
 
-
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-KB_DIR = os.path.join(BASE_DIR, "knowledge_base")
-UPLOADS_DIR = os.path.join(KB_DIR, "_uploads")
-
-
-def get_raw_uploads_list() -> list[dict[str, str]]:
-    """Scans knowledge_base/_uploads/ for raw SOP documents (PDF/Docx/TXT)."""
-    raw_files = []
-    if os.path.exists(UPLOADS_DIR):
-        for f in os.listdir(UPLOADS_DIR):
-            if f.lower().endswith((".pdf", ".docx", ".txt")):
-                clean_title = os.path.splitext(f)[0].replace("_", " ").replace("-", " ")
-                raw_files.append({
-                    "raw_filename": f,
-                    "clean_title": clean_title,
-                    "path": os.path.join(UPLOADS_DIR, f)
-                })
-    return raw_files
 
 
 def lookup_matching_playbook(query_keywords: str, category: str = None) -> dict:

@@ -1,5 +1,5 @@
 import pytest
-from agents.plan_validator.validator import validate_plan_faithfulness_and_linkage
+from elone_sop import validate_plan_faithfulness_and_linkage
 
 
 def test_layer1_deterministic_validation():
@@ -31,17 +31,17 @@ def test_tool_call_layer1_validation_pass():
         "steps": [
             {
                 "step_number": 1,
-                "sop_step_description": "Unlock user account via admin API",
+                "sop_step_description": "Search user account via solandra API with employee_id EMP123",
                 "step_type": "tool_call",
-                "provider": "mock_support_platform",
-                "function_name": "unlock_user_account",
+                "platform": "solandra",
+                "function_name": "search_user",
                 "comm_inputs": {
-                    "user_id": "usr_99812"
+                    "employee_id": "EMP123"
                 }
             }
         ]
     }
-    is_valid, errors = validate_plan_faithfulness_and_linkage("Unlock customer account", valid_tool_plan)
+    is_valid, errors = validate_plan_faithfulness_and_linkage("Search user account via solandra API with employee_id EMP123", valid_tool_plan)
     assert is_valid is True
     assert len(errors) == 0
 
@@ -51,15 +51,15 @@ def test_tool_call_layer1_validation_fail_missing_input():
         "steps": [
             {
                 "step_number": 1,
-                "sop_step_description": "Unlock user account via admin API",
+                "sop_step_description": "Search user account via solandra API",
                 "step_type": "tool_call",
-                "provider": "mock_support_platform",
-                "function_name": "unlock_user_account",
-                "comm_inputs": {}  # Missing required input 'user_id'
+                "platform": "solandra",
+                "function_name": "search_user",
+                "comm_inputs": {}  # Missing required input 'employee_id'
             }
         ]
     }
-    is_valid, errors = validate_plan_faithfulness_and_linkage("Unlock customer account", invalid_tool_plan)
+    is_valid, errors = validate_plan_faithfulness_and_linkage("Search user account via solandra API", invalid_tool_plan)
     assert is_valid is False
-    assert any("missing required input parameter 'user_id'" in err for err in errors)
+    assert any("missing required input parameter 'employee_id'" in err for err in errors)
 

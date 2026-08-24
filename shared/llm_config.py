@@ -53,8 +53,8 @@ ROLE_PROVIDER_MAP = {
     },
 
     "summarization": {
-        "provider": "groq", 
-        "model": "openai/gpt-oss-120b",
+        "provider": "gemini", 
+        "model": "gemini-2.5-flash",
         "fallbacks":[
             {"provider": "groq_fallback", "model": "llama-3.3-70b-versatile"},
             {"provider": "gemini", "model": "gemini-2.5-flash"},

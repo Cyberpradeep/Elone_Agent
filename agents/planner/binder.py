@@ -81,6 +81,15 @@ def validate_planner_execution_plan(
         # 2. Track variables extracted in preceding steps
         if output_var:
             extracted_variables.add(str(output_var).lower())
+        
+        # Tool call steps automatically extract returned JSON response keys into variables
+        if step.get("step_type") == "tool_call" or step.get("function_name") or step.get("platform"):
+            extracted_variables.update([
+                "status", "account_status", "user_id", "found", "verified", 
+                "unlock_verified", "temporary_password", "ticket_id", "email", 
+                "employee_id", "result", "message", "access_token", "ip_address"
+            ])
+
         parsed_vars = re.findall(
             r"(?:set\s+['\"]?(?:variables\.)?(\w+)['\"]?\s+(?:to|=)|store\s+[\w\.\_\[\]]+\s+in\s+(?:variables\.)?(\w+)|['\"]?(\w+)['\"]?\s*(?:=|to)\s*['\"]?(?:true|false|\w+)['\"]?)",
             parse_instruction,

@@ -4,13 +4,15 @@ import os
 import re
 from typing import Optional, Tuple, Dict, Any
 
-from okf_engine.loader import load_okf_concept, parse_sops_catalog_index, load_reflection_rulebook, load_device_profile
+from okf_engine import (
+    load_okf_concept,
+    parse_sops_catalog_index,
+    load_reflection_rulebook,
+    load_device_profile,
+    KB_DIR,
+    SOPS_DIR,
+)
 
-
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-KB_DIR = os.path.join(BASE_DIR, "knowledge_base")
-SOPS_DIR = os.path.join(KB_DIR, "sops")
-UPLOADS_DIR = os.path.join(KB_DIR, "_uploads")
 
 GENERIC_NOISE_KEYWORDS = {
     "windows", "linux", "macos", "software", "hardware", "system",

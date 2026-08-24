@@ -10,36 +10,6 @@ class SystemOpsProvider(BaseProvider):
     def provider_name(self) -> str:
         return "system"
 
-    def get_tool_metadata(self) -> list[dict]:
-        return [
-            {
-                "tool_name": "system_operations",
-                "functions": [
-                    # {
-                    #     "function_name": "request_user_info",
-                    #     "required_inputs": ["question"],
-                    #     "description": "Pauses plan execution to ask the customer/user for clarification, missing details, or additional inputs.",
-                    #     "returns": {
-                    #         "response": "string"
-                    #     }
-                    # },
-                    {
-                        "function_name": "send_email",
-                        "required_inputs": ["to_email", "subject", "body"],
-                        "description": "Sends an email to the user with ticket updates, instructions, or resolution tokens.",
-                        "response_schema": {
-                            "success": {"status": "ok", "message": "str"},
-                            "error": {"status": "error", "message": "str"}
-                        }
-                    }
-                ]
-            }
-        ]
-
-    # def request_user_info(self, inputs: dict) -> dict:
-    #     return {"status": "need_input", "question": inputs.get("question")}
-
-
     def send_email(self, inputs: dict) -> dict:
         to_email = inputs.get("to_email")
         subject = inputs.get("subject")

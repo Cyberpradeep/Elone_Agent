@@ -4,7 +4,8 @@ import datetime
 from typing import Any, Optional, Dict, List
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TICKETS_LOG_DIR = os.path.join(BASE_DIR, "knowledge_base", "logs", "tickets")
+_KB_DIR = os.getenv("ELONE_KB_DIR", os.path.join(BASE_DIR, "knowledge_base"))
+TICKETS_LOG_DIR = os.path.join(_KB_DIR, "logs", "tickets")
 
 
 def _ensure_dir():

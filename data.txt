@@ -1,6 +1,0 @@
-EMP_ID,EMP_NAME,EMP_MAIL,DV_ID,DV_NAME,ALLOWED_APP_NAME,ALLOWED_EXECUTABLE,POLICY_STATUS
-EL-001,Chezhian,chezhian@elverve.com,DV_EL_001,DESKTOP-UI5FITD,Docker,Approved
-EL-002,Pradeep,pradeepnaveen930@gmail.com,DV_EL_002,Carnage,VS Code;File Explorer,Code.exe; explorer.exe,Approved
-EL-003,Semmozhi,chezhiantech@gmail.com,DV_EL_003,Prabanjan,Python,python.exe,Approved
-
-
