@@ -74,6 +74,36 @@ def _extract_structural_json_vars(parsed_json: Dict[str, Any]) -> Dict[str, Any]
     return ext_vars
 
 
+def _is_successful_removal_verification(target_step: Dict[str, Any], command: str, stdout: str, stderr: str, exit_code: int) -> bool:
+    """Checks if a non-zero exit code or 'not found' message indicates a successful deletion/removal verification."""
+    desc = (target_step.get("sop_step_description") or target_step.get("description") or "").lower()
+    cmd = (command or "").lower()
+    combined_out = (stdout + " " + stderr).lower()
+
+    is_verify_step = any(w in desc for w in ["verify", "check", "confirm", "ensure", "inspect"])
+    is_removal_target = any(w in desc for w in ["remov", "delet", "unblock", "kill", "terminat", "absent", "clean", "drop", "stop"])
+
+    not_found_indicators = [
+        "unable to find the specified registry key",
+        "unable to find",
+        "not found",
+        "does not exist",
+        "cannot find",
+        "could not find",
+        "no tasks are running",
+        "cannot find path",
+        "cannot find a process",
+        "no matching processes",
+        "the system cannot find the file specified",
+    ]
+
+    if (is_verify_step or "query" in cmd or "find" in cmd or "test-" in cmd or "get-" in cmd) and is_removal_target:
+        if any(ind in combined_out for ind in not_found_indicators) or (exit_code == 1 and ("reg query" in cmd or "findstr" in cmd or "grep" in cmd)):
+            return True
+
+    return False
+
+
 def extract_variables_and_verdict(
     target_step: Dict[str, Any],
     step_num: int,
@@ -92,7 +122,7 @@ def extract_variables_and_verdict(
     Returns: (normalized_extracted_vars, next_action, reasoning)
     """
     step_type = target_step.get("step_type", "command")
-    parse_instr = target_step.get("output_parse_instruction") or ""
+    parse_instr = target_step.get("output_parse_instruction") or target_step.get("parse_instruction") or ""
 
     # 1. Fast Deterministic Structural JSON Parsing
     if step_type in ("tool_call", "verification", "condition") or (stdout and stdout.strip().startswith("{") and stdout.strip().endswith("}")):
@@ -205,8 +235,11 @@ def extract_variables_and_verdict(
                 val_str = "false"
             normalized_vars[clean_key] = val_str
 
-
-
+    # Automatic detection for removal/deletion verification steps (e.g. reg query, process check after kill)
+    if next_act == "RETRY" and _is_successful_removal_verification(target_step, command, stdout, stderr, exit_code):
+        next_act = "SUCCESS"
+        reasoning_text = f"Verification confirmed: Target is absent/removed ('{stderr.strip() or stdout.strip() or f'Exit Code {exit_code}'}')."
+        print(f"  [Verification Success] Confirmed removal/unblock: {reasoning_text}")
 
     # Guardrail Override for missing required output_variable
     req_output_var = target_step.get("output_variable")

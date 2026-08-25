@@ -26,7 +26,7 @@ def run_result_analysis(
         exit_code=exit_code,
         expected_output_contains=target_step.get("expected_output_contains", "None"),
         output_variable=target_step.get("output_variable") or "None",
-        output_parse_instruction=target_step.get("output_parse_instruction", "None"),
+        output_parse_instruction=target_step.get("output_parse_instruction") or target_step.get("parse_instruction") or "None",
         variables=json.dumps(variables),
         stdout=stdout or "(empty stdout)",
         stderr=stderr or "(empty stderr)",

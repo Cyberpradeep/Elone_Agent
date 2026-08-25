@@ -47,3 +47,17 @@ def test_orchestration_completion():
     cmd = orchestration_agent(state)
     assert cmd.goto == "summarization_agent"
     assert cmd.update["workflow_status"] == "completed"
+
+
+def test_orchestration_retry_increment():
+    state = {
+        "current_step_index": 0,
+        "next_action": "RETRY",
+        "execution_retry_attempts": 0,
+        "execution_plan": {"steps": [{"step_number": 1, "command": "echo test"}]}
+    }
+    cmd = orchestration_agent(state)
+    assert cmd.goto == "execution_agent"
+    assert cmd.update["execution_retry_attempts"] == 1
+    assert cmd.update["next_action"] is None
+

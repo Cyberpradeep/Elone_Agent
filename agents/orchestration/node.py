@@ -70,18 +70,35 @@ def orchestration_agent(state: SupportState) -> Command[Literal["execution_agent
             )
 
     # 4. Initial Execution or Step Retry Path (With Fallback Swapping)
-    updated_plan = apply_fallback_swapping(current_plan, idx, retry_count, state)
+    is_retry = state.get("next_action") == "RETRY"
+    new_retry_count = retry_count + 1 if is_retry else 0
 
-    if retry_count == 0:
+    if is_retry and new_retry_count > 3:
+        audit_msg = f"[Orchestrator] Guardrail -> escalation_agent: Execution retry budget exhausted ({new_retry_count} attempts)"
+        print(f"  {audit_msg}")
+        return Command(
+            goto="escalation_agent",
+            update={
+                "workflow_status": "escalated",
+                "orchestrator_reasoning": audit_msg,
+                "audit_log": [audit_msg]
+            }
+        )
+
+    updated_plan = apply_fallback_swapping(current_plan, idx, new_retry_count, state)
+
+    if not is_retry:
         audit_msg = f"[Orchestrator] Dispatching Step {idx + 1}/{len(steps)} -> execution_agent"
     else:
-        audit_msg = f"[Orchestrator] Retrying Step {idx + 1}/{len(steps)} (Attempt {retry_count + 1}/3) -> execution_agent"
+        audit_msg = f"[Orchestrator] Retrying Step {idx + 1}/{len(steps)} (Attempt {new_retry_count}/3) -> execution_agent"
 
     print(f"  {audit_msg}")
     return Command(
         goto="execution_agent",
         update={
             "execution_plan": updated_plan,
+            "execution_retry_attempts": new_retry_count,
+            "next_action": None,
             "audit_log": [audit_msg]
         }
     )

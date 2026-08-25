@@ -62,7 +62,7 @@ def execution_agent(state: SupportState) -> Command[Literal["execution_result_ag
     # 2. Handle Communication Steps
     if step_type == "communication":
         desc = target_step.get("sop_step_description") or "Communication step"
-        parse_instruction = target_step.get("output_parse_instruction") or ""
+        parse_instruction = target_step.get("output_parse_instruction") or target_step.get("parse_instruction") or ""
         command = target_step.get("command", "")
 
         print(f"\n--------------------------------------------------")
