@@ -2029,5 +2029,154 @@
         "cost_inr": 1.104
       }
     ]
+  },
+  "2026-08-25": {
+    "date": "2026-08-25",
+    "total_calls": 11,
+    "max_daily_calls": 110,
+    "calls_remaining": 99,
+    "gemini_calls": 2,
+    "nvidia_vision_calls": 0,
+    "mistral_calls": 9,
+    "total_input_tokens": 35011,
+    "total_output_tokens": 16714,
+    "total_image_tokens": 0,
+    "total_tokens": 51725,
+    "total_cost_usd": 0.146306,
+    "total_cost_inr": 12.7285,
+    "call_history": [
+      {
+        "timestamp": "2026-08-25 09:44:05",
+        "caller": "planning_validation",
+        "provider": "mistral",
+        "model": "mistral-large-latest",
+        "sop_id": null,
+        "input_tokens": 1377,
+        "output_tokens": 769,
+        "image_tokens": 0,
+        "cost_usd": 0.007368,
+        "cost_inr": 0.641
+      },
+      {
+        "timestamp": "2026-08-25 10:16:49",
+        "caller": "planning_validation",
+        "provider": "mistral",
+        "model": "mistral-large-latest",
+        "sop_id": null,
+        "input_tokens": 1377,
+        "output_tokens": 752,
+        "image_tokens": 0,
+        "cost_usd": 0.007266,
+        "cost_inr": 0.6321
+      },
+      {
+        "timestamp": "2026-08-25 10:17:10",
+        "caller": "planning_validation",
+        "provider": "mistral",
+        "model": "mistral-large-latest",
+        "sop_id": null,
+        "input_tokens": 1377,
+        "output_tokens": 719,
+        "image_tokens": 0,
+        "cost_usd": 0.007068,
+        "cost_inr": 0.6149
+      },
+      {
+        "timestamp": "2026-08-25 10:31:03",
+        "caller": "execution_planning",
+        "provider": "mistral",
+        "model": "mistral-large-latest",
+        "sop_id": "SOP-SOFTWARE-APPLICA",
+        "input_tokens": 4994,
+        "output_tokens": 6076,
+        "image_tokens": 0,
+        "cost_usd": 0.046444,
+        "cost_inr": 4.0406
+      },
+      {
+        "timestamp": "2026-08-25 10:31:22",
+        "caller": "planning_validation",
+        "provider": "mistral",
+        "model": "mistral-large-latest",
+        "sop_id": null,
+        "input_tokens": 3685,
+        "output_tokens": 780,
+        "image_tokens": 0,
+        "cost_usd": 0.01205,
+        "cost_inr": 1.0483
+      },
+      {
+        "timestamp": "2026-08-25 10:48:06",
+        "caller": "execution_planning",
+        "provider": "mistral",
+        "model": "mistral-large-latest",
+        "sop_id": "DUMMY-INVALID-SOP",
+        "input_tokens": 3608,
+        "output_tokens": 1608,
+        "image_tokens": 0,
+        "cost_usd": 0.016864,
+        "cost_inr": 1.4672
+      },
+      {
+        "timestamp": "2026-08-25 10:48:06",
+        "caller": "test_runner",
+        "provider": "gemini",
+        "model": "gemini-2.5-flash",
+        "sop_id": "TEST-SOP-001",
+        "input_tokens": 5000,
+        "output_tokens": 1000,
+        "image_tokens": 0,
+        "cost_usd": 0.004,
+        "cost_inr": 0.348
+      },
+      {
+        "timestamp": "2026-08-25 11:40:48",
+        "caller": "planning_validation",
+        "provider": "mistral",
+        "model": "mistral-large-latest",
+        "sop_id": null,
+        "input_tokens": 1377,
+        "output_tokens": 743,
+        "image_tokens": 0,
+        "cost_usd": 0.007212,
+        "cost_inr": 0.6274
+      },
+      {
+        "timestamp": "2026-08-25 12:25:52",
+        "caller": "execution_planning",
+        "provider": "mistral",
+        "model": "mistral-large-latest",
+        "sop_id": "DUMMY-INVALID-SOP",
+        "input_tokens": 3608,
+        "output_tokens": 1744,
+        "image_tokens": 0,
+        "cost_usd": 0.01768,
+        "cost_inr": 1.5382
+      },
+      {
+        "timestamp": "2026-08-25 12:26:40",
+        "caller": "execution_planning",
+        "provider": "mistral",
+        "model": "mistral-large-latest",
+        "sop_id": "DUMMY-INVALID-SOP",
+        "input_tokens": 3608,
+        "output_tokens": 1523,
+        "image_tokens": 0,
+        "cost_usd": 0.016354,
+        "cost_inr": 1.4228
+      },
+      {
+        "timestamp": "2026-08-25 12:26:40",
+        "caller": "test_runner",
+        "provider": "gemini",
+        "model": "gemini-2.5-flash",
+        "sop_id": "TEST-SOP-001",
+        "input_tokens": 5000,
+        "output_tokens": 1000,
+        "image_tokens": 0,
+        "cost_usd": 0.004,
+        "cost_inr": 0.348
+      }
+    ]
   }
 }

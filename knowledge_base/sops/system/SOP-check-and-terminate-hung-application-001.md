@@ -32,7 +32,7 @@ steps:
   command: tasklist | findstr "{{{{entities.application_name}}}}"
   fallback_command: null
   fallback_sop_id: null
-  parse_instruction: null
+  parse_instruction: If stdout contains '{{{{entities.application_name}}}}', set variables.application_running = true, else set variables.application_running = false
   execute_if: null
   timeout_seconds: 30
 - step_number: 2
@@ -45,7 +45,7 @@ steps:
   command: taskkill /F /IM "{{{{entities.application_name}}}}.exe"
   fallback_command: null
   fallback_sop_id: null
-  parse_instruction: null
+  parse_instruction: If process is terminated, set variables.process_terminated = true, else set variables.process_terminated = false
   execute_if: variables.application_running == 'true'
   timeout_seconds: 30
 ---

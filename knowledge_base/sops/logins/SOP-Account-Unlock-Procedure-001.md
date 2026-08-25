@@ -34,7 +34,7 @@ steps:
   command: null
   fallback_command: null
   fallback_sop_id: null
-  parse_instruction: null
+  parse_instruction: Extract response.user_id to variables.user_id, and check response.status == 'Locked' (set variables.account_status = response.status)
   execute_if: null
   timeout_seconds: 30
 - step_number: 2
@@ -48,7 +48,7 @@ steps:
   command: null
   fallback_command: null
   fallback_sop_id: null
-  parse_instruction: null
+  parse_instruction: Extract response.temporary_password to variables.temporary_password
   execute_if: variables.account_status == 'Locked'
   timeout_seconds: 30
 - step_number: 3
@@ -62,7 +62,7 @@ steps:
   command: null
   fallback_command: null
   fallback_sop_id: null
-  parse_instruction: null
+  parse_instruction: Verify response.status != 'Locked' and set variables.unlock_verified = true, else set variables.unlock_verified = false
   execute_if: variables.account_status == 'Locked'
   timeout_seconds: 30
 - step_number: 4
@@ -79,7 +79,7 @@ steps:
   fallback_command: null
   fallback_sop_id: null
   parse_instruction: null
-  execute_if: variables.unlock_verified == 'true'
+  execute_if: variables.unlock_verified == true
   timeout_seconds: 30
 ---
 

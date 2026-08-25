@@ -49,25 +49,27 @@ You MUST follow these 8 reasoning stages in exact numerical order:
 
 4. **Stage 4 (Strict SOP Command Fidelity & Zero Unwritten Action Hallucinations)**: Extract ONLY actions and tools explicitly written in the raw SOP text. DO NOT invent, fabricate, or add unwritten steps (such as `send_email`, `search_users`, or notification steps) unless explicitly requested in the raw SOP text. If not explicitly specified in the raw SOP, set `"fallback_command": null`.
 
-5. **Stage 5 (Verification & Output Parsing — STRICT RESPONSE SCHEMA VARIABLE BINDING)**:
-   Verification and diagnostic check steps described in the raw SOP MUST NOT be created as separate step types. Instead, create a `tool_call` or `command` step and write clear inspection rules for `output_parse_instruction` and `expected_output_contains`.
-
-   **CRITICAL VARIABLE NAMING MANDATE FOR tool_call STEPS:**
-   - You MUST ONLY use the EXACT key names from the tool's `response_schema.success` (or `response_schema.error`) as `output_variable` names and in `execute_if` conditions.
-   - DO NOT invent, fabricate, or rename response keys. For example:
-     * If the tool's response_schema.success contains `"status": "Locked"`, you MUST use `variables.status == 'Locked'`, NOT `variables.account_locked == 'true'` or `variables.user_locked == 'true'`.
-     * If the response_schema.success contains `"verified": "true"`, you MUST use `variables.verified == 'true'`, NOT `variables.identity_verified == 'true'`.
-     * If the response_schema.success contains `"temporary_password": "str"`, you MUST use `variables.temporary_password`, NOT `variables.temp_password_result`.
-   - For `output_parse_instruction`: Reference the EXACT response_schema field names (e.g. "Store response.user_id in variables.user_id and check response.status == 'Locked'").
-   - For `execute_if`: Use ONLY `variables.<exact_response_schema_key>` from the PRECEDING step's tool response_schema (e.g. `execute_if: variables.status == 'Locked'`).
-   - For `command` steps: Inspect CLI stdout (e.g. "If output contains 'SUCCESS', set 'kill_confirmed' to 'true'").
+5. **Stage 5 (Inter-Step Output Extraction & parse_instruction Planning)**:
+   For EVERY step, evaluate whether downstream steps will need its output:
+   - **When parse_instruction is MANDATORY**:
+     * If the step is a Diagnostic, Discovery, or Query step (e.g. `reg query`, `tasklist`, `Test-Connection`, `ping`, `search_user`) whose result gates a subsequent step via `execute_if`.
+     * If the step produces dynamic values (e.g. `user_id`, `pid`, `temporary_password`, `ticket_id`) that subsequent steps need in `comm_inputs` or commands.
+     * Exact syntax to write in `parse_instruction`:
+       - For CLI Commands: `"If stdout contains 'Debugger', set variables.ifeo_blocked = true, else set variables.ifeo_blocked = false"` or `"If stdout contains '{{entities.application}}.exe', set variables.application_running = true, else set variables.application_running = false"`.
+       - For API Tools: `"Extract response.user_id to variables.user_id, and check response.status == 'Locked' (set variables.account_status = response.status)"`.
+   - **When parse_instruction MUST be null**:
+     * If the step is a terminal action or unconditional command (e.g. `gpupdate /force`, final notification email) whose output is not inspected or consumed downstream.
 
 6. **Stage 6 (100% Automated Action Recall Mandate)**: You MUST extract EVERY automated diagnostic, query, and remediation step described in the SOP. Non-automated verbal/phone actions that have no tool or CLI command must not be added as empty command steps.
 
-7. **Stage 7 (Conditional Branch Mapping & execute_if — SCHEMA-BOUND ONLY)**: If the raw SOP specifies conditional skip instructions, map this logic into valid `execute_if` boolean expressions using ONLY the exact key names from the PRECEDING step's tool `response_schema.success`. Examples:
-   - `execute_if: variables.status == 'Locked'` (from search_user response_schema)
-   - `execute_if: variables.verified == 'true'` (from verify_caller_identity response_schema)
-   - NEVER use invented keys like `variables.account_locked`, `variables.identity_verified`, or `variables.temp_password_result`.
+7. **Stage 7 (Inter-Step Conditional Gating & execute_if Linkage — STRICT PRECEDING STEP BINDING)**:
+   For EVERY step, evaluate whether it should execute conditionally or unconditionally:
+   - **When execute_if is MANDATORY**:
+     * If the step performs a Remediation, Deletion, Kill, or Corrective action that should ONLY occur if an issue was detected in an earlier step (e.g. only kill process if running, only remove registry key if blocked, only unlock if locked).
+     * Format: `execute_if: variables.<exact_variable_name> == <expected_value>` (e.g. `variables.ifeo_blocked == true`, `variables.application_running == 'true'`, `variables.status == 'Locked'`).
+     * **CRITICAL LINKAGE RULE**: Any variable used in `execute_if` (or in dynamic `{{{{variables.<var>}}}}` placeholders) MUST be explicitly defined in a PRECEDING step's `parse_instruction` or provided in a preceding tool's `response_schema.success`. NEVER reference undeclared or future variables.
+   - **When execute_if MUST be null**:
+     * If the step is an initial check, baseline discovery, connectivity test, or unconditional mandatory cleanup (e.g. Step 1 connectivity test, policy refresh) that must always run.
 
 8. **Stage 8 (Dynamic Timeout Allocation by Action Scope)**: Assign `timeout_seconds` dynamically: Quick Info Read / API Call (30s), System Scan / Diagnostic Audit (90s), Full Repair / Heavy Job (300s).
 
@@ -123,13 +125,9 @@ CRITICAL FORMATTING MANDATE:
             "shell": "powershell (only for command, else null)",
             "fallback_command": null,
             "fallback_sop_id": null,
-            "expected_output_contains": "unlocked",
-            "timeout_seconds": 30,
-            "output_variable": "step_result",
-            "output_parse_instruction": "Inspect output/JSON response and set status flags.",
+            "parse_instruction": "If stdout contains 'Debugger', set variables.ifeo_blocked = true, else set variables.ifeo_blocked = false (or null if not consumed downstream)",
             "execute_if": null,
-            "is_dangerous": false,
-            "danger_warning": null
+            "timeout_seconds": 30
         }}
     ]
 }}
