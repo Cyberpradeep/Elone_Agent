@@ -100,20 +100,67 @@ def validate_plan_faithfulness_and_linkage(
             if not tool_is_valid:
                 errors.extend(tool_errors)
 
-        # Track variables set in parse instructions
-        var_matches = re.findall(r"(\w+)\s*=\s*(?:true|false|\w+)", parse_instruction, re.IGNORECASE)
-        for var in var_matches:
-            extracted_variables.add(var.lower())
-
+        # 1. VERIFY PRECEDING VARIABLE LINKAGE (execute_if & dynamic {{variables.*}})
         # Check execute_if variable linkage contract
         if execute_if:
-            req_vars = re.findall(r"\{\{variables\.(\w+)\}\}", execute_if)
+            req_vars = re.findall(r"(?:\{\{)?variables\.(\w+)(?:\}\})?", execute_if, re.IGNORECASE)
             for req_var in req_vars:
                 if req_var.lower() not in extracted_variables:
                     errors.append(
-                        f"Layer 1 Linkage Error: Step {idx} has execute_if requirement '{req_var}', "
-                        f"but '{req_var}' is never extracted in preceding step parse instructions!"
+                        f"Layer 1 Linkage Error: Step {idx} has execute_if condition referencing 'variables.{req_var}', "
+                        f"but '{req_var}' was never extracted or returned by any preceding step!"
                     )
+
+        # Check dynamic {{variables.*}} in command string
+        if cmd:
+            dyn_cmd_vars = re.findall(r"\{\{variables\.(\w+)\}\}", cmd, re.IGNORECASE)
+            for dyn_var in dyn_cmd_vars:
+                if dyn_var.lower() not in extracted_variables:
+                    errors.append(
+                        f"Layer 1 Linkage Error: Step {idx} command references dynamic variable '{{{{variables.{dyn_var}}}}}', "
+                        f"but '{dyn_var}' was never extracted or returned by any preceding step!"
+                    )
+
+        # Check dynamic {{variables.*}} in comm_inputs
+        comm_inputs = step.get("comm_inputs")
+        if comm_inputs and isinstance(comm_inputs, dict):
+            dyn_comm_vars = re.findall(r"\{\{variables\.(\w+)\}\}", json.dumps(comm_inputs), re.IGNORECASE)
+            for dyn_var in dyn_comm_vars:
+                if dyn_var.lower() not in extracted_variables:
+                    errors.append(
+                        f"Layer 1 Linkage Error: Step {idx} comm_inputs references dynamic variable '{{{{variables.{dyn_var}}}}}', "
+                        f"but '{dyn_var}' was never extracted or returned by any preceding step!"
+                    )
+
+        # 2. REGISTER VARIABLES PRODUCED BY THIS STEP (available for subsequent steps)
+        # Register variables from tool response schema
+        if step_type == "tool_call":
+            plat_schema = find_platform_schema(step.get("platform") or "")
+            if plat_schema:
+                for fn in plat_schema.get("functions", []):
+                    if fn.get("function_name") == step.get("function_name"):
+                        resp_success = fn.get("response_schema", {}).get("success", {})
+                        if isinstance(resp_success, dict):
+                            for resp_k in resp_success.keys():
+                                extracted_variables.add(resp_k.lower())
+
+        # Track variables set in parse instructions
+        if parse_instruction:
+            # Pattern 1: variables.var_name
+            for v in re.findall(r"variables\.(\w+)", parse_instruction, re.IGNORECASE):
+                extracted_variables.add(v.lower())
+            # Pattern 2: var_name = <val>
+            for v in re.findall(r"(\w+)\s*=\s*(?:true|false|'[^']*'|\"[^\"]*\"|\w+)", parse_instruction, re.IGNORECASE):
+                if v.lower() not in {"if", "else", "set", "then"}:
+                    extracted_variables.add(v.lower())
+            # Pattern 3: extract/store <key> into/in/to variables.<var>
+            for v in re.findall(r"(?:set|store|extract)\s+(?:response\.)?(\w+)\s+(?:in|into|to)\s+(?:variables\.)?(\w+)", parse_instruction, re.IGNORECASE):
+                extracted_variables.add(v[0].lower())
+                extracted_variables.add(v[1].lower())
+
+        # Track output_variable if present
+        if step.get("output_variable"):
+            extracted_variables.add(str(step["output_variable"]).lower())
 
     # If Layer 1 fails, stop immediately (save LLM call!)
     if errors:

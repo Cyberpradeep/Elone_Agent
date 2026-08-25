@@ -5,7 +5,7 @@ Strict structural typing for converted OKF Playbooks.
 """
 
 from typing import List, Dict, Any, Optional
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 
 
 class OKFStepModel(BaseModel):
@@ -26,9 +26,24 @@ class OKFStepModel(BaseModel):
     command: Optional[str] = Field(None, description="CLI command string for command steps")
     fallback_command: Optional[str] = Field(None, description="Fallback CLI command string if primary fails")
     fallback_sop_id: Optional[str] = Field(None, description="SOP ID to invoke if step fails")
-    parse_instruction: Optional[str] = Field(None, description="Instructions to parse stdout/response")
-    execute_if: Optional[str] = Field(None, description="Conditional execution expression")
+    parse_instruction: Optional[str] = Field(
+        None,
+        description="Instructions to parse stdout/response into variables (e.g. 'If output contains Debugger, set variables.ifeo_blocked = true, else variables.ifeo_blocked = false')",
+    )
+    execute_if: Optional[str] = Field(
+        None,
+        description="Conditional execution expression referencing preceding step variables (e.g. 'variables.ifeo_blocked == true')",
+    )
     timeout_seconds: Optional[int] = Field(30, description="Execution timeout in seconds")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_dict_input(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            # Normalize parse_instruction from aliases
+            if "output_parse_instruction" in data and not data.get("parse_instruction"):
+                data["parse_instruction"] = data["output_parse_instruction"]
+        return data
 
     @field_validator("step_type")
     @classmethod

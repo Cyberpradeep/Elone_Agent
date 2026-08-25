@@ -247,7 +247,127 @@ def test_plan_validator_missing_required_input():
     is_valid, errors = validate_plan_faithfulness_and_linkage("short", plan)
     assert is_valid is False
     assert any("missing required input parameter" in e.lower() for e in errors)
-    print(f"  [PASS] Missing required input correctly caught: {errors[0]}")
+def test_plan_validator_variable_linkage_success():
+    """Test that Layer 1 passes when execute_if correctly references variables extracted in preceding steps."""
+    print("\n[TEST] Plan Validator Layer 1 (Variable Linkage Success)...")
+    # pyrefly: ignore [missing-import]
+    from core.plan_validator import validate_plan_faithfulness_and_linkage
+
+    plan = {
+        "steps": [
+            {
+                "step_number": 1,
+                "step_type": "command",
+                "command": 'reg query "HKLM\\...\\app.exe"',
+                "parse_instruction": "If output contains 'Debugger', set variables.ifeo_blocked = true, else set variables.ifeo_blocked = false",
+                "execute_if": None,
+            },
+            {
+                "step_number": 2,
+                "step_type": "command",
+                "command": 'reg delete "HKLM\\...\\app.exe" /v Debugger /f',
+                "parse_instruction": "If delete succeeds, set variables.block_removed = true",
+                "execute_if": "variables.ifeo_blocked == true",
+            }
+        ]
+    }
+    is_valid, errors = validate_plan_faithfulness_and_linkage("short", plan)
+    assert is_valid is True, f"Expected valid, got errors: {errors}"
+    assert len(errors) == 0
+    print(f"  [PASS] Correctly linked inter-step variables validated successfully.")
+
+
+def test_plan_validator_variable_linkage_failure():
+    """Test that Layer 1 catches when execute_if references undeclared variables."""
+    print("\n[TEST] Plan Validator Layer 1 (Variable Linkage Failure)...")
+    # pyrefly: ignore [missing-import]
+    from core.plan_validator import validate_plan_faithfulness_and_linkage
+
+    plan = {
+        "steps": [
+            {
+                "step_number": 1,
+                "step_type": "command",
+                "command": 'reg query "HKLM\\...\\app.exe"',
+                "parse_instruction": None,
+                "execute_if": None,
+            },
+            {
+                "step_number": 2,
+                "step_type": "command",
+                "command": 'reg delete "HKLM\\...\\app.exe" /v Debugger /f',
+                "execute_if": "variables.ifeo_blocked == true",
+            }
+        ]
+    }
+    is_valid, errors = validate_plan_faithfulness_and_linkage("short", plan)
+    assert is_valid is False
+    assert any("never extracted" in e.lower() or "linkage error" in e.lower() for e in errors)
+    print(f"  [PASS] Undeclared execute_if variable correctly rejected: {errors[0]}")
+
+
+def test_plan_validator_tool_call_response_schema_linkage():
+    """Test that Layer 1 recognizes variables from tool response schemas for subsequent steps."""
+    print("\n[TEST] Plan Validator Layer 1 (Tool Call Response Schema Linkage)...")
+    # pyrefly: ignore [missing-import]
+    from core.plan_validator import validate_plan_faithfulness_and_linkage
+
+    plan = {
+        "steps": [
+            {
+                "step_number": 1,
+                "step_type": "tool_call",
+                "platform": "solandra",
+                "function_name": "search_user",
+                "comm_inputs": {"employee_id": "SOL-123"},
+                "parse_instruction": None,
+                "execute_if": None,
+            },
+            {
+                "step_number": 2,
+                "step_type": "tool_call",
+                "platform": "solandra",
+                "function_name": "generate_temporary_password",
+                "comm_inputs": {"user_id": "{{variables.user_id}}"},
+                "execute_if": "variables.status == 'Locked'",
+            }
+        ]
+    }
+    is_valid, errors = validate_plan_faithfulness_and_linkage("short", plan)
+    assert is_valid is True, f"Expected valid, got errors: {errors}"
+    assert len(errors) == 0
+    print(f"  [PASS] Tool response schema variables properly chained to subsequent tool call.")
+
+
+def test_plan_validator_dynamic_variable_missing_failure():
+    """Test that Layer 1 catches missing dynamic variables in comm_inputs or commands."""
+    print("\n[TEST] Plan Validator Layer 1 (Dynamic Variable Missing Failure)...")
+    # pyrefly: ignore [missing-import]
+    from core.plan_validator import validate_plan_faithfulness_and_linkage
+
+    plan = {
+        "steps": [
+            {
+                "step_number": 1,
+                "step_type": "command",
+                "command": "ipconfig /all",
+                "parse_instruction": None,
+                "execute_if": None,
+            },
+            {
+                "step_number": 2,
+                "step_type": "tool_call",
+                "platform": "solandra",
+                "function_name": "generate_temporary_password",
+                "comm_inputs": {"user_id": "{{variables.unextracted_user_id}}"},
+                "execute_if": None,
+            }
+        ]
+    }
+    is_valid, errors = validate_plan_faithfulness_and_linkage("short", plan)
+    assert is_valid is False
+    assert any("dynamic variable" in e.lower() or "never extracted" in e.lower() for e in errors)
+    print(f"  [PASS] Missing dynamic comm_inputs variable correctly rejected: {errors[0]}")
 
 
 def test_url_extraction_and_scraping():
@@ -839,6 +959,10 @@ def run_all():
         test_plan_validator_unregistered_platform,
         test_plan_validator_cross_platform_boundary,
         test_plan_validator_missing_required_input,
+        test_plan_validator_variable_linkage_success,
+        test_plan_validator_variable_linkage_failure,
+        test_plan_validator_tool_call_response_schema_linkage,
+        test_plan_validator_dynamic_variable_missing_failure,
         test_url_extraction_and_scraping,
         test_docx_ordered_hyperlink_extraction,
         test_prompt_brace_formatting,
