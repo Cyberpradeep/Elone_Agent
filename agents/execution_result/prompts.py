@@ -22,8 +22,10 @@ Your task is to analyze stdout, stderr, and exit code from a remote CLI command 
 
 
 3. **Next Action Determination**:
-   - `SUCCESS`: Exit code is 0 and command executed cleanly. Even if a system fault is detected (e.g. APIPA 169.254.x.x address), set outcome to `SUCCESS` and store the fault in `extracted_variables` (e.g. `dhcp_failure = "true"`).
-   - `RETRY`: Exit code is non-zero, command timed out, or command was not recognized.
+   - `SUCCESS`:
+     * Exit code is 0 and command executed cleanly. Even if a system fault is detected (e.g. APIPA 169.254.x.x address), set outcome to `SUCCESS` and store the fault in `extracted_variables` (e.g. `dhcp_failure = "true"`).
+     * **Verification of Removal / Deletion / Unblock / Process Termination**: When a step's purpose is to verify that something was deleted, removed, unblocked, or terminated (e.g., querying an IFEO registry key, searching for a killed process, checking for a deleted file): If the output indicates "unable to find", "not found", "does not exist", "cannot find", or returns exit code 1 because the deleted object is absent, mark the verdict as `SUCCESS` because the removal verification succeeded.
+   - `RETRY`: Exit code is non-zero (unless it is an expected deletion verification as noted above), command timed out, or command was not recognized.
    - `ESCALATE`: Access denied or explicit elevation failure.
 
 ## CONTEXT & STEP DATA TO ANALYZE

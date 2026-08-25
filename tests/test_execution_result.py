@@ -84,3 +84,26 @@ def test_nested_json_and_instruction_variable_extraction():
     assert ext_vars.get("user_id") == "14"
     assert ext_vars.get("account_found") == "true"
 
+
+def test_removal_verification_success():
+    target_step = {
+        "step_number": 5,
+        "sop_step_description": "Verify IFEO block removal by querying the IFEO registry key again.",
+        "step_type": "command",
+        "command": 'reg query "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\Code.exe"'
+    }
+
+    ext_vars, verdict, reasoning = extract_variables_and_verdict(
+        target_step=target_step,
+        step_num=4,
+        command='reg query "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\Code.exe"',
+        stdout="",
+        stderr="ERROR: The system was unable to find the specified registry key or value.",
+        exit_code=1,
+        hostname="Carnage",
+        variables={}
+    )
+
+    assert verdict == "SUCCESS"
+    assert any(term in reasoning.lower() for term in ["removal", "removed", "absent", "success", "confirmed"])
+

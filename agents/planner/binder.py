@@ -45,7 +45,13 @@ def _is_entity_in_dict(key: str, entities: dict) -> bool:
     if not key:
         return True
     clean_k = key.strip().lower()
-    return bool(entities.get(key) or entities.get(clean_k))
+    if entities.get(key) or entities.get(clean_k):
+        return True
+    if clean_k in ("application", "app", "app_name", "application_name"):
+        return bool(entities.get("application_name") or entities.get("executable") or entities.get("application"))
+    if clean_k in ("executable", "app_exe", "process_name"):
+        return bool(entities.get("executable") or entities.get("application_name"))
+    return False
 
 
 def validate_planner_execution_plan(
@@ -74,7 +80,7 @@ def validate_planner_execution_plan(
 
     for idx, step in enumerate(steps, start=1):
         cmd = (step.get("command") or "") + " " + str(step.get("comm_inputs") or "")
-        parse_instruction = step.get("output_parse_instruction") or ""
+        parse_instruction = step.get("output_parse_instruction") or step.get("parse_instruction") or ""
         output_var = step.get("output_variable")
         execute_if = step.get("execute_if")
 
