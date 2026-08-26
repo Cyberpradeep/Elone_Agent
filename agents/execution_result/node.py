@@ -1,14 +1,13 @@
 """Execution Result Agent Node (Output Verifier & Variable Extractor)."""
 
 from typing import Literal
+# pyrefly: ignore [missing-import]
 from langgraph.types import Command
 
 from shared.state import SupportState
-from shared.logger import log_agent
 from .extractor import extract_variables_and_verdict
 
 
-@log_agent
 def execution_result_agent(state: SupportState) -> Command[Literal["orchestration_agent"]]:
     """Process 2: Output Verification & Variable Extraction Agent Node.
 

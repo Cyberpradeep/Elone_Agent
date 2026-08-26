@@ -2,7 +2,9 @@
 
 import os
 from typing import Any, Dict
-
+from shared.tool_catalog import PROVIDERS
+# pyrefly: ignore [missing-import]
+from elone_sop import find_platform_schema
 
 def execute_comm_tool(func_name: str, inputs: Dict[str, Any], provider_name: str = None) -> Dict[str, Any]:
     """Executes communication and API tool functions strictly via provider registry matching provider_name."""
@@ -29,8 +31,7 @@ def execute_comm_tool(func_name: str, inputs: Dict[str, Any], provider_name: str
             }
 
     try:
-        from shared.tool_catalog import PROVIDERS
-        from elone_sop import find_platform_schema
+
 
         target_providers = list(PROVIDERS)
         if provider_name:
