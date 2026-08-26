@@ -66,14 +66,15 @@ class OKFPlaybookModel(BaseModel):
     confidence_score: Optional[float] = Field(0.95, description="Confidence score between 0.0 and 1.0 representing conversion fidelity")
     confidence_level: Optional[str] = Field("High", description="Confidence level categorization: 'High', 'Medium', or 'Low'")
     confidence_reason: Optional[str] = Field(None, description="Reasoning justifying the assigned confidence score")
+    is_executable: Optional[bool] = Field(True, description="Whether the raw SOP contains actionable, automated procedural steps")
+    unexecutable_reason: Optional[str] = Field(None, description="Explanation if document is not actionable or not understandable as a procedure")
     required_entities: List[str] = Field(default_factory=list, description="Required entity dynamic placeholders")
     trigger_words: List[str] = Field(default_factory=list, description="Trigger keywords for playbook lookup")
     reasoning_chain: List[str] = Field(default_factory=list, description="8-stage CoT reasoning log")
-    steps: List[OKFStepModel] = Field(..., description="List of execution steps")
+    steps: List[OKFStepModel] = Field(default_factory=list, description="List of execution steps")
 
-    @field_validator("steps")
-    @classmethod
-    def validate_steps_non_empty(cls, v: List[OKFStepModel]) -> List[OKFStepModel]:
-        if not v:
-            raise ValueError("Playbook must contain at least 1 execution step.")
-        return v
+    @model_validator(mode="after")
+    def validate_executability_and_steps(self) -> "OKFPlaybookModel":
+        if self.is_executable and not self.steps:
+            raise ValueError("Playbook marked as executable must contain at least 1 execution step.")
+        return self

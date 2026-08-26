@@ -93,7 +93,7 @@ ENTITY_KEY_MAP = {
 }
 
 
-def convert_raw_sop_to_okf(raw_filepath: str, override_sop_id: Optional[str] = None) -> Tuple[str, Dict[str, Any]]:
+def convert_raw_sop_to_okf(raw_filepath: str, override_sop_id: Optional[str] = None) -> Tuple[Optional[str], Dict[str, Any]]:
     """5-Stage CoT JIT Converter Node: Converts raw PDF/Docx/TXT SOP into an OKF Playbook.
 
     Composition of the two phases below. Retrieval's auto-discovery path uses
@@ -103,6 +103,15 @@ def convert_raw_sop_to_okf(raw_filepath: str, override_sop_id: Optional[str] = N
     """
     draft = plan_okf_from_raw(raw_filepath, override_sop_id=override_sop_id)
     
+    # Check if document is non-executable / not understandable as an automated procedure
+    if draft.get("is_executable") is False or draft.get("frontmatter", {}).get("is_executable") is False:
+        unexec_reason = draft.get("unexecutable_reason") or draft.get("frontmatter", {}).get("unexecutable_reason") or "SOP is not understandable as an automated procedure."
+        print(f"[JIT Converter] Ingestion skipped: {unexec_reason}")
+        metadata = dict(draft.get("frontmatter", {}))
+        metadata["status"] = "unactionable"
+        metadata["reason"] = unexec_reason
+        return None, metadata
+
     # Bug #3 Fix: Block disk write if plan failed faithfulness & linkage validation
     if not draft.get("is_valid", False):
         err_details = draft.get("validation_errors", ["Plan validation failed"])
@@ -344,19 +353,52 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
 
         # Scenario 2: Pydantic Schema Model Validation
         try:
-            if "steps" in data and isinstance(data["steps"], list):
-                if len(data["steps"]) == 0:
-                    raise ValueError("Raw SOP document contains zero procedural execution steps.")
+            if not isinstance(data, dict):
+                raise ValueError("Parsed JSON must be a dictionary object.")
+
+            is_exec = data.get("is_executable", True)
+            if is_exec is False or len(data.get("steps", [])) == 0:
+                unexec_reason = data.get("unexecutable_reason") or "Raw SOP document contains zero executable procedural steps."
+                print(f"[JIT Converter] Document identified as non-executable / unactionable: {unexec_reason}")
+                data["is_executable"] = False
+                data["unexecutable_reason"] = unexec_reason
                 validated_model = OKFPlaybookModel.model_validate(data)
                 data = validated_model.model_dump()
-            else:
-                raise ValueError("Output JSON missing 'steps' array.")
+                
+                return {
+                    "frontmatter": {
+                        "type": "Playbook",
+                        "sop_id": None,
+                        "title": data.get("title", os.path.basename(raw_filepath)),
+                        "platform": "system",
+                        "category": (data.get("category") or "other").lower().strip(),
+                        "target_os": data.get("target_os", "windows"),
+                        "description": data.get("description", "Non-executable document."),
+                        "is_executable": False,
+                        "unexecutable_reason": unexec_reason,
+                        "confidence_score": 0.0,
+                        "confidence_level": "Low",
+                        "confidence_reason": unexec_reason,
+                        "required_entities": [],
+                        "trigger_words": [],
+                        "steps": [],
+                    },
+                    "is_executable": False,
+                    "unexecutable_reason": unexec_reason,
+                    "parser_type": parser_type,
+                    "raw_chars": len(raw_text),
+                    "reasoning_chain": [str(s) for s in (data.get("reasoning_chain") or [])],
+                    "confidence_score": 0.0,
+                    "confidence_level": "Low",
+                    "confidence_reason": unexec_reason,
+                    "is_valid": True,
+                    "validation_errors": [],
+                }
+
+            validated_model = OKFPlaybookModel.model_validate(data)
+            data = validated_model.model_dump()
         except Exception as pydantic_err:
             err_str = str(pydantic_err)
-            # Fast Bailout: If the document contains zero steps, do NOT force retries
-            if "zero procedural execution steps" in err_str or "at least 1 execution step" in err_str:
-                raise ValueError("Ingestion blocked: Raw document contains no executable procedural steps.")
-
             err_msg = f"Scenario 2 Error (Attempt {attempt}): Pydantic Schema Violation: {pydantic_err}"
             print(f"[JIT Converter Warning] {err_msg}")
             feedback_history.append(f"- {err_msg}")
@@ -453,6 +495,8 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
         "confidence_score": confidence_score,
         "confidence_level": confidence_level,
         "confidence_reason": confidence_reason,
+        "is_executable": True,
+        "unexecutable_reason": None,
         "required_entities": required_entities,
         "trigger_words": trigger_words,
         "steps": steps,
@@ -460,6 +504,8 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
 
     return {
         "frontmatter": frontmatter_dict,
+        "is_executable": True,
+        "unexecutable_reason": None,
         "parser_type": parser_type,
         "raw_chars": len(raw_text),
         "reasoning_chain": [str(s) for s in reasoning_chain],
