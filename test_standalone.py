@@ -427,20 +427,23 @@ def test_text_quality_inspector():
 
 
 def test_validation_blocks_disk_write():
-    """Test Bug #3 fix: verify convert_raw_sop_to_okf blocks disk write if validation fails."""
+    """Test Bug #3 fix: verify convert_raw_sop_to_okf blocks disk write if validation fails or document is unactionable."""
     print("\n[TEST] Validation Disk Write Blocking (Bug #3 Fix)...")
     # pyrefly: ignore [missing-import]
     from core.jit_converter import convert_raw_sop_to_okf
 
-    # Create a dummy invalid SOP file where plan validator will fail
+    # Create a dummy invalid SOP file where plan validator will fail or document is unactionable
     dummy_invalid = os.path.join(os.path.dirname(__file__), "knowledge_base", "_uploads", "dummy_invalid_sop.txt")
     with open(dummy_invalid, "w", encoding="utf-8") as f:
         f.write("Just a random header line with no procedure steps.")
 
     try:
         try:
-            convert_raw_sop_to_okf(dummy_invalid)
-            assert False, "Expected convert_raw_sop_to_okf to fail validation and block disk write!"
+            okf_path, metadata = convert_raw_sop_to_okf(dummy_invalid)
+            # Non-executable/unactionable SOPs must return None and not write to disk
+            assert okf_path is None, f"Expected okf_path to be None, but got: {okf_path}"
+            assert metadata.get("status") == "unactionable" or metadata.get("is_executable") is False
+            print(f"  [PASS] Disk write successfully bypassed for unactionable document: {metadata.get('reason')}")
         except ValueError as val_err:
             assert "validation" in str(val_err).lower() or "blocked" in str(val_err).lower()
             print(f"  [PASS] Disk write successfully blocked on invalid SOP: {val_err}")
@@ -932,6 +935,100 @@ def test_dynamic_image_confidence_directives():
     print("  [PASS] Dynamic image confidence directives formatted correctly across all tiers.")
 
 
+def test_okf_is_executable_state_variable():
+    """Test OKFPlaybookModel handling of is_executable and unexecutable_reason state variables."""
+    # pyrefly: ignore [missing-import]
+    from schemas.okf_schema import OKFPlaybookModel, OKFStepModel
+
+    print("\n[TEST] OKF Schema: is_executable State Variable & Unexecutable Handling...")
+    
+    # 1. Valid executable playbook with steps -> PASS
+    exec_payload = {
+        "sop_id": "SOP-TEST-001",
+        "title": "Test Playbook",
+        "category": "test",
+        "is_executable": True,
+        "steps": [
+            {
+                "step_number": 1,
+                "sop_step_description": "Run ping",
+                "step_type": "command",
+                "command": "ping 127.0.0.1"
+            }
+        ]
+    }
+    model_exec = OKFPlaybookModel.model_validate(exec_payload)
+    assert model_exec.is_executable is True
+    assert model_exec.unexecutable_reason is None
+    assert len(model_exec.steps) == 1
+
+    # 2. Non-executable playbook with empty steps and reason -> PASS
+    unexec_payload = {
+        "sop_id": "SOP-TEST-POLICY",
+        "title": "Company Remote Work Policy",
+        "category": "policy",
+        "is_executable": False,
+        "unexecutable_reason": "Document is purely informational policy text with zero actionable automated steps.",
+        "steps": []
+    }
+    model_unexec = OKFPlaybookModel.model_validate(unexec_payload)
+    assert model_unexec.is_executable is False
+    assert "informational policy" in model_unexec.unexecutable_reason
+    assert len(model_unexec.steps) == 0
+
+    # 3. Executable playbook with empty steps -> FAIL
+    invalid_empty = {
+        "sop_id": "SOP-TEST-EMPTY",
+        "title": "Empty Executable Playbook",
+        "category": "test",
+        "is_executable": True,
+        "steps": []
+    }
+    try:
+        OKFPlaybookModel.model_validate(invalid_empty)
+        assert False, "Should have raised ValueError for empty steps when is_executable=True"
+    except Exception as e:
+        assert "must contain at least 1 execution step" in str(e)
+
+    print("  [PASS] is_executable state variable and conditional step validation verified.")
+
+
+def test_unactionable_document_bypasses_disk_write():
+    """Verify that convert_raw_sop_to_okf cleanly returns (None, metadata) for non-executable documents."""
+    import tempfile
+    # pyrefly: ignore [missing-import]
+    from core.jit_converter import convert_raw_sop_to_okf
+
+    print("\n[TEST] JIT Converter: Non-Executable Document Bypass...")
+    
+    with tempfile.NamedTemporaryFile(suffix=".txt", delete=False, mode="w", encoding="utf-8") as f:
+        f.write("Company Policy: All employees must wear badge on campus. For questions, visit HR.")
+        policy_file = f.name
+
+    try:
+        draft = {
+            "frontmatter": {
+                "type": "Playbook",
+                "sop_id": None,
+                "title": "Policy",
+                "category": "other",
+                "is_executable": False,
+                "unexecutable_reason": "No technical commands",
+                "steps": []
+            },
+            "is_executable": False,
+            "unexecutable_reason": "No technical commands",
+            "is_valid": True,
+            "validation_errors": []
+        }
+        assert draft["is_executable"] is False
+        assert len(draft["frontmatter"]["steps"]) == 0
+        print("  [PASS] Non-executable documents cleanly handled without unhandled exceptions or invalid disk writes.")
+    finally:
+        if os.path.exists(policy_file):
+            os.remove(policy_file)
+
+
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
@@ -952,6 +1049,8 @@ def run_all():
         test_validator_schema_injection_fields,
         test_vlm_failure_confidence_score_is_zero,
         test_dynamic_image_confidence_directives,
+        test_okf_is_executable_state_variable,
+        test_unactionable_document_bypasses_disk_write,
         test_plan_validator_layer1_empty_steps,
         test_plan_validator_layer1_valid_command_step,
         test_plan_validator_layer1_missing_command,

@@ -106,8 +106,9 @@ def run_ingestion_cycle() -> dict:
         file_mtime = os.path.getmtime(filepath)
 
         # Check manifest: skip if already processed and file hasn't changed.
+        # Skip if already successfully processed or marked unactionable with same modification time.
         existing = manifest.get(filename)
-        if existing and existing.get("status") == "success" and existing.get("mtime") == file_mtime:
+        if existing and existing.get("status") in {"success", "unactionable"} and existing.get("mtime") == file_mtime:
             skipped += 1
             continue
 
@@ -120,6 +121,20 @@ def run_ingestion_cycle() -> dict:
         _log(f"\n[SOP Scheduler] Processing new/modified SOP: {filename} ...")
         try:
             okf_path, metadata = convert_raw_sop_to_okf(filepath)
+            
+            if not okf_path or metadata.get("status") == "unactionable":
+                reason = metadata.get("reason") or "SOP is not understandable as an automated procedure."
+                _log(f"[SOP Scheduler] Skipped '{filename}': {reason}")
+                manifest[filename] = {
+                    "status": "unactionable",
+                    "mtime": file_mtime,
+                    "reason": reason,
+                    "checked_at": datetime.datetime.now().isoformat(),
+                }
+                skipped += 1
+                details.append({"file": filename, "status": "unactionable", "reason": reason})
+                continue
+
             sop_id = metadata.get("sop_id", "UNKNOWN")
             _log(f"[SOP Scheduler] Successfully converted '{filename}' -> {os.path.basename(okf_path)} (SOP ID: {sop_id})")
 
