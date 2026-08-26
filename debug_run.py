@@ -104,6 +104,7 @@ def main():
         print("[DEBUG RUNNER] Warning: langchain_core.globals not found. Running with standard output.\n")
 
     # 4. Start Per-Execution Session Tracker
+    # pyrefly: ignore [missing-import]
     from gemini_monitor.monitor import start_execution_session
     sop_basename = os.path.basename(target_path)
     session_id = start_execution_session(sop_filename=sop_basename)

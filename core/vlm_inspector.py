@@ -2,6 +2,7 @@
 import os
 import json
 import re
+import time
 import base64
 from typing import List, Tuple, Dict, Any, Optional
 
@@ -82,9 +83,6 @@ def extract_images_from_docx(docx_path: str) -> List[Tuple[bytes, str]]:
     except Exception as e:
         print(f"[VLM Inspector Warning] Error extracting images from DOCX '{docx_path}': {e}")
     return results
-
-
-import time
 
 
 def extract_confidence_score(report_text: str) -> Dict[str, Any]:

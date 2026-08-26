@@ -14,3 +14,8 @@ build/
 knowledge_base/_uploads/_processed_manifest.json
 .DS_Store
 Thumbs.db
+
+# Test artifacts & runner scripts
+test/
+debug_run.py
+run.py

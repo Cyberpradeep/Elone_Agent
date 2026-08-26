@@ -23,7 +23,7 @@ from typing import Optional
 # pyrefly: ignore [missing-import]
 from core.jit_converter import convert_raw_sop_to_okf
 # pyrefly: ignore [missing-import]
-from core.input_validator import ALLOWED_EXTENSIONS, validate_sop_file
+from core.input_validator import ALLOWED_EXTENSIONS
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))

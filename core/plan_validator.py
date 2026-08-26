@@ -1,7 +1,6 @@
 import json
 import re
 from typing import Tuple, List, Dict, Any
-from pydantic import BaseModel, Field
 
 # pyrefly: ignore [missing-import]
 from config.llm_config import get_llm
@@ -53,7 +52,6 @@ def validate_plan_faithfulness_and_linkage(
     extracted_variables = set()
 
     for idx, step in enumerate(steps, start=1):
-        step_num = step.get("step_number")
         cmd = step.get("command")
         step_type = step.get("step_type", "command")
         desc = (step.get("sop_step_description") or "").lower()

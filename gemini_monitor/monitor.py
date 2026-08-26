@@ -5,7 +5,6 @@ import datetime
 import threading
 import uuid
 from typing import Dict, Any, Optional, List
-from langchain_core.callbacks.base import BaseCallbackHandler
 
 # pyrefly: ignore [missing-import]
 from gemini_monitor.cost_calculator import calculate_cost
@@ -269,37 +268,6 @@ def record_call(
         "call_cost": cost_info,
         "day_summary": day_entry
     }
-
-
-class GeminiMonitorCallback(BaseCallbackHandler):
-    """LangChain callback that validates quota on start and records usage on completion."""
-
-    def __init__(self, caller: str = "llm", provider: str = "gemini", model: str = "gemini-2.5-flash", sop_id: Optional[str] = None):
-        super().__init__()
-        self.caller = caller
-        self.provider = provider
-        self.model = model
-        self.sop_id = sop_id
-
-    def on_llm_start(self, serialized: Dict[str, Any], prompts: List[str], **kwargs: Any) -> None:
-        check_daily_limit(self.provider)
-
-    def on_llm_end(self, response: Any, **kwargs: Any) -> None:
-        input_tokens = 0
-        output_tokens = 0
-        if hasattr(response, "llm_output") and response.llm_output:
-            token_usage = response.llm_output.get("token_usage", {})
-            input_tokens = token_usage.get("prompt_tokens", 0) or token_usage.get("input_tokens", 0)
-            output_tokens = token_usage.get("completion_tokens", 0) or token_usage.get("output_tokens", 0)
-
-        record_call(
-            caller=self.caller,
-            model=self.model,
-            provider=self.provider,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            sop_id=self.sop_id
-        )
 
 
 def print_execution_session_banner(session: Optional[Dict[str, Any]] = None) -> None:
