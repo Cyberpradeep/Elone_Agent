@@ -1,4 +1,0 @@
-[console_scripts]
-elone-sop = run:main
-elone-sop-debug = debug_run:main
-elone-sop-mcp = mcp_server:main

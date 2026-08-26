@@ -1,3 +1,5 @@
 # Software Playbooks Catalog
 
+- [Software Application Unblock Request](./SOP-L1-APP-001.md) | Platform: `system` | Triggers: `unblock, application, ifeo, debugger, registry, gpupdate` | Automated procedure to identify and remove Image File Execution Options (IFEO) debugger blocking entries for approved applications on Windows endpoints, refresh local policy, and verify remediation.
+- [Check and Terminate a Hung Application – Windows](./SOP-check-and-terminate-a-hung-application-windows-001.md) | Platform: `windows` | Triggers: `windows, terminate, hung, application, taskkill, tasklist, unresponsive, force kill` | Standard operating procedure to verify whether a target Windows desktop application is running and forcibly terminate it if unresponsive.
 - [Software Application Unblock Request](./SOP-l1-app-001-001.md) | Platform: `system` | Triggers: `ifeo, application, unblock, debugger, blocked, applocker` | Automated workflow to identify and remove Image File Execution Options (IFEO) registry debugger entry application blocks on Windows endpoints, refresh group policies, and verify block removal.

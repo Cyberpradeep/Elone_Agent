@@ -1,22 +1,29 @@
-# SOP Ingestion Pipeline - Standalone Dependencies
+# SOP Ingestion Pipeline - Core Dependencies
 # Install: pip install -r requirements.txt
 
+# Configuration & Data Models
 python-dotenv>=1.0.0
 pyyaml>=6.0
 python-frontmatter>=1.1.0
 pydantic>=2.0
 
-# Document Parsing & Web Link Scraper
+# Document Parsing, OCR & Web Scraping
 markitdown>=0.1.0
 PyMuPDF>=1.24.0
 python-docx>=1.1.0
 requests>=2.28.0
+beautifulsoup4>=4.12.0
 
-# LLM Providers (install the ones you use)
+# LangChain & LLM Providers
 langchain-core>=0.3.0
-langchain-mistralai>=0.2.0
 langchain-google-genai>=2.0.0
+langchain-mistralai>=0.2.0
 langchain-openai>=0.3.0
+langchain-nvidia-ai-endpoints>=0.1.0
+langchain-groq>=0.2.0
 
 # Model Context Protocol (MCP) Server
 mcp>=1.0.0
+
+# Development & Testing
+pytest>=7.0.0

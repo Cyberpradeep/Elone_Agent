@@ -1,0 +1,155 @@
+{
+  "thread_id": "AGT-825eb2ccbd27",
+  "ticket_id": "AGT-825eb2ccbd27",
+  "created_at": "2026-08-25T14:31:46.757789",
+  "updated_at": "2026-08-25T14:31:46.757789",
+  "workflow_status": "pending",
+  "resolution_type": null,
+  "customer": {
+    "email": "pradeepnaveen930@gmail.com",
+    "name": "Pradeep",
+    "emp_id": "EL-002",
+    "user_id": "12",
+    "device_id": "DV_EL_002"
+  },
+  "remote_machine": {
+    "hostname": "Carnage",
+    "target_os": "windows",
+    "username": "prade",
+    "ip_address": "Carnage"
+  },
+  "issue": {
+    "ticket_raw": "i need vscode for development but it is blocked",
+    "intent": "Software Application Unblock Request",
+    "category": "software",
+    "priority": "high",
+    "sop_id": "SOP-l1-app-001-001",
+    "sop_title": "Software Application Unblock Request",
+    "ticket_details_confidence": 1.0,
+    "sop_match_confidence": 1.0
+  },
+  "execution_plan": {
+    "total_steps": 5,
+    "current_step_index": 0,
+    "plan_valid": true,
+    "validator_result": "VALID",
+    "steps": [
+      {
+        "step_number": 1,
+        "description": "Verify endpoint connectivity using Test-Connection",
+        "step_type": "command",
+        "command": "Test-Connection Carnage -Count 2",
+        "shell": "powershell",
+        "fallback_command": null,
+        "execute_if": null,
+        "is_dangerous": false,
+        "danger_warning": null,
+        "status": "PENDING",
+        "exit_code": null,
+        "output": "",
+        "output_variable": null,
+        "output_parse_instruction": "Check if ping replies are received. Set variables.endpoint_reachable = true, else set variables.endpoint_reachable = false"
+      },
+      {
+        "step_number": 2,
+        "description": "Identify application blocking mechanism by querying IFEO registry key",
+        "step_type": "command",
+        "command": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\Code.exe\"",
+        "shell": "powershell",
+        "fallback_command": null,
+        "execute_if": null,
+        "is_dangerous": false,
+        "danger_warning": null,
+        "status": "PENDING",
+        "exit_code": null,
+        "output": "",
+        "output_variable": null,
+        "output_parse_instruction": "If output contains 'Debugger', set variables.ifeo_blocked = true, else set variables.ifeo_blocked = false"
+      },
+      {
+        "step_number": 3,
+        "description": "Remove IFEO Debugger value to unblock application execution",
+        "step_type": "command",
+        "command": "reg delete \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\Code.exe\" /v Debugger /f",
+        "shell": "powershell",
+        "fallback_command": "reg delete \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\Code.exe\" /f",
+        "execute_if": "variables.ifeo_blocked == true",
+        "is_dangerous": false,
+        "danger_warning": null,
+        "status": "PENDING",
+        "exit_code": null,
+        "output": "",
+        "output_variable": null,
+        "output_parse_instruction": "If registry delete succeeds, set variables.block_removed = true, else set variables.block_removed = false"
+      },
+      {
+        "step_number": 4,
+        "description": "Refresh local Group Policy settings",
+        "step_type": "command",
+        "command": "gpupdate /force",
+        "shell": "powershell",
+        "fallback_command": null,
+        "execute_if": null,
+        "is_dangerous": false,
+        "danger_warning": null,
+        "status": "PENDING",
+        "exit_code": null,
+        "output": "",
+        "output_variable": null,
+        "output_parse_instruction": null
+      },
+      {
+        "step_number": 5,
+        "description": "Verify IFEO block removal by querying registry key again",
+        "step_type": "command",
+        "command": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\Code.exe\"",
+        "shell": "powershell",
+        "fallback_command": null,
+        "execute_if": null,
+        "is_dangerous": false,
+        "danger_warning": null,
+        "status": "PENDING",
+        "exit_code": null,
+        "output": "",
+        "output_variable": null,
+        "output_parse_instruction": "If output contains 'Debugger', set variables.block_verified = false, else set variables.block_verified = true"
+      }
+    ]
+  },
+  "extracted_variables": {},
+  "entities": {
+    "user_id": "12",
+    "email": "pradeepnaveen930@gmail.com",
+    "emp_id": "EL-002",
+    "employee_name": "Pradeep",
+    "device_id": "DV_EL_002",
+    "target_os": "windows",
+    "hostname": "Carnage",
+    "username": "prade",
+    "password": "6521",
+    "application_name": "Visual Studio Code",
+    "executable": "Code.exe",
+    "catalog_permission_approved": "true"
+  },
+  "clarification": {
+    "question": null,
+    "ui": null,
+    "attempts": 0
+  },
+  "escalation_payload": null,
+  "final_responses": {
+    "customer_ticket_reply": null,
+    "internal_ticket_summary": null
+  },
+  "audit_log": [
+    "[Intake] Triage applied: intent=Software Application Unblock Request, priority=high, category=software, details_conf=1.0, sop_match_conf=1.0, source=okf_playbook, matched_file=sops/software/SOP-l1-app-001-001.md, entities={'user_id': '12', 'email': 'pradeepnaveen930@gmail.com', 'emp_id': 'EL-002', 'employee_name': 'Pradeep', 'device_id': 'DV_EL_002', 'target_os': 'windows', 'hostname': 'Carnage', 'username': 'prade', 'password': '6521', 'application_name': 'Visual Studio Code', 'executable': 'Code.exe', 'catalog_permission_approved': 'true'}",
+    "[Planner Complete] Synthesized bound execution plan for SOP 'Software Application Unblock Request' (SOP-l1-app-001-001) at SOP-l1-app-001-001.md with 5 steps.",
+    "[Stage 1 Data Understanding]: Analyzed ticket 'Software Application Unblock Request' for host 'Carnage'.",
+    "[Stage 2 Gap & Delta Analysis]: Bound dynamic placeholders ({entities.hostname} -> Carnage).",
+    "[Stage 3 Memory Pattern Analysis]: Applied reflection rules and device quirks for host 'Carnage'.",
+    "[Stage 4 Update Formulation]: Formulated 5 execution steps.",
+    "[Stage 5 Final Verification]: Verified plan syntax for host 'Carnage'.",
+    "[Orchestrator] Dispatching Step 1/5 -> execution_agent",
+    "[HITL] User approved the execution plan. Resuming execution..."
+  ]
+}

@@ -122,9 +122,8 @@ def _build_groq_client(model: str, temperature: float = 0.2):
             temperature=temperature,
         )
 
-from langchain_nvidia_ai_endpoints import ChatNVIDIA
-
 def _build_nvidia_client(model: str, temperature: float = 0.2):
+    from langchain_nvidia_ai_endpoints import ChatNVIDIA
     api_key = os.environ.get("NVIDIA_API_KEY")
     return ChatNVIDIA(model=model, nvidia_api_key=api_key, temperature=temperature, max_completion_tokens=350)
 
