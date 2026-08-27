@@ -4,6 +4,6 @@
   "mime_type": "image/png",
   "confidence_score": 0.5,
   "confidence_level": "Low",
-  "confidence_reason": "**",
-  "vlm_report": "The image shows a screenshot of the CoreID Admin Console, with a ticket resolution panel open. The panel displays the ticket number, status, and resolution notes.\n\n**SCREEN / CONTEXT:**\nCoreID Admin Console > Ticket Resolution Panel\n\n**UI ACTION:**\nNone visible\n\n**VISIBLE ENTITIES:**\nTicket: #SOL-84213\nStatus: Resolved\nResolution Notes: Identity verified (2 of 4 checks). Temporary password issued via CoreID. Force-change-at-next-sign-in enabled. No OTP sent - admin-mediated reset per policy.\n\n**ERRORS:**\nNone visible\n\n**CONFIDENCE SCORE:**\n1.0\n**CONFIDENCE LEVEL:**\nHigh\n**CONFIDENCE REASON:**\nThe image is clear and legible, with all necessary information visible."
+  "confidence_reason": "** Clear and legible UI with minimal visual clutter.",
+  "vlm_report": "**SCREEN / CONTEXT:** CoreID Admin Console > Tickets > Ticket #SOL-84213 - Resolution\n\n**UI ACTION:** Click 'Resolved' with 'Identity verified (2 of 4 checks)' and 'Temporary password issued via CoreID. Force-change-at-next-sign-in enabled. No OTP sent - admin-mediated reset per policy' visible.\n\n**VISIBLE ENTITIES:**\n\n* Ticket: #SOL-84213\n* Status: Resolved\n* Identity verification status: 2 of 4 checks\n* Temporary password issued via: CoreID\n* Force-change-at-next-sign-in: Enabled\n* OTP sent: No\n* Admin-mediated reset per policy: Yes\n\n**ERRORS:** None visible\n\n**CONFIDENCE SCORE:** 0.95\n\n**CONFIDENCE LEVEL:** High\n\n**CONFIDENCE REASON:** Clear and legible UI with minimal visual clutter."
 }

@@ -4,6 +4,6 @@
   "mime_type": "image/png",
   "confidence_score": 0.5,
   "confidence_level": "Low",
-  "confidence_reason": "** Clear and legible UI with minimal visual clutter.",
-  "vlm_report": "**SCREEN / CONTEXT:** CoreID Admin Console > Users > J. Employee - Identity Verification\n\n**UI ACTION:** Click \"Manager name matches ticket\" checkbox\n\n**VISIBLE ENTITIES:**\n\n* Employee ID: SOL-04821\n* Manager name: A. Rao\n* Department: Finance\n* Last 4 digits of phone on file: Not visible\n\n**ERRORS:** None visible\n\n**CONFIDENCE SCORE:** 0.95\n\n**CONFIDENCE LEVEL:** High\n\n**CONFIDENCE REASON:** Clear and legible UI with minimal visual clutter."
+  "confidence_reason": "** The image is clear and legible, with all necessary information visible.",
+  "vlm_report": "**SCREEN / CONTEXT:** CoreID Admin Console > Identity Verification\n\n**UI ACTION:** Click \"Manager name matches ticket\" checkbox\n\n**VISIBLE ENTITIES:**\n\n* Employee ID: SOL-04821\n* Manager name: A. Rao\n* Department: Not visible\n* Last 4 digits of phone: Not visible\n* Ticket: #SOL-84213\n* Status: Not visible\n* Department matches record: Not visible\n\n**ERRORS:** None visible\n\n**CONFIDENCE SCORE:** 0.95\n\n**CONFIDENCE LEVEL:** High\n\n**CONFIDENCE REASON:** The image is clear and legible, with all necessary information visible."
 }

@@ -4,6 +4,6 @@
   "mime_type": "image/png",
   "confidence_score": 0.5,
   "confidence_level": "Low",
-  "confidence_reason": "** Clear and legible UI with minimal visual clutter.",
-  "vlm_report": "**SCREEN / CONTEXT:** CoreID Admin Console > Users > SOL-04821\n\n**UI ACTION:** Click \"Locked\" status badge\n\n**VISIBLE ENTITIES:**\n\n* Employee ID: SOL-04821\n* Department: Finance\n* Manager: A. Rao\n\n**ERRORS:** None visible\n\n**CONFIDENCE SCORE:** 0.95\n\n**CONFIDENCE LEVEL:** High\n\n**CONFIDENCE REASON:** Clear and legible UI with minimal visual clutter."
+  "confidence_reason": "** Clear and legible UI with prominent \"Locked\" badge.",
+  "vlm_report": "**SCREEN / CONTEXT:** CoreID Admin Console > Users\n\n**UI ACTION:** Click \"Locked\" badge\n\n**VISIBLE ENTITIES:**\n\n* User ID: SOL-04821\n* Employee ID: SOL-04821\n* Department: Finance\n* Manager: A. Rao\n\n**ERRORS:** None visible\n\n**CONFIDENCE SCORE:** 0.95\n\n**CONFIDENCE LEVEL:** High\n\n**CONFIDENCE REASON:** Clear and legible UI with prominent \"Locked\" badge."
 }

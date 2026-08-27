@@ -19,3 +19,10 @@ Thumbs.db
 test/
 debug_run.py
 run.py
+
+# Knowledge Base Generated SOPs, Reflection Patterns & Runtime Logs
+knowledge_base/sops/
+knowledge_base/patterns/
+knowledge_base/logs/
+logs/
+

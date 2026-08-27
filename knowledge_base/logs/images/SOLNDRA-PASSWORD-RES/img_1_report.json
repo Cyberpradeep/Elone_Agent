@@ -4,6 +4,6 @@
   "mime_type": "image/png",
   "confidence_score": 0.5,
   "confidence_level": "Low",
-  "confidence_reason": "**",
-  "vlm_report": "The image shows a screenshot of the CoreID Admin Console, with a ticket details panel open. The panel displays the following information:\n\n* **Ticket Number**: #SOL-84213\n* **Employee ID**: SOL-04821\n* **Manager**: A. Menon\n* **Department**: Finance\n* **Status**: Locked\n* **Opened**: Today, 10:42 AM\n\nThe panel also includes a \"Password Reset - Escalated\" category and a \"J. Employee\" requester.\n\n**UI Action:**\n\n* The user is currently viewing the ticket details panel.\n\n**Visible Entities:**\n\n* Ticket: #SOL-84213\n* Employee ID: SOL-04821\n* Manager: A. Menon\n* Department: Finance\n* Status: Locked\n* Opened: Today, 10:42 AM\n\n**Errors:**\n\n* None visible\n\n**Confidence Score:**\n\n* 1.0 (High)\n\n**Confidence Level:**\n\n* High\n\n**Confidence Reason:**\n\n* The image is clear and legible, with all relevant information visible."
+  "confidence_reason": "** Clear and legible UI with minimal visual noise.",
+  "vlm_report": "**SCREEN / CONTEXT:** CoreID Admin Console > Tickets > SOL-84213\n\n**UI ACTION:** Click \"Opened\" tab\n\n**VISIBLE ENTITIES:**\n\n* Ticket: #SOL-84213\n* Employee ID: SOL-04821\n* Status: Opened\n* Dept: Finance\n* Manager: A. Menon\n* Requester: J. Employee\n* Category: Password Reset - Escalated\n\n**ERRORS:** None visible\n\n**CONFIDENCE SCORE:** 0.95\n\n**CONFIDENCE LEVEL:** High\n\n**CONFIDENCE REASON:** Clear and legible UI with minimal visual noise."
 }
