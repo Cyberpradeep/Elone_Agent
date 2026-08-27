@@ -88,15 +88,36 @@ def validate_plan_faithfulness_and_linkage(
                 step["step_type"] = "tool_call"
                 step_type = "tool_call"
 
-        # Check required command for command step_type
-        if step_type == "command" and not cmd:
-            errors.append(f"Layer 1 Error: Step {idx} has step_type='command' but command is empty.")
+        # Check required command and shell for command step_type
+        if step_type == "command":
+            if not cmd:
+                errors.append(f"Layer 1 Error: Step {idx} has step_type='command' but command is empty.")
+            # Auto-assign powershell if shell is missing or check powershell
+            if not step.get("shell"):
+                step["shell"] = "powershell"
 
         # Check required fields and catalog verification for tool_call step_type
         if step_type == "tool_call":
             tool_is_valid, tool_errors = validate_tool_step_schema(step, step_idx=idx)
             if not tool_is_valid:
                 errors.extend(tool_errors)
+
+        # 0. ENTITY CONSISTENCY GUARD (Check {{entities.*}} against required_entities)
+        declared_entities = {e.lower() for e in (execution_plan.get("required_entities") or [])}
+        referenced_entities = set()
+        if cmd:
+            for ent in re.findall(r"\{\{entities\.(\w+)\}\}", cmd, re.IGNORECASE):
+                referenced_entities.add(ent.lower())
+        if step.get("comm_inputs") and isinstance(step["comm_inputs"], dict):
+            for ent in re.findall(r"\{\{entities\.(\w+)\}\}", json.dumps(step["comm_inputs"]), re.IGNORECASE):
+                referenced_entities.add(ent.lower())
+
+        for ent in referenced_entities:
+            if declared_entities and ent not in declared_entities:
+                errors.append(
+                    f"Layer 1 Entity Linkage Error: Step {idx} references undeclared entity '{{{{entities.{ent}}}}}', "
+                    f"which was not listed in frontmatter required_entities {list(declared_entities)}."
+                )
 
         # 1. VERIFY PRECEDING VARIABLE LINKAGE (execute_if & dynamic {{variables.*}})
         # Check execute_if variable linkage contract
