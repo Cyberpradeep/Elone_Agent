@@ -89,8 +89,8 @@ VENDOR_API_KEY_PATTERNS = [
 
 # Contextual Key-Value Patterns (Matches `api_key = "..."`, `Authorization: Bearer ...`)
 CONTEXTUAL_SECRET_PATTERNS = [
-    re.compile(r"""(?i)\b(api[_-]?key|access[_-]?token|secret[_-]?key|client[_-]?secret|auth[_-]?token|bearer)\s*[:=]\s*["']?([A-Za-z0-9_\-\.]{16,})["']?"""),
-    re.compile(r"""(?i)\b(password|pwd|secret|passphrase)\s*[:=]\s*["']?([^\s"']{4,})["']?"""),
+    re.compile(r"""(?i)\b(api[_-]?key|access[_-]?token|secret[_-]?key|client[_-]?secret|auth[_-]?token|bearer)\s*[:=\-]+\s*["']?([A-Za-z0-9_\-\.]{16,})["']?"""),
+    re.compile(r"""(?i)\b(password|pwd|secret|passphrase)\s*[:=\-]+\s*["']?([^\s"']{4,})["']?"""),
 ]
 
 # Personal Contact Patterns (Real Email & Phone)
