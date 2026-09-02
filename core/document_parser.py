@@ -8,6 +8,8 @@ from langchain_core.messages import HumanMessage
 from config.llm_config import get_llm
 # pyrefly: ignore [missing-import]
 from core.input_validator import validate_sop_file, SOPInputValidationError
+# pyrefly: ignore [missing-import]
+from core.security import clean_unicode_and_zero_width, redact_sensitive_dlp
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KB_DIR = os.getenv("ELONE_KB_DIR", os.path.join(BASE_DIR, "knowledge_base"))
@@ -370,14 +372,18 @@ def extract_ordered_sop_content(filepath: str) -> Tuple[str, List[Dict[str, Any]
             has_images = any(s["type"] == "image" for s in segments)
             if segments and (_is_valid_text_quality(text_only) or has_images):
                 print(f"[DocumentParser] [Ordered DOCX Walk] Extracted {len(segments)} ordered segment(s) from: {filename}")
-                _log_parsed_text(filepath, "ordered_docx_walk", text_only)
+                segments = _apply_security_sanitization_to_segments(segments)
+                sanitized_text = "\n\n".join(s["content"] for s in segments if s["type"] == "text")
+                _log_parsed_text(filepath, "ordered_docx_walk", sanitized_text)
                 return "ordered_docx_walk", segments
         elif ext == ".pdf":
             segments = _extract_ordered_pdf(filepath)
             text_only = "\n\n".join(s["content"] for s in segments if s["type"] == "text")
             if segments and _is_valid_text_quality(text_only):
                 print(f"[DocumentParser] [Ordered PDF Walk] Extracted {len(segments)} ordered segment(s) from: {filename}")
-                _log_parsed_text(filepath, "ordered_pdf_walk", text_only)
+                segments = _apply_security_sanitization_to_segments(segments)
+                sanitized_text = "\n\n".join(s["content"] for s in segments if s["type"] == "text")
+                _log_parsed_text(filepath, "ordered_pdf_walk", sanitized_text)
                 return "ordered_pdf_walk", segments
             # No usable embedded text (likely a scanned PDF) -> fall through
             # to the legacy path, which handles Vision OCR transcription.
@@ -385,5 +391,25 @@ def extract_ordered_sop_content(filepath: str) -> Tuple[str, List[Dict[str, Any]
         print(f"[DocumentParser Warning] Ordered content walk failed for {filename}: {e}")
 
     parser_type, raw_text = extract_full_text(filepath)
-    return parser_type, [{"type": "text", "content": raw_text}]
+    cleaned_text = clean_unicode_and_zero_width(raw_text)
+    redacted_text, stats = redact_sensitive_dlp(cleaned_text)
+    if any(stats.values()):
+        print(f"[DLP Security Shield] Sanitized sensitive data in raw text: {stats}")
+    return parser_type, [{"type": "text", "content": redacted_text}]
+
+
+def _apply_security_sanitization_to_segments(segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Applies Unicode normalization, zero-width character stripping, and DLP secret masking to text segments."""
+    total_dlp_stats: Dict[str, int] = {}
+    for seg in segments:
+        if seg.get("type") == "text" and seg.get("content"):
+            cleaned = clean_unicode_and_zero_width(seg["content"])
+            redacted, stats = redact_sensitive_dlp(cleaned)
+            seg["content"] = redacted
+            for k, v in stats.items():
+                total_dlp_stats[k] = total_dlp_stats.get(k, 0) + v
+    if any(total_dlp_stats.values()):
+        redacted_summary = ", ".join(f"{k}: {v}" for k, v in total_dlp_stats.items() if v > 0)
+        print(f"[DLP Security Shield] Sanitized sensitive data: {redacted_summary}")
+    return segments
 

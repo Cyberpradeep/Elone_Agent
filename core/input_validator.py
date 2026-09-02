@@ -13,6 +13,9 @@ import re
 import csv
 from typing import Tuple, Optional, Dict, Any
 
+# pyrefly: ignore [missing-import]
+from core.security import check_zip_bomb, sanitize_filename
+
 # Security Configuration Constants
 MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
 MAX_PAGE_COUNT = 10                     # Maximum 10 document pages
@@ -282,7 +285,13 @@ def validate_sop_file(filepath: str) -> Tuple[bool, Optional[str], Dict[str, Any
     if not is_magic_valid:
         return False, magic_err, metadata
 
-    # 4. Page Count / Length Check
+    # 4. Zip Bomb & Decompression Ratio Guard (.docx, .xlsx)
+    if ext in [".docx", ".xlsx"]:
+        is_zip_safe, zip_err = check_zip_bomb(filepath)
+        if not is_zip_safe:
+            return False, zip_err, metadata
+
+    # 5. Page Count / Length Check
     is_page_valid, page_err, page_count, page_details = count_document_pages(filepath, ext)
     metadata["page_count"] = page_count
     metadata["page_details"] = page_details

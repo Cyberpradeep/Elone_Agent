@@ -12,6 +12,8 @@ from tools.platforms import find_platform_schema
 from prompts.validator_prompts import JIT_VALIDATOR_COT_SYSTEM_PROMPT
 # pyrefly: ignore [missing-import]
 from schemas import JITFaithfulnessInspectionResult
+# pyrefly: ignore [missing-import]
+from core.security import enforce_entity_double_quotes
 
 
 # Deterministic High-Risk Security / Prompt Injection Command Patterns
@@ -95,6 +97,10 @@ def validate_plan_faithfulness_and_linkage(
             # Auto-assign powershell if shell is missing or check powershell
             if not step.get("shell"):
                 step["shell"] = "powershell"
+            # Enforce double-quotes on dynamic entity placeholders to prevent shell argument splitting injection
+            if cmd and "{{entities." in cmd:
+                cmd = enforce_entity_double_quotes(cmd)
+                step["command"] = cmd
 
         # Check required fields and catalog verification for tool_call step_type
         if step_type == "tool_call":
