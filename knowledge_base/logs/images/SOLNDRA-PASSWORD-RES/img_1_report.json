@@ -4,6 +4,6 @@
   "mime_type": "image/png",
   "confidence_score": 0.5,
   "confidence_level": "Low",
-  "confidence_reason": "** Clear and legible UI with minimal visual noise.",
-  "vlm_report": "**SCREEN / CONTEXT:** CoreID Admin Console > Tickets > SOL-84213\n\n**UI ACTION:** Click \"Opened\" tab\n\n**VISIBLE ENTITIES:**\n\n* Ticket: #SOL-84213\n* Employee ID: SOL-04821\n* Status: Opened\n* Dept: Finance\n* Manager: A. Menon\n* Requester: J. Employee\n* Category: Password Reset - Escalated\n\n**ERRORS:** None visible\n\n**CONFIDENCE SCORE:** 0.95\n\n**CONFIDENCE LEVEL:** High\n\n**CONFIDENCE REASON:** Clear and legible UI with minimal visual noise."
+  "confidence_reason": "** Clear and legible UI with minimal visual clutter.",
+  "vlm_report": "**SCREEN / CONTEXT:** CoreID Admin Console > Tickets > Ticket #SOL-84213\n\n**UI ACTION:** Click \"Opened\" tab\n\n**VISIBLE ENTITIES:**\n\n* Ticket: #SOL-84213\n* Requester: J. Employee\n* Employee ID: SOL-04821\n* Manager: A. Menon\n* Department: Finance\n* Status: Opened\n* Date/Time: Today, 10:42 AM\n\n**ERRORS:** None visible\n\n**CONFIDENCE SCORE:** 0.95\n\n**CONFIDENCE LEVEL:** High\n\n**CONFIDENCE REASON:** Clear and legible UI with minimal visual clutter."
 }

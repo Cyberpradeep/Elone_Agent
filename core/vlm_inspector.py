@@ -9,6 +9,8 @@ from typing import List, Tuple, Dict, Any, Optional
 from langchain_core.messages import HumanMessage
 # pyrefly: ignore [missing-import]
 from config.llm_config import get_llm
+# pyrefly: ignore [missing-import]
+from core.security import validate_and_sanitize_image_bytes
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KB_DIR = os.getenv("ELONE_KB_DIR", os.path.join(BASE_DIR, "knowledge_base"))
@@ -127,6 +129,13 @@ def extract_confidence_score(report_text: str) -> Dict[str, Any]:
 
 def analyze_image_bytes(image_bytes: bytes, mime_type: str) -> str:
     """Analyzes image bytes using VLM via LangChain with rate-limit retry backoff and token cost monitoring."""
+    # Pixel Bomb and Downscaling Security Guard
+    is_valid, sec_err, sanitized_bytes = validate_and_sanitize_image_bytes(image_bytes, mime_type)
+    if not is_valid:
+        print(f"[VLM Security Shield] Image rejected: {sec_err}")
+        return f"[IMAGE EXCLUDED FOR SECURITY: {sec_err}]"
+    image_bytes = sanitized_bytes
+
     try:
         # pyrefly: ignore [missing-import]
         from gemini_monitor.monitor import check_daily_limit, record_call

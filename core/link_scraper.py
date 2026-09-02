@@ -5,6 +5,9 @@ import requests
 from typing import Tuple, List
 from markitdown import MarkItDown
 
+# pyrefly: ignore [missing-import]
+from core.security import is_safe_external_url, MAX_SCRAPE_OUTPUT_CHARS
+
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KB_DIR = os.getenv("ELONE_KB_DIR", os.path.join(BASE_DIR, "knowledge_base"))
 WEB_CACHE_DIR = os.path.join(KB_DIR, "logs", "web_cache")
@@ -58,13 +61,20 @@ def fetch_and_convert_url(url: str, timeout_seconds: int = 10) -> Tuple[bool, st
     cache_path = os.path.join(WEB_CACHE_DIR, f"{url_hash}.log")
     rel_cache_path = f"knowledge_base/logs/web_cache/{url_hash}.log"
 
+    # SSRF Security Pre-Flight Check (Blocks private LAN IPs, loopback, and cloud metadata)
+    is_safe, ssrf_err = is_safe_external_url(url)
+    if not is_safe:
+        err_msg = f"SSRF Protection Blocked URL: {ssrf_err}"
+        print(f"[LinkScraper SSRF Shield] {err_msg}")
+        return False, err_msg, rel_cache_path
+
     # Check cache first
     if os.path.exists(cache_path):
         try:
             with open(cache_path, "r", encoding="utf-8") as f:
                 content = f.read()
                 print(f"[LinkScraper Cache] Loaded cached web content for URL: {url}")
-                return True, content, rel_cache_path
+                return True, content[:MAX_SCRAPE_OUTPUT_CHARS], rel_cache_path
         except Exception as e:
             print(f"[LinkScraper Warning] Failed reading cache for {url}: {e}")
 
@@ -97,6 +107,9 @@ def fetch_and_convert_url(url: str, timeout_seconds: int = 10) -> Tuple[bool, st
             for tag in soup(["script", "style", "nav", "footer", "header"]):
                 tag.decompose()
             md_text = soup.get_text(separator="\n\n").strip()
+
+        # Truncate to maximum character limit to prevent token bloat
+        md_text = md_text[:MAX_SCRAPE_OUTPUT_CHARS]
 
         # Format cache file content
         cache_entry = f"URL: {url}\nStatus Code: {resp.status_code}\n\n--- SCRAPED MARKDOWN CONTENT START ---\n{md_text}\n--- SCRAPED MARKDOWN CONTENT END ---\n"

@@ -6,11 +6,11 @@ platform: system
 category: software
 target_os: windows
 description: Automated workflow to verify endpoint connectivity, inspect registry
-  for IFEO Debugger blocks, remove the block, and refresh local group policy.
+  for IFEO Debugger blocks, remove the block, refresh policy, and verify removal.
 confidence_score: 0.98
 confidence_level: High
 confidence_reason: All steps mapped to deterministic Windows PowerShell commands with
-  exact variable linkage and fallback delete handling.
+  exact variable linkage and fallback delete handling. Human interaction steps omitted.
 is_executable: true
 unexecutable_reason: null
 required_entities:
@@ -22,6 +22,7 @@ trigger_words:
 - application
 - debugger
 - registry
+- block
 steps:
 - step_number: 1
   sop_step_description: Verify endpoint network connectivity before performing remote
@@ -105,7 +106,7 @@ steps:
 # Software Application Unblock Request Playbook
 
 ## Overview
-Automated workflow to verify endpoint connectivity, inspect registry for IFEO Debugger blocks, remove the block, and refresh local group policy.
+Automated workflow to verify endpoint connectivity, inspect registry for IFEO Debugger blocks, remove the block, refresh policy, and verify removal.
 
 ## Execution Steps
 - **Step 1**: Verify endpoint network connectivity before performing remote diagnostics. (`Test-Connection {{entities.hostname}} -Count 2`)

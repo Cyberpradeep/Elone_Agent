@@ -4,6 +4,6 @@
   "mime_type": "image/png",
   "confidence_score": 0.5,
   "confidence_level": "Low",
-  "confidence_reason": "** Clear and legible UI elements, with no visible errors or ambiguities.",
-  "vlm_report": "**SCREEN / CONTEXT:** CoreID Admin Console > Users > Reset Password - J. Employee\n\n**UI ACTION:** Click 'Generate Temporary Password' with 'Force change at next sign-in' checked\n\n**VISIBLE ENTITIES:**\n\n* Temporary password: Tq7#mVr2lklp9x\n* Checkbox: Force change at next sign-in (checked)\n\n**ERRORS:** None visible\n\n**CONFIDENCE SCORE:** 0.95\n\n**CONFIDENCE LEVEL:** High\n\n**CONFIDENCE REASON:** Clear and legible UI elements, with no visible errors or ambiguities."
+  "confidence_reason": "**",
+  "vlm_report": "The image shows a screenshot of the CoreID Admin Console, specifically the \"Reset Password\" page for an employee. The page is titled \"Reset Password - J. Employee\" and has a temporary password field with a checkbox to force a change at the next sign-in.\n\n**UI Action:**\n\n* Click \"Generate Temporary Password\" with \"Force change at next sign-in\" checked\n\n**Visible Entities:**\n\n* Temporary password: Tq7#mVr2lKLp9x\n* Checkbox: Force change at next sign-in (checked)\n\n**Errors:**\n\n* None visible\n\n**Confidence Score:**\n\n* 0.95\n\n**Confidence Level:**\n\n* High\n\n**Confidence Reason:**\n\n* The screenshot is clear and legible, with all necessary information visible."
 }

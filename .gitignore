@@ -15,10 +15,24 @@ knowledge_base/_uploads/_processed_manifest.json
 .DS_Store
 Thumbs.db
 
-# Test artifacts & runner scripts
+# Test artifacts, test code files & runner scripts
 test/
+tests/
+test_*.py
+demo_security_test.py
 debug_run.py
 run.py
+
+# Documentation, documents & doc generator scripts
+docs/
+doc/
+documents/
+*.docx
+*.doc
+~$*.docx
+*.html
+generate_*.py
+build_*.py
 
 # Knowledge Base Generated SOPs, Reflection Patterns & Runtime Logs
 knowledge_base/sops/

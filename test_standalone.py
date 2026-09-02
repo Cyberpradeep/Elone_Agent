@@ -398,7 +398,7 @@ def test_prompt_brace_formatting():
     """Test Bug #1 fix: verify prompt .format() yields clean single-braced JSON schema."""
     print("\n[TEST] Prompt Brace Formatting (Bug #1 Fix)...")
     # pyrefly: ignore [missing-import]
-    from core.jit_converter import JIT_COT_CONVERTER_PROMPT
+    from prompts.jit_converter_prompts import JIT_COT_CONVERTER_PROMPT
 
     formatted_prompt = JIT_COT_CONVERTER_PROMPT.format(
         available_tools_summary="dummy summary",

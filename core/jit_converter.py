@@ -22,6 +22,13 @@ from core.plan_validator import validate_plan_faithfulness_and_linkage
 # pyrefly: ignore [missing-import]
 from core.vlm_inspector import analyze_and_save_image
 # pyrefly: ignore [missing-import]
+from core.security import (
+    escape_prompt_delimiters,
+    compute_playbook_hmac,
+    sanitize_slug,
+    MAX_IMAGES_PER_SOP,
+)
+# pyrefly: ignore [missing-import]
 from schemas import OKFPlaybookModel, OKFStepModel
 # pyrefly: ignore [missing-import]
 from prompts.jit_converter_prompts import (
@@ -29,7 +36,6 @@ from prompts.jit_converter_prompts import (
     COMMAND_COT_PROMPT,
     TOOL_COT_PROMPT,
     HYBRID_COT_PROMPT,
-    JIT_COT_CONVERTER_PROMPT,
 )
 
 
@@ -284,6 +290,9 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
             enriched_parts.append(seg["content"])
         else:
             image_index += 1
+            if image_index > MAX_IMAGES_PER_SOP:
+                print(f"[JIT Converter Security] Document contains more than {MAX_IMAGES_PER_SOP} images. Skipping image {image_index} to prevent token bloat.")
+                continue
             label = seg.get("label", f"Image {image_index}")
             report_text, image_ref = analyze_and_save_image(seg["bytes"], seg["mime_type"], label, sop_slug, image_index)
             conf_score = float(image_ref.get("confidence_score", 0.90))
@@ -298,7 +307,9 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
             enriched_parts.append(f"### Visual Inspection Report ({label}) {directive}:\n{report_text}")
             knowledge_base_ref.append(image_ref)
 
-    enriched_sop_text = "\n\n".join(enriched_parts)
+    raw_combined_text = "\n\n".join(enriched_parts)
+    # Escape prompt sandbox delimiters to prevent container breakouts
+    enriched_sop_text = escape_prompt_delimiters(raw_combined_text)
 
     # Scraped link context disabled for security (prevent indirect prompt injection)
     # if scraped_context_blocks:
@@ -688,10 +699,12 @@ def write_okf_playbook(draft: Dict[str, Any], raw_filename: str = "(reviewed dra
     edited by a human reviewer.
     """
     frontmatter_dict = draft["frontmatter"]
-    sop_id = frontmatter_dict["sop_id"]
-    title = frontmatter_dict["title"]
-    category = (frontmatter_dict.get("category") or "other").lower().strip()
+    raw_category = (frontmatter_dict.get("category") or "other").lower().strip()
+    category = sanitize_slug(raw_category).lower()
+    sop_id = sanitize_slug(frontmatter_dict.get("sop_id") or "SOP-DYN-001")
     frontmatter_dict["category"] = category
+    frontmatter_dict["sop_id"] = sop_id
+    title = frontmatter_dict["title"]
 
     steps = frontmatter_dict.get("steps") or []
 
@@ -715,6 +728,9 @@ def write_okf_playbook(draft: Dict[str, Any], raw_filename: str = "(reviewed dra
     clean_frontmatter = copy.deepcopy(frontmatter_dict)
     for s in clean_frontmatter.get("steps", []):
         s.pop("step_reasoning", None)
+
+    # Cryptographic Playbook Integrity Stamp (HMAC-SHA256)
+    clean_frontmatter["integrity_hmac_sha256"] = compute_playbook_hmac(clean_frontmatter.get("steps", []))
 
     yaml_header = yaml.dump(clean_frontmatter, sort_keys=False)
     description = frontmatter_dict.get("description", "")
