@@ -31,6 +31,10 @@ from typing import Tuple, Optional, Dict, Any, List
 # CONSTANTS & CONFIGURATION
 # =============================================================================
 
+class SecurityConfigurationError(RuntimeError):
+    """Raised when critical security configuration (like HMAC signing key) is missing or invalid."""
+    pass
+
 # Zip Bomb Thresholds
 MAX_UNCOMPRESSED_ZIP_BYTES = 50 * 1024 * 1024  # 50 MB
 MAX_ZIP_COMPRESSION_RATIO = 20.0               # Maximum 20x ratio
@@ -40,18 +44,43 @@ MAX_IMAGE_DIMENSION = 4096                     # Max width or height in pixels
 TARGET_IMAGE_DIMENSION = 1024                  # Max downscaled dimension for AI token efficiency
 MAX_IMAGES_PER_SOP = 5                         # Cap per document to avoid token bloat
 
+# Image Magic Bytes Signatures (Fail-Closed Header Checks)
+IMAGE_MAGIC_SIGNATURES = [
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+    (b"\xff\xd8\xff", "image/jpeg"),
+    (b"GIF87a", "image/gif"),
+    (b"GIF89a", "image/gif"),
+    (b"RIFF", "image/webp"),                   # WEBP has RIFF....WEBP header
+]
+
 # Web Scraper Caps
 MAX_SCRAPE_OUTPUT_CHARS = 4000                 # Maximum character length for scraped reference markdown
 
-# Disallowed / Blocked IP Ranges (SSRF Defense)
+# Disallowed / Blocked IP Ranges (Comprehensive IANA Special-Use IPv4 & IPv6 SSRF Defense)
 BLOCKED_IP_NETWORKS = [
-    ipaddress.ip_network("127.0.0.0/8"),       # Loopback
+    ipaddress.ip_network("0.0.0.0/8"),         # Broadcast / This host
     ipaddress.ip_network("10.0.0.0/8"),        # RFC1918 Private Class A
+    ipaddress.ip_network("100.64.0.0/10"),     # RFC6598 Carrier-Grade NAT (CGNAT)
+    ipaddress.ip_network("127.0.0.0/8"),       # Loopback
+    ipaddress.ip_network("169.254.0.0/16"),    # Link-Local / Cloud Metadata (AWS/GCP/Azure)
     ipaddress.ip_network("172.16.0.0/12"),     # RFC1918 Private Class B
+    ipaddress.ip_network("192.0.0.0/24"),      # IETF Protocol Assignments
+    ipaddress.ip_network("192.0.2.0/24"),      # TEST-NET-1
     ipaddress.ip_network("192.168.0.0/16"),    # RFC1918 Private Class C
-    ipaddress.ip_network("169.254.0.0/16"),    # Link-local / Cloud Metadata (AWS/GCP/Azure)
-    ipaddress.ip_network("0.0.0.0/8"),         # Current network
+    ipaddress.ip_network("198.18.0.0/15"),     # Network benchmark testing
+    ipaddress.ip_network("198.51.100.0/24"),   # TEST-NET-2
+    ipaddress.ip_network("203.0.113.0/24"),    # TEST-NET-3
+    ipaddress.ip_network("224.0.0.0/4"),       # Multicast
+    ipaddress.ip_network("240.0.0.0/4"),       # Reserved / Future use
+    ipaddress.ip_network("255.255.255.255/32"),# Limited broadcast
     ipaddress.ip_network("::1/128"),           # IPv6 Loopback
+    ipaddress.ip_network("::/128"),            # IPv6 Unspecified
+    ipaddress.ip_network("::ffff:0:0/96"),     # IPv4-mapped IPv6
+    ipaddress.ip_network("64:ff9b::/96"),      # IPv4/IPv6 translation
+    ipaddress.ip_network("100::/64"),          # Discard-only
+    ipaddress.ip_network("2001::/23"),         # IETF Protocol Assignments
+    ipaddress.ip_network("2001:db8::/32"),     # Documentation
+    ipaddress.ip_network("2002::/16"),         # 6to4
     ipaddress.ip_network("fc00::/7"),          # IPv6 Unique Local
     ipaddress.ip_network("fe80::/10"),         # IPv6 Link-Local
 ]
@@ -369,7 +398,7 @@ def is_safe_external_url(url: str) -> Tuple[bool, Optional[str]]:
 
 
 # =============================================================================
-# 5. MULTIMODAL IMAGE SECURITY & TOKEN OPTIMIZATION
+# 5. MULTIMODAL IMAGE SECURITY & TOKEN OPTIMIZATION (FAIL-CLOSED)
 # =============================================================================
 
 def validate_and_sanitize_image_bytes(
@@ -377,14 +406,33 @@ def validate_and_sanitize_image_bytes(
     mime_type: str = "image/png",
     max_dimension: int = MAX_IMAGE_DIMENSION,
     target_dimension: int = TARGET_IMAGE_DIMENSION
-) -> Tuple[bool, Optional[str], bytes]:
-    """Validates image dimensions against pixel bombs and downscales large images to save tokens.
+) -> Tuple[bool, Optional[str], bytes, str]:
+    """Validates image data against pixel bombs and downscales large images, strictly failing closed on error.
     
     Returns:
-        (is_valid: bool, error_msg: Optional[str], processed_bytes: bytes)
+        (is_valid: bool, error_msg: Optional[str], processed_bytes: bytes, actual_mime_type: str)
     """
-    if not image_bytes or len(image_bytes) < 10:
-        return False, "Empty or invalid image data.", b""
+    if not image_bytes or len(image_bytes) < 12:
+        return False, "Security rejection: Empty or truncated image data stream.", b"", mime_type
+
+    # 1. Header Magic Byte Signature Check (Reject disguised non-image files immediately)
+    is_recognized_magic = False
+    detected_mime = mime_type
+    for sig, sig_mime in IMAGE_MAGIC_SIGNATURES:
+        if image_bytes.startswith(sig):
+            if sig == b"RIFF" and b"WEBP" not in image_bytes[:16]:
+                continue
+            is_recognized_magic = True
+            detected_mime = sig_mime
+            break
+
+    if not is_recognized_magic:
+        return (
+            False,
+            "Security rejection: Header magic bytes do not match allowed image formats (PNG, JPEG, GIF, WEBP).",
+            b"",
+            mime_type,
+        )
 
     try:
         import fitz
@@ -397,11 +445,11 @@ def validate_and_sanitize_image_bytes(
             return False, (
                 f"Pixel bomb threat: Image dimensions ({width}x{height}) exceed "
                 f"maximum allowed limit of {max_dimension}x{max_dimension} pixels."
-            ), b""
+            ), b"", detected_mime
 
-        # If dimensions are within target budget, return as-is
+        # If dimensions are within target budget, return as-is with verified MIME
         if width <= target_dimension and height <= target_dimension:
-            return True, None, image_bytes
+            return True, None, image_bytes, detected_mime
 
         # Downscale to target_dimension preserving aspect ratio
         scale = min(target_dimension / width, target_dimension / height)
@@ -417,16 +465,12 @@ def validate_and_sanitize_image_bytes(
         resized_bytes = resized_pix.tobytes("jpeg")
         doc.close()
 
-        return True, None, resized_bytes
+        # Synchronize MIME type to image/jpeg because output was converted to JPEG
+        return True, None, resized_bytes, "image/jpeg"
 
-    except ImportError:
-        # Fallback if PyMuPDF not available: allow through if under 5 MB
-        if len(image_bytes) > 10 * 1024 * 1024:
-            return False, "Image size exceeds 10 MB limit.", b""
-        return True, None, image_bytes
     except Exception as e:
-        # If inspection fails gracefully pass through original if small
-        return True, None, image_bytes
+        # STRICT FAIL-CLOSED: Any decoding error or malformed byte stream is rejected
+        return False, f"Security rejection: Corrupted or unparseable image stream ({e})", b"", mime_type
 
 
 # =============================================================================
@@ -437,34 +481,150 @@ def escape_prompt_delimiters(payload_text: str) -> str:
     """Escapes XML sandbox delimiters in untrusted raw text to prevent prompt injection breakouts."""
     if not payload_text:
         return ""
-    # Escape closing sandbox tag
-    sanitized = payload_text.replace(
-        "</untrusted_document_payload>",
-        "&lt;/untrusted_document_payload&gt;"
+    # Case-insensitive replacement of opening and closing sandbox tags
+    sanitized = re.sub(
+        r"(?i)</untrusted_document_payload>",
+        "&lt;/untrusted_document_payload&gt;",
+        payload_text
     )
-    # Escape opening tag as well to prevent nested fake containers
-    sanitized = sanitized.replace(
-        "<untrusted_document_payload>",
-        "&lt;untrusted_document_payload&gt;"
+    sanitized = re.sub(
+        r"(?i)<untrusted_document_payload>",
+        "&lt;untrusted_document_payload&gt;",
+        sanitized
     )
     return sanitized
 
 
 # =============================================================================
-# 7. CRYPTOGRAPHIC PLAYBOOK INTEGRITY (HMAC / SHA256)
+# 7. CRYPTOGRAPHIC PLAYBOOK INTEGRITY & PRE-EXECUTION VERIFIER
 # =============================================================================
 
-def compute_playbook_hmac(steps_data: Any, secret_key: Optional[str] = None) -> str:
-    """Generates an HMAC-SHA256 digital stamp for validated playbook steps to detect post-approval disk tampering."""
-    serialized = json.dumps(steps_data, sort_keys=True, separators=(",", ":"))
-    key_bytes = (secret_key or os.getenv("ELONE_INTEGRITY_KEY", "elone_default_secure_vault_key_2026")).encode("utf-8")
+def get_playbook_signing_key() -> str:
+    """Retrieves the mandatory HMAC playbook signing key.
+    
+    Strict Security Policy:
+    - Requires ELONE_PLAYBOOK_SIGNING_KEY in environment.
+    - If missing, checks if ELONE_ALLOW_INSECURE_DEV_KEY == '1'.
+      Only in this explicit test-only mode, returns a development key.
+    - Otherwise raises SecurityConfigurationError.
+    """
+    key = os.getenv("ELONE_PLAYBOOK_SIGNING_KEY")
+    if key and key.strip():
+        return key.strip()
+
+    if os.getenv("ELONE_ALLOW_INSECURE_DEV_KEY") == "1":
+        return "elone_insecure_development_key_for_testing_only_2026"
+
+    raise SecurityConfigurationError(
+        "Security configuration missing: 'ELONE_PLAYBOOK_SIGNING_KEY' environment variable must be set. "
+        "For local testing only, set 'ELONE_ALLOW_INSECURE_DEV_KEY=1'."
+    )
+
+
+def compute_playbook_hmac(frontmatter_data: Any, secret_key: Optional[str] = None) -> str:
+    """Generates an HMAC-SHA256 digital stamp for validated playbook frontmatter (v2 canonical format).
+    
+    Excludes signature metadata ('integrity_hmac_sha256', 'integrity_version') and deterministically
+    serializes all execution/routing frontmatter properties with sort_keys=True.
+    """
+    if secret_key is None:
+        secret_key = get_playbook_signing_key()
+    key_bytes = secret_key.encode("utf-8")
+
+    if isinstance(frontmatter_data, dict):
+        # Canonical v2 format: sign all frontmatter fields except the signature metadata
+        canonical = {
+            k: v for k, v in frontmatter_data.items()
+            if k not in ("integrity_hmac_sha256", "integrity_version")
+        }
+        serialized = json.dumps(canonical, sort_keys=True, separators=(",", ":"))
+    else:
+        # Legacy v1 format (list of steps only)
+        serialized = json.dumps(frontmatter_data, sort_keys=True, separators=(",", ":"))
+
     return hmac.new(key_bytes, serialized.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
-def verify_playbook_hmac(steps_data: Any, expected_hmac: str, secret_key: Optional[str] = None) -> bool:
-    """Verifies that playbook steps match the cryptographic digital stamp embedded in YAML frontmatter."""
-    actual_hmac = compute_playbook_hmac(steps_data, secret_key)
+def verify_playbook_hmac(
+    frontmatter_or_steps: Any,
+    expected_hmac: str,
+    secret_key: Optional[str] = None,
+    integrity_version: str = "v2"
+) -> bool:
+    """Verifies playbook integrity against the expected HMAC-SHA256 stamp.
+    
+    Supports:
+    - Version 'v2': Canonical frontmatter verification.
+    - Version 'v1': Legacy steps-only verification for backward compatibility.
+    """
+    if not expected_hmac:
+        return False
+
+    if secret_key is None:
+        try:
+            secret_key = get_playbook_signing_key()
+        except SecurityConfigurationError:
+            return False
+
+    if isinstance(frontmatter_or_steps, dict) and integrity_version == "v2":
+        actual_hmac = compute_playbook_hmac(frontmatter_or_steps, secret_key)
+    elif isinstance(frontmatter_or_steps, dict) and (integrity_version == "v1" or not integrity_version):
+        steps = frontmatter_or_steps.get("steps", [])
+        actual_hmac = compute_playbook_hmac(steps, secret_key)
+    else:
+        actual_hmac = compute_playbook_hmac(frontmatter_or_steps, secret_key)
+
     return hmac.compare_digest(actual_hmac, expected_hmac)
+
+
+def verify_playbook_before_execution(
+    playbook_path_or_dict: Any,
+    secret_key: Optional[str] = None
+) -> Tuple[bool, str, Dict[str, Any]]:
+    """CRITICAL SECURITY GATE: Verifies playbook authenticity immediately before execution or dispatch.
+    
+    Accepts:
+    - Path to a markdown playbook file on disk (.md)
+    - Already parsed frontmatter dict
+    
+    Returns:
+    - (is_valid: bool, reason_or_error: str, frontmatter: dict)
+    """
+    import yaml
+
+    frontmatter = {}
+    if isinstance(playbook_path_or_dict, str):
+        if not os.path.exists(playbook_path_or_dict):
+            return False, f"Playbook file does not exist: {playbook_path_or_dict}", {}
+        try:
+            with open(playbook_path_or_dict, "r", encoding="utf-8") as f:
+                content = f.read()
+            if content.startswith("---"):
+                parts = content.split("---", 2)
+                if len(parts) >= 3:
+                    frontmatter = yaml.safe_load(parts[1]) or {}
+        except Exception as e:
+            return False, f"Failed to read/parse playbook frontmatter: {e}", {}
+    elif isinstance(playbook_path_or_dict, dict):
+        frontmatter = playbook_path_or_dict
+    else:
+        return False, f"Invalid playbook representation: {type(playbook_path_or_dict)}", {}
+
+    if not frontmatter:
+        return False, "Playbook has missing or empty frontmatter.", {}
+
+    expected_hmac = frontmatter.get("integrity_hmac_sha256")
+    if not expected_hmac:
+        return False, "Security rejection: Playbook is missing required 'integrity_hmac_sha256' digital stamp.", frontmatter
+
+    version = str(frontmatter.get("integrity_version", "v1")).lower()
+    is_valid = verify_playbook_hmac(frontmatter, expected_hmac, secret_key=secret_key, integrity_version=version)
+
+    if not is_valid:
+        sop_id = frontmatter.get("sop_id", "UNKNOWN")
+        return False, f"SECURITY ALARM: Playbook '{sop_id}' failed cryptographic integrity verification! File has been altered on disk.", frontmatter
+
+    return True, "Playbook integrity verified successfully.", frontmatter
 
 
 # =============================================================================
@@ -472,16 +632,41 @@ def verify_playbook_hmac(steps_data: Any, expected_hmac: str, secret_key: Option
 # =============================================================================
 
 def enforce_entity_double_quotes(command: str) -> str:
-    """Enforces that all dynamic entity placeholders in PowerShell commands are wrapped in double quotes.
-    
-    Transforms:
-      taskkill /F /IM {{entities.app}}.exe  -->  taskkill /F /IM "{{entities.app}}.exe"
-      Test-Connection -ComputerName {{entities.hostname}}  -->  Test-Connection -ComputerName "{{entities.hostname}}"
-    """
-    if not command:
-        return ""
+    """Enforces that standalone dynamic entity placeholders in PowerShell commands are double-quoted.
 
-    # Match {{entities.*}} patterns that are NOT preceded and followed by quotes
-    # Regex replaces standalone unquoted entity tokens
-    pattern = r"""(?<!["'])(\{\{entities\.[a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)*\}\}[a-zA-Z0-9_\.-]*)(?!["'])"""
-    return re.sub(pattern, r'"\1"', command)
+    Preserves placeholders already inside enclosing quotes:
+      taskkill /F /IM {{entities.app}}.exe                --> taskkill /F /IM "{{entities.app}}.exe"
+      Test-Connection -ComputerName {{entities.hostname}}  --> Test-Connection -ComputerName "{{entities.hostname}}"
+      Write-Host "Connecting to {{entities.hostname}}..."  --> Write-Host "Connecting to {{entities.hostname}}..."
+    """
+    if not command or "{{entities." not in command:
+        return command
+
+    def is_inside_quotes(text: str, target_pos: int) -> bool:
+        in_double = False
+        in_single = False
+        i = 0
+        while i < target_pos and i < len(text):
+            char = text[i]
+            if char == "\\" and i + 1 < len(text):
+                i += 2
+                continue
+            if char == '"' and not in_single:
+                in_double = not in_double
+            elif char == "'" and not in_double:
+                in_single = not in_single
+            i += 1
+        return in_double or in_single
+
+    pattern = re.compile(r"\{\{entities\.[a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)*\}\}[a-zA-Z0-9_\.-]*")
+    matches = list(pattern.finditer(command))
+    result = command
+    for m in reversed(matches):
+        start, end = m.span()
+        if not is_inside_quotes(command, start):
+            has_leading_quote = start > 0 and command[start - 1] in ('"', "'")
+            has_trailing_quote = end < len(command) and command[end] in ('"', "'")
+            if not (has_leading_quote and has_trailing_quote):
+                result = result[:start] + f'"{m.group(0)}"' + result[end:]
+
+    return result

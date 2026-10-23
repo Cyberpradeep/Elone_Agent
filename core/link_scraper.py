@@ -1,6 +1,7 @@
 import os
 import re
 import hashlib
+import urllib.parse
 import requests
 from typing import Tuple, List
 from markitdown import MarkItDown
@@ -83,14 +84,64 @@ def fetch_and_convert_url(url: str, timeout_seconds: int = 10) -> Tuple[bool, st
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) SOP-Ingestion-Pipeline/1.0"
     }
 
+    MAX_REDIRECT_HOPS = 3
+    current_url = url
+    visited_urls = {current_url}
+    final_resp = None
+
     try:
-        print(f"[LinkScraper] Fetching URL: {url} ...")
-        resp = requests.get(url, headers=headers, timeout=timeout_seconds)
-        resp.raise_for_status()
+        for hop in range(MAX_REDIRECT_HOPS + 1):
+            print(f"[LinkScraper] Fetching URL (hop {hop}): {current_url} ...")
+            resp = requests.get(
+                current_url,
+                headers=headers,
+                timeout=timeout_seconds,
+                allow_redirects=False
+            )
+
+            # Check if this response is an HTTP redirect
+            if resp.status_code in (301, 302, 303, 307, 308):
+                location = resp.headers.get("Location")
+                resp.close()  # Close socket immediately before following next hop
+
+                if not location or not location.strip():
+                    return False, f"Redirect failed: Empty Location header returned from '{current_url}'.", rel_cache_path
+
+                # Resolve relative URLs
+                next_url = urllib.parse.urljoin(current_url, location.strip())
+                parsed_next = urllib.parse.urlparse(next_url)
+
+                if parsed_next.scheme.lower() not in ("http", "https"):
+                    return False, f"Redirect to unsafe scheme '{parsed_next.scheme}' blocked.", rel_cache_path
+
+                if next_url in visited_urls:
+                    return False, f"Circular redirect loop detected for URL '{next_url}'.", rel_cache_path
+
+                if hop >= MAX_REDIRECT_HOPS:
+                    return False, f"Too many redirects (exceeded limit of {MAX_REDIRECT_HOPS} hops).", rel_cache_path
+
+                # Re-validate destination URL against SSRF policy
+                is_safe_hop, hop_err = is_safe_external_url(next_url)
+                if not is_safe_hop:
+                    err_msg = f"SSRF Protection Blocked redirect to '{next_url}': {hop_err}"
+                    print(f"[LinkScraper SSRF Shield] {err_msg}")
+                    return False, err_msg, rel_cache_path
+
+                visited_urls.add(next_url)
+                current_url = next_url
+                continue
+
+            # Non-redirect response reached
+            resp.raise_for_status()
+            final_resp = resp
+            break
+
+        if not final_resp:
+            return False, "Failed to retrieve content: Exhausted maximum redirect hops.", rel_cache_path
 
         md = MarkItDown()
         import io
-        stream = io.BytesIO(resp.content)
+        stream = io.BytesIO(final_resp.content)
         
         # Convert HTML binary stream to Markdown
         try:
@@ -103,7 +154,7 @@ def fetch_and_convert_url(url: str, timeout_seconds: int = 10) -> Tuple[bool, st
         # Fallback to BeautifulSoup clean text extraction if MarkItDown output is empty or HTML
         if not md_text or "<html" in md_text.lower() or "<!doctype" in md_text.lower():
             from bs4 import BeautifulSoup
-            soup = BeautifulSoup(resp.content, "html.parser")
+            soup = BeautifulSoup(final_resp.content, "html.parser")
             for tag in soup(["script", "style", "nav", "footer", "header"]):
                 tag.decompose()
             md_text = soup.get_text(separator="\n\n").strip()
@@ -112,7 +163,7 @@ def fetch_and_convert_url(url: str, timeout_seconds: int = 10) -> Tuple[bool, st
         md_text = md_text[:MAX_SCRAPE_OUTPUT_CHARS]
 
         # Format cache file content
-        cache_entry = f"URL: {url}\nStatus Code: {resp.status_code}\n\n--- SCRAPED MARKDOWN CONTENT START ---\n{md_text}\n--- SCRAPED MARKDOWN CONTENT END ---\n"
+        cache_entry = f"URL: {url}\nFinal URL: {current_url}\nStatus Code: {final_resp.status_code}\n\n--- SCRAPED MARKDOWN CONTENT START ---\n{md_text}\n--- SCRAPED MARKDOWN CONTENT END ---\n"
         
         with open(cache_path, "w", encoding="utf-8") as f:
             f.write(cache_entry)

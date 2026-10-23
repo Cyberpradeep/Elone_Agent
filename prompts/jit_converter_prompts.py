@@ -88,9 +88,14 @@ You MUST follow these 6 reasoning stages in exact numerical order:
    - If the raw SOP describes an alternative command (e.g. deleting the full key if deleting the property fails), populate fallback_command with the exact alternative CLI string.
 
 6. Stage 6 (Human & Noise Omission):
-   - OMIT GUI setup instructions (e.g. "Open Command Prompt", "Press Windows Key", "Run as administrator").
-   - OMIT non-automated human/verbal checks (e.g. "Ask user to test opening the application", "Call manager").
-   - NEVER create empty command steps ("command": null).
+    - OMIT GUI setup instructions (e.g. "Open Command Prompt", "Press Windows Key", "Run as administrator").
+    - OMIT non-automated human/verbal checks (e.g. "Ask user to test opening the application", "Call manager").
+    - NEVER create empty command steps ("command": null).
+
+## AGENT-NATIVE SOURCE COVERAGE CONTRACT
+- This is an executable agent playbook, not a line-by-line human transcript. Keep `steps` restricted to approved commands.
+- Add `source_action_coverage` for every meaningful source action. Use `command_covered` for a represented command and `manual_ui_omitted` for intentionally non-executable UI/human instructions.
+- Set `automation_status` to `fully_automated`, `partially_automated`, or `needs_review`.
 
 ## IN-CONTEXT COMMAND EXEMPLAR:
 Raw SOP: "Software Application Unblock Request. Step 1: Verify connectivity to <ComputerName> via Test-Connection. Step 2: Query registry at HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\<Application>.exe for Debugger property. Step 3: If Debugger is present, delete it with /v Debugger /f (or delete the key with /f as fallback). Step 4: Run gpupdate /force to refresh local policy. Step 5: Verify removal by querying registry again. Step 6: Ask user to test opening the app."
@@ -111,6 +116,15 @@ Output JSON:
     "unexecutable_reason": null,
     "required_entities": ["hostname", "application"],
     "trigger_words": ["ifeo", "unblock", "application", "debugger", "registry"],
+    "automation_status": "fully_automated",
+    "source_action_coverage": [
+        {"source_action": "Verify connectivity to <ComputerName> via Test-Connection", "coverage": "command_covered", "step_number": 1, "reason": "Deterministic Test-Connection command."},
+        {"source_action": "Query registry at HKLM for Debugger property", "coverage": "command_covered", "step_number": 2, "reason": "Query registry for Debugger property."},
+        {"source_action": "If Debugger is present, delete it", "coverage": "command_covered", "step_number": 3, "reason": "Delete registry entry if present."},
+        {"source_action": "Run gpupdate /force", "coverage": "command_covered", "step_number": 4, "reason": "Group Policy refresh command."},
+        {"source_action": "Verify removal by querying registry again", "coverage": "command_covered", "step_number": 5, "reason": "Post-verification query command."},
+        {"source_action": "Ask user to test opening the app", "coverage": "manual_ui_omitted", "reason": "Human verification step omitted from automated execution."}
+    ],
     "steps": [
         {
             "step_number": 1,
@@ -242,7 +256,13 @@ You MUST follow these 6 reasoning stages in exact numerical order:
    - Gated actions (e.g. unlocking only if locked) must declare execute_if: "variables.<var> == <val>".
 
 6. Stage 6 (Zero Hallucination Mandate):
-   - Strictly forbid creating unwritten API calls (e.g. sending unprompted notification emails) unless explicitly specified in the raw SOP text.
+    - Strictly forbid creating unwritten API calls (e.g. sending unprompted notification emails) unless explicitly specified in the raw SOP text.
+
+## AGENT-NATIVE SOURCE COVERAGE CONTRACT
+- Produce executable `steps` ONLY for registered tools. Do not emit human, GUI, verbal, ticket-reading, or empty placeholder steps.
+- Add `source_action_coverage` for every meaningful source action. Use `tool_covered` when a registered tool reaches the same operational outcome, even if the SOP describes UI clicks; use `manual_ui_omitted` for intentionally non-executable human/UI instructions; use `unsupported_required` only when a required action has no registered tool.
+- For operating-system branches, create a conditional tool step when a registered tool exists, using an explicit condition such as `entities.os == 'mac'`.
+- Set `automation_status` to `fully_automated`, `partially_automated`, or `needs_review`. Do not claim `fully_automated` when `unsupported_required` entries exist.
 
 ## IN-CONTEXT TOOL CALL EXEMPLAR:
 Raw SOP: "Account Unlock Procedure. Step 1: Open Auth0 and search for user by user_id. Step 2: If status is Locked, click Unlock Account and generate a temporary password. Step 3: Send temporary password to user's email via Email service."
@@ -261,8 +281,12 @@ Output JSON:
     "confidence_reason": "All actions map directly to registered Auth0 and Email platform API tools with complete schema compliance.",
     "is_executable": true,
     "unexecutable_reason": null,
+    "automation_status": "fully_automated",
     "required_entities": ["user_id", "email"],
     "trigger_words": ["unlock", "account", "auth0", "locked", "password"],
+    "source_action_coverage": [
+        {"source_action": "Search for the user account", "coverage": "tool_covered", "step_number": 1, "tool": "auth0.search_user", "reason": "Registered search capability covers the SOP outcome."}
+    ],
     "steps": [
         {
             "step_number": 1,
@@ -367,10 +391,16 @@ You MUST follow these 8 reasoning stages in exact numerical order:
    - Gate corrective steps using `execute_if`: "variables.<var_name> == true".
 
 7. Stage 7 (Human Noise Omission):
-   - OMIT GUI setup instructions and non-automated phone calls / verbal checks.
+    - OMIT GUI setup instructions and non-automated phone calls / verbal checks from executable steps, but account for them in `source_action_coverage` as `manual_ui_omitted`.
 
 8. Stage 8 (Confidence Scoring):
-   - Score between 0.0 and 1.0.
+    - Score between 0.0 and 1.0.
+
+## AGENT-NATIVE SOURCE COVERAGE CONTRACT
+- The playbook is for agent execution, not a human SOP transcript. Keep `steps` restricted to registered tools and approved commands.
+- Add `source_action_coverage` for each meaningful source action using `tool_covered`, `command_covered`, `manual_ui_omitted`, or `unsupported_required`.
+- A registered tool covers a source UI workflow when it achieves the same operational outcome. Include conditional OS-specific tools with conditions such as `entities.os == 'mac'`.
+- Set `automation_status` to `fully_automated`, `partially_automated`, or `needs_review`.
 
 ## IN-CONTEXT HYBRID EXEMPLAR:
 Raw SOP: "Server Application Crash Diagnostics. Step 1: Run Get-WinEvent in PowerShell to check Application event log for Event ID 1000. Step 2: If crash log exists, create an incident ticket in Solandra ticketing platform with the crash log. Step 3: Send an email to the user with the incident ticket ID."
@@ -389,8 +419,12 @@ Output JSON:
     "confidence_reason": "CLI diagnostics and Solandra/Email API tools fully verified and linked via state variables.",
     "is_executable": true,
     "unexecutable_reason": null,
+    "automation_status": "fully_automated",
     "required_entities": ["hostname", "email"],
     "trigger_words": ["crash", "eventvwr", "eventid", "solandra", "ticket"],
+    "source_action_coverage": [
+        {"source_action": "Query the application event log", "coverage": "command_covered", "step_number": 1, "reason": "The PowerShell command performs the diagnostic outcome."}
+    ],
     "steps": [
         {
             "step_number": 1,
@@ -488,8 +522,19 @@ DYNAMIC TOOL INSPECTION RULES:
     "confidence_reason": "All actions mapped directly to registered platform tools or PowerShell CLI.",
     "is_executable": true,
     "unexecutable_reason": null,
+    "automation_status": "fully_automated",
     "required_entities": ["user_id", "email", "hostname"],
     "trigger_words": ["unlock", "account", "login", "platform_name"],
+    "source_action_coverage": [
+        {{
+            "source_action": "Source SOP action",
+            "coverage": "tool_covered | command_covered | manual_ui_omitted | unsupported_required",
+            "step_number": 1,
+            "tool": "platform.function (required for tool_covered)",
+            "condition": null,
+            "reason": "How the agent capability covers or intentionally omits this source action"
+        }}
+    ],
     "steps": [
         {{
             "step_number": 1,

@@ -31,6 +31,110 @@ MALICIOUS_COMMAND_PATTERNS = [
 ]
 
 
+def _validate_source_action_coverage(execution_plan: Dict[str, Any]) -> List[str]:
+    """Validate links between source-action accounting and executable steps.
+
+    The playbook remains tool/command-only.  Coverage records explain why source
+    UI or human instructions are omitted, or which agent capability replaces
+    them.  This is intentionally deterministic: an LLM must not reject a valid
+    tool merely because the SOP described the same outcome as a mouse click.
+    """
+    coverage_items = execution_plan.get("source_action_coverage")
+    if coverage_items is None:
+        # Keep legacy drafts readable while new converter prompts emit coverage.
+        return []
+    if not isinstance(coverage_items, list):
+        return ["Layer 1 Coverage Error: source_action_coverage must be a list."]
+
+    steps_by_number = {
+        step.get("step_number"): step
+        for step in (execution_plan.get("steps") or [])
+        if isinstance(step, dict) and isinstance(step.get("step_number"), int)
+    }
+    errors: List[str] = []
+
+    for idx, item in enumerate(coverage_items, start=1):
+        if not isinstance(item, dict):
+            errors.append(f"Layer 1 Coverage Error: Coverage item {idx} must be an object.")
+            continue
+
+        source_action = str(item.get("source_action") or "").strip()
+        coverage = item.get("coverage")
+        if not source_action:
+            errors.append(f"Layer 1 Coverage Error: Coverage item {idx} is missing source_action.")
+            continue
+
+        if coverage in {"tool_covered", "command_covered"}:
+            step_number = item.get("step_number")
+            step = steps_by_number.get(step_number)
+            if not step:
+                errors.append(
+                    f"Layer 1 Coverage Error: '{source_action}' claims {coverage} but references missing step {step_number}."
+                )
+                continue
+
+            if coverage == "tool_covered":
+                expected_tool = str(item.get("tool") or "").strip()
+                actual_tool = f"{step.get('platform')}.{step.get('function_name')}"
+                if step.get("step_type") != "tool_call" or not expected_tool:
+                    errors.append(
+                        f"Layer 1 Coverage Error: '{source_action}' must reference a tool_call and canonical tool name."
+                    )
+                elif actual_tool != expected_tool:
+                    errors.append(
+                        f"Layer 1 Coverage Error: '{source_action}' maps to '{expected_tool}' but step {step_number} uses '{actual_tool}'."
+                    )
+            elif step.get("step_type") != "command" or not step.get("command"):
+                errors.append(
+                    f"Layer 1 Coverage Error: '{source_action}' must reference a non-empty command step."
+                )
+
+        elif coverage in {"manual_ui_omitted", "unsupported_required"}:
+            if item.get("step_number") is not None:
+                errors.append(
+                    f"Layer 1 Coverage Error: '{source_action}' is {coverage} and must not point to an executable step."
+                )
+            if not str(item.get("reason") or "").strip():
+                errors.append(
+                    f"Layer 1 Coverage Error: '{source_action}' is {coverage} but has no explanation."
+                )
+        else:
+            errors.append(
+                f"Layer 1 Coverage Error: '{source_action}' has unsupported coverage value '{coverage}'."
+            )
+
+    return errors
+
+
+def _coverage_accounts_for_validator_claim(claim: str, coverage_items: List[Dict[str, Any]]) -> bool:
+    """Return True when a Layer 2 claim is already accounted for in the ledger.
+
+    This deliberately uses conservative word-overlap matching in addition to an
+    exact normalized match.  The validator and converter often paraphrase the
+    same source instruction (for example, "collect local IP" versus "retrieve
+    office PC IP"), so literal equality would reintroduce the GUI false positive
+    this ledger exists to prevent.
+    """
+    claim_normalized = re.sub(r"[^a-z0-9]+", " ", str(claim).lower()).strip()
+    if not claim_normalized:
+        return False
+    ignored_words = {"the", "a", "an", "to", "for", "from", "and", "or", "of", "in", "on", "with", "your"}
+    claim_tokens = {token for token in claim_normalized.split() if token not in ignored_words}
+
+    for item in coverage_items:
+        source_normalized = re.sub(r"[^a-z0-9]+", " ", str(item.get("source_action") or "").lower()).strip()
+        if not source_normalized:
+            continue
+        if claim_normalized == source_normalized or claim_normalized in source_normalized or source_normalized in claim_normalized:
+            return True
+        source_tokens = {token for token in source_normalized.split() if token not in ignored_words}
+        if claim_tokens and source_tokens:
+            overlap = len(claim_tokens & source_tokens) / min(len(claim_tokens), len(source_tokens))
+            if overlap >= 0.75:
+                return True
+    return False
+
+
 def validate_plan_faithfulness_and_linkage(
     raw_sop_text: str,
     execution_plan: Dict[str, Any]
@@ -44,6 +148,8 @@ def validate_plan_faithfulness_and_linkage(
     """
     errors = []
     steps = execution_plan.get("steps", [])
+
+    errors.extend(_validate_source_action_coverage(execution_plan))
 
     # =========================================================================
     # LAYER 1: FAST DETERMINISTIC PYTHON SYNTAX, LINKAGE & SECURITY CHECK (< 1ms)
@@ -206,6 +312,10 @@ def validate_plan_faithfulness_and_linkage(
             JIT_VALIDATOR_COT_SYSTEM_PROMPT
             .replace("{raw_sop_text}", raw_sop_text)
             .replace("{converted_okf_steps}", json.dumps(steps, indent=2))
+            .replace(
+                "{source_action_coverage}",
+                json.dumps(execution_plan.get("source_action_coverage") or [], indent=2),
+            )
         )
         try:
             # pyrefly: ignore [missing-import]
@@ -214,8 +324,11 @@ def validate_plan_faithfulness_and_linkage(
         except Exception as q_err:
             if "Quota" in type(q_err).__name__ or "DailyQuotaExceededError" in str(type(q_err)):
                 raise q_err
-
-        res = llm.invoke([{"role": "system", "content": prompt}])
+        messages = [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": "Please perform the faithfulness and security audit on the provided SOP and execution plan, and output the required JSON evaluation according to the system instructions."}
+        ]
+        res = llm.invoke(messages)
 
         # Record token usage in gemini_monitor
         in_tok = 0
@@ -283,9 +396,33 @@ def validate_plan_faithfulness_and_linkage(
                 return False, errors
 
             if not inspection_result.is_faithful:
+                coverage_items = [
+                    item for item in (execution_plan.get("source_action_coverage") or [])
+                    if isinstance(item, dict)
+                ]
+                unaccounted_drops = [
+                    claim for claim in inspection_result.dropped_commands
+                    if not _coverage_accounts_for_validator_claim(claim, coverage_items)
+                ]
+
+                # A semantic reviewer occasionally contradicts its own prompt by
+                # flagging source UI wording even though an approved capability is
+                # explicitly linked in the coverage ledger.  The deterministic
+                # linkage checks above are authoritative in that situation.
+                if (
+                    coverage_items
+                    and not unaccounted_drops
+                    and not inspection_result.hallucinated_commands
+                ):
+                    print(
+                        "[PlanValidator Layer 2] Ignoring inconsistent faithfulness verdict: "
+                        "all reported drops are accounted for by source_action_coverage."
+                    )
+                    return True, errors
+
                 reasons = []
-                if inspection_result.dropped_commands:
-                    reasons.append(f"Dropped commands/actions: {inspection_result.dropped_commands}")
+                if unaccounted_drops:
+                    reasons.append(f"Dropped commands/actions: {unaccounted_drops}")
                 if inspection_result.hallucinated_commands:
                     reasons.append(f"Fabricated/hallucinated commands: {inspection_result.hallucinated_commands}")
                 if inspection_result.validation_feedback and inspection_result.validation_feedback != "PASSED FAITHFULNESS INSPECTION":
@@ -301,6 +438,11 @@ def validate_plan_faithfulness_and_linkage(
                 return False, errors
 
     except Exception as e:
-        print(f"[PlanValidator Layer 2 Warning] LLM Faithfulness check encountered an exception ({e}). Layer 1 passed.")
+        err_msg = (
+            f"Layer 2 Security Error: LLM Faithfulness & Injection Audit failed or unavailable ({e}). "
+            f"Ingestion blocked to preserve fail-closed security."
+        )
+        print(f"[PlanValidator Layer 2 Error] {err_msg}")
+        return False, [err_msg]
 
     return True, []

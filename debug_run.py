@@ -86,6 +86,10 @@ def main():
     sys.stdout = DualLogger(log_filepath, sys.__stdout__)
     sys.stderr = DualLogger(log_filepath, sys.__stderr__)
 
+    # Ensure signing key fallback is enabled for local debug runner if not explicitly configured
+    if not os.getenv("ELONE_PLAYBOOK_SIGNING_KEY"):
+        os.environ["ELONE_ALLOW_INSECURE_DEV_KEY"] = "1"
+
     print("=" * 70)
     print("  SOP INGESTION FULL INTERNAL REASONING DEBUG RUNNER")
     print("=" * 70)

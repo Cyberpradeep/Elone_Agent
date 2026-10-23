@@ -74,9 +74,13 @@ def find_platform_schema(platform_name: str) -> Optional[Dict[str, Any]]:
             if raw_key == clean_alias or norm_key == _normalize_name(clean_alias):
                 return schema
 
-    # 3. Substring / partial match on canonical keys
+    # 3. Word boundary or substantial substring match (min 4 chars to prevent false positives)
     for plat_key, schema in DETAILED_TOOL_SCHEMAS.items():
-        if plat_key in raw_key or raw_key in plat_key:
+        if re.search(r'\b' + re.escape(plat_key) + r'\b', raw_key):
+            return schema
+        if plat_key in raw_key:
+            return schema
+        if len(raw_key) >= 4 and raw_key in plat_key:
             return schema
 
     return None

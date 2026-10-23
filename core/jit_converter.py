@@ -581,7 +581,15 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
         steps = data.get("steps", [])
 
         # Scenario 3 & Scenario 4: Layer 1 Rule & Layer 2 Faithfulness Validation
-        is_valid, validation_errors = validate_plan_faithfulness_and_linkage(raw_text, {"steps": steps})
+        is_valid, validation_errors = validate_plan_faithfulness_and_linkage(
+            raw_text,
+            {
+                "steps": steps,
+                "required_entities": data.get("required_entities") or [],
+                "source_action_coverage": data.get("source_action_coverage") or [],
+                "automation_status": data.get("automation_status", "fully_automated"),
+            },
+        )
         last_data = data
         last_is_valid = is_valid
         last_validation_errors = validation_errors or []
@@ -601,8 +609,9 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
         print(f"[JIT Converter Auto-Retry] Conversion succeeded on Attempt {attempt}/{max_retries}!")
         break
 
-    if not last_data:
-        raise ValueError(f"Ingestion blocked: LLM failed all {max_retries} retry attempts with errors: {feedback_history}")
+    if not last_data or not last_is_valid:
+        err_summary = "; ".join(str(e) for e in last_validation_errors) if last_validation_errors else "Validation failed"
+        raise ValueError(f"Ingestion blocked: Playbook failed validation after {max_retries} retry attempts: {err_summary}")
 
     data = last_data
     is_valid = last_is_valid
@@ -634,6 +643,10 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
     confidence_level = str(data.get("confidence_level") or "High")
     confidence_reason = data.get("confidence_reason") or "Conversion completed with verified tool mappings and procedural fidelity."
     steps = data.get("steps", [])
+    source_action_coverage = data.get("source_action_coverage") or []
+    automation_status = data.get("automation_status") or "fully_automated"
+    if any(item.get("coverage") == "unsupported_required" for item in source_action_coverage if isinstance(item, dict)):
+        automation_status = "needs_review"
 
     print(f"\n[JIT Converter Agent] Final Output Confidence: {confidence_score:.2f} ({confidence_level}) | Reason: {confidence_reason}")
 
@@ -671,9 +684,11 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
         "confidence_reason": confidence_reason,
         "is_executable": True,
         "unexecutable_reason": None,
+        "automation_status": automation_status,
         "required_entities": required_entities,
         "trigger_words": trigger_words,
         "steps": steps,
+        "source_action_coverage": source_action_coverage,
     }
 
     return {
@@ -729,8 +744,9 @@ def write_okf_playbook(draft: Dict[str, Any], raw_filename: str = "(reviewed dra
     for s in clean_frontmatter.get("steps", []):
         s.pop("step_reasoning", None)
 
-    # Cryptographic Playbook Integrity Stamp (HMAC-SHA256)
-    clean_frontmatter["integrity_hmac_sha256"] = compute_playbook_hmac(clean_frontmatter.get("steps", []))
+    # Cryptographic Playbook Integrity Stamp (HMAC-SHA256 v2 Canonical Frontmatter)
+    clean_frontmatter["integrity_version"] = "v2"
+    clean_frontmatter["integrity_hmac_sha256"] = compute_playbook_hmac(clean_frontmatter)
 
     yaml_header = yaml.dump(clean_frontmatter, sort_keys=False)
     description = frontmatter_dict.get("description", "")

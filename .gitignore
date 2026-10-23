@@ -1,42 +1,97 @@
+# =============================================================================
+# Elone Agent — Git Ignore Rules
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Environment & Secrets (Never commit secrets or active API keys)
+# -----------------------------------------------------------------------------
 .env
-.venv/
+.env.local
+.env.*.local
+*.env
+!.env.example
+
+# -----------------------------------------------------------------------------
+# Virtual Environments
+# -----------------------------------------------------------------------------
 venv/
+.venv/
+env/
+ENV/
+*.venv/
+env.bak/
+venv.bak/
+
+# -----------------------------------------------------------------------------
+# Python Bytecode, Caches & Testing
+# -----------------------------------------------------------------------------
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
 *.pyo
 *.pyd
-*.egg-info/
+*.so
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# -----------------------------------------------------------------------------
+# Packaging & Distribution
+# -----------------------------------------------------------------------------
 dist/
 build/
-.pytest_cache/
-*.zip
-*.log
-knowledge_base/_uploads/_processed_manifest.json
+*.egg-info/
+*.egg
+.eggs/
+
+# -----------------------------------------------------------------------------
+# Operating System Artifacts
+# -----------------------------------------------------------------------------
 .DS_Store
+.DS_Store?
+._*
 Thumbs.db
+ehthumbs.db
+[Dd]esktop.ini
 
-# Test artifacts, test code files & runner scripts
-test/
-tests/
-test_*.py
-demo_security_test.py
-debug_run.py
-run.py
+# -----------------------------------------------------------------------------
+# IDEs & Editor Files
+# -----------------------------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
 
-# Documentation, documents & doc generator scripts
-docs/
-doc/
-documents/
-*.docx
-*.doc
+# -----------------------------------------------------------------------------
+# Microsoft Office Lock & Temporary Files (Word/Excel/PowerPoint)
+# -----------------------------------------------------------------------------
+~$*
 ~$*.docx
-*.html
-generate_*.py
-build_*.py
+~$*.xlsx
+~$*.pptx
+*.tmp
+*.temp
 
-# Knowledge Base Generated SOPs, Reflection Patterns & Runtime Logs
-knowledge_base/sops/
-knowledge_base/patterns/
-knowledge_base/logs/
+# -----------------------------------------------------------------------------
+# Archives & Temporary Working Directories
+# -----------------------------------------------------------------------------
+*.zip
+*.tar.gz
+scratch/
+tmp/
+temp/
+
+# -----------------------------------------------------------------------------
+# Pipeline Runtime Logs, Telemetry & Manifests
+# -----------------------------------------------------------------------------
+*.log
 logs/
-
+knowledge_base/logs/
+knowledge_base/patterns/logs/
+knowledge_base/_uploads/_processed_manifest.json
+gemini_monitor/daily_usage.json
+gemini_monitor/*.tmp

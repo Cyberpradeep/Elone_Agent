@@ -433,21 +433,42 @@ def get_required_inputs(catalog: list, tool_name: str, function_name: str):
 
 
 def get_formatted_tools_summary() -> str:
-    """Returns a human-readable summary of all dummy tools for the JIT Converter LLM prompt."""
+    """Returns a comprehensive, human-readable summary of all registered tool platforms from tools.platforms."""
     import json
-    summary_lines = []
-    for tool in TOOL_CATALOG:
-        tool_name = tool.get("tool_name", "unknown")
-        platform = tool.get("platform", "generic")
-        desc = tool.get("description", "No description provided.")
-        summary_lines.append(f"- Tool Name: '{tool_name}' (Platform: '{platform}')")
-        summary_lines.append(f"  Description: {desc}")
-        summary_lines.append("  Available Functions:")
-        for fn in tool.get("functions", []):
-            req_inputs = ", ".join(fn.get("required_inputs", []))
-            fn_desc = fn.get("description", "")
-            summary_lines.append(f"    * {fn['function_name']}({req_inputs}): {fn_desc}")
-            resp_schema = fn.get("response_schema") or fn.get("returns")
-            if resp_schema:
-                summary_lines.append(f"      → Response Schema: {json.dumps(resp_schema)}")
-    return "\n".join(summary_lines)
+    try:
+        from tools.platforms import DETAILED_TOOL_SCHEMAS
+        summary_lines = []
+        for plat_key, schema in sorted(DETAILED_TOOL_SCHEMAS.items()):
+            platform = schema.get("platform", plat_key)
+            desc = schema.get("description", "No description provided.")
+            aliases = schema.get("aliases", [])
+            alias_str = f" (Aliases: {', '.join(aliases)})" if aliases else ""
+            summary_lines.append(f"- Platform: '{platform}'{alias_str}")
+            summary_lines.append(f"  Description: {desc}")
+            summary_lines.append("  Available Functions:")
+            for fn in schema.get("functions", []):
+                req_inputs = ", ".join(fn.get("required_inputs", []))
+                fn_desc = fn.get("description", "")
+                fn_name = fn.get("function_name", "")
+                summary_lines.append(f"    * {fn_name}({req_inputs}): {fn_desc}")
+                resp_schema = fn.get("response_schema")
+                if resp_schema:
+                    summary_lines.append(f"      → Response Schema: {json.dumps(resp_schema)}")
+        return "\n".join(summary_lines)
+    except Exception:
+        summary_lines = []
+        for tool in TOOL_CATALOG:
+            tool_name = tool.get("tool_name", "unknown")
+            platform = tool.get("platform", "generic")
+            desc = tool.get("description", "No description provided.")
+            summary_lines.append(f"- Tool Name: '{tool_name}' (Platform: '{platform}')")
+            summary_lines.append(f"  Description: {desc}")
+            summary_lines.append("  Available Functions:")
+            for fn in tool.get("functions", []):
+                req_inputs = ", ".join(fn.get("required_inputs", []))
+                fn_desc = fn.get("description", "")
+                summary_lines.append(f"    * {fn['function_name']}({req_inputs}): {fn_desc}")
+                resp_schema = fn.get("response_schema") or fn.get("returns")
+                if resp_schema:
+                    summary_lines.append(f"      → Response Schema: {json.dumps(resp_schema)}")
+        return "\n".join(summary_lines)

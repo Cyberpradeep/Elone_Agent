@@ -34,6 +34,8 @@ from core.plan_validator import validate_plan_faithfulness_and_linkage
 # pyrefly: ignore [missing-import]
 from core.input_validator import validate_sop_file
 # pyrefly: ignore [missing-import]
+from core.security import verify_playbook_before_execution
+# pyrefly: ignore [missing-import]
 from config.tool_catalog import get_formatted_tools_summary
 # pyrefly: ignore [missing-import]
 from scheduler import (
@@ -194,6 +196,10 @@ def read_playbook(sop_id: str) -> str:
         for file in files:
             if file.lower() == clean_id.lower() or os.path.splitext(file)[0].lower() == os.path.splitext(clean_id)[0].lower():
                 full_path = os.path.join(root, file)
+                # Verify cryptographic integrity before returning content
+                is_valid, sec_reason, _ = verify_playbook_before_execution(full_path)
+                if not is_valid:
+                    return f"[SECURITY ALERT]: Playbook '{sop_id}' failed cryptographic integrity check: {sec_reason}"
                 with open(full_path, "r", encoding="utf-8") as f:
                     return f.read()
 
@@ -262,7 +268,12 @@ def _run_cli_test_harness(test_file: Optional[str] = None):
     print(f"  Result: {sched_status}")
     print("  [PASS] get_ingestion_scheduler_status executed cleanly.")
 
-    target_sop = test_file or "sample_account_unlock.txt"
+    default_candidates = [
+        f for f in os.listdir(UPLOADS_DIR)
+        if not f.startswith(("_", ".")) and f.endswith((".docx", ".pdf", ".txt"))
+    ] if os.path.exists(UPLOADS_DIR) else []
+    default_file = default_candidates[0] if default_candidates else "sample_account_unlock.txt"
+    target_sop = test_file or default_file
     print(f"\n[MCP Test 5/5] Testing tool: 'ingest_sop' with file '{target_sop}'...")
     ingest_res = ingest_sop(target_sop)
     print("\n" + "-" * 55)
