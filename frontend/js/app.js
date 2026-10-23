@@ -876,6 +876,7 @@
     const tid = (resp && (resp.thread_id || resp.threadId)) || activeThreadId;
     if (tid && rejectedThreads.has(tid)) return false;
     if (tid && approvedThreads.has(tid)) return true;
+    if (resp.is_human_approved === true) return true;
     if ((resp.current_step_index || 0) > 0) return true;
     if ((resp.last_executed_step || 0) > 0) return true;
     if (Object.keys(resp.execution_results || {}).length > 0) return true;

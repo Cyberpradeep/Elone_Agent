@@ -51,9 +51,11 @@ class Auth0Provider(BaseProvider):
             url = f"https://{self.domain}/dbconnections/change_password"
             payload = {"client_id": client_id or self.client_id, "email": email, "connection": "Username-Password-Authentication"}
             resp = requests.post(url, json=payload, timeout=5)
-            return {"status": "success", "email_sent": True, "message": resp.text}
+            if resp.status_code in (200, 201, 204):
+                return {"status": "success", "email_sent": True, "message": resp.text}
+            return {"status": "failed", "email_sent": False, "error": resp.text}
         except Exception as e:
-            return {"status": "success", "email_sent": True, "message": f"Auth0 password reset email triggered for {email}"}
+            return {"status": "error", "email_sent": False, "error": str(e)}
 
     def unlock_user_account(self, user_id: str) -> Dict[str, Any]:
         """Deletes user blocks in Auth0."""
@@ -64,5 +66,5 @@ class Auth0Provider(BaseProvider):
             resp = requests.delete(url, headers=headers, timeout=5)
             return {"status": "unlocked" if resp.status_code == 204 else "failed", "user_id": user_id}
         except Exception as e:
-            return {"status": "unlocked", "user_id": user_id, "message": f"Fallback Auth0 account unlock for {user_id}"}
+            return {"status": "error", "user_id": user_id, "error": str(e)}
 

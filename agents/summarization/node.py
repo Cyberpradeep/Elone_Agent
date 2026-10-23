@@ -188,7 +188,7 @@ def summarization_agent(state: SupportState) -> Command[Literal["__end__"]]:
     try:
         # Tier 1: Try structured output directly
         llm_structured = get_llm("summarization", temperature=0).with_structured_output(SummarizationOutput)
-        res = llm_structured.invoke([{"role": "system", "content": prompt}])
+        res = llm_structured.invoke([{"role": "user", "content": prompt}])
         if res is None:
             raise ValueError("Structured LLM invocation returned None")
     except Exception as e1:
@@ -196,9 +196,15 @@ def summarization_agent(state: SupportState) -> Command[Literal["__end__"]]:
         try:
             # Tier 2: Try standard LLM invoke and parse JSON block
             llm_raw = get_llm("summarization", temperature=0)
-            raw_msg = llm_raw.invoke([{"role": "system", "content": prompt + "\n\nIMPORTANT: Return ONLY a valid JSON object matching the schema."}])
+            raw_msg = llm_raw.invoke([{"role": "user", "content": prompt + "\n\nIMPORTANT: Return ONLY a valid JSON object matching the schema."}])
             raw_text = raw_msg.content if hasattr(raw_msg, "content") else str(raw_msg)
-            json_match = re.search(r"\{.*\}", raw_text, re.DOTALL)
+            clean_text = raw_text
+            if "```json" in clean_text:
+                clean_text = clean_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in clean_text:
+                clean_text = clean_text.split("```")[1].split("```")[0].strip()
+            
+            json_match = re.search(r"\{[\s\S]*\}", clean_text)
             if json_match:
                 parsed_json = json.loads(json_match.group(0))
                 res = SummarizationOutput(**parsed_json)

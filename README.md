@@ -4,7 +4,6 @@
   <img src="https://img.shields.io/badge/Python-3.11%2B-blue?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/Framework-LangGraph-darkgreen?style=for-the-badge&logo=langchain&logoColor=white" alt="LangGraph">
   <img src="https://img.shields.io/badge/API-FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI">
-  <img src="https://img.shields.io/badge/VectorDB-Qdrant-red?style=for-the-badge&logo=qdrant&logoColor=white" alt="Qdrant">
   <img src="https://img.shields.io/badge/Observability-Arize%20Phoenix-orange?style=for-the-badge" alt="Arize Phoenix">
   <img src="https://img.shields.io/badge/Architecture-Multi--Agent-purple?style=for-the-badge" alt="Multi-Agent">
 </p>
@@ -15,7 +14,7 @@
 
 **EloneAgent** is an enterprise-grade autonomous L1 Tier support agent framework engineered to ingest customer support tickets, disambiguate vagueness through interactive UI prompts, fetch and parse Standard Operating Procedures (SOPs), generate verified execution plans, and execute multi-step remediation playbooks across local and remote environments.
 
-Built on top of **LangGraph**, **FastAPI**, and **Qdrant**, EloneAgent features a multi-agent orchestration architecture with dynamic LLM provider fallback routing, deterministic plan validation, human-in-the-loop (HITL) approval gates, per-step variable extraction, and structured L2/L3 escalation paths.
+Built on top of **LangGraph** and **FastAPI**, EloneAgent features a multi-agent orchestration architecture with dynamic LLM provider fallback routing, deterministic plan validation, human-in-the-loop (HITL) approval gates, per-step variable extraction, and structured L2/L3 escalation paths.
 
 ---
 
@@ -71,7 +70,7 @@ The table below outlines the specialized agents comprising the system graph and 
 | Agent Component | Module File Path | Primary Technical Responsibility |
 | :--- | :--- | :--- |
 | **Intake Agent** | [`agents/intake/node.py`](agents/intake/node.py) | Classifies intent, extracts entities (IPs, emails, IDs), computes confidence metrics, and builds dynamic clarification UIs. |
-| **Planner Agent** | [`agents/planner/node.py`](agents/planner/node.py) | Queries vector DB (Qdrant) for relevant SOPs, invokes JIT converter for unstructured documents, resolves variable bindings. |
+| **Planner Agent** | [`agents/planner/node.py`](agents/planner/node.py) | Discovers relevant SOPs from knowledge base / OKF store, invokes JIT converter for unstructured documents, resolves variable bindings. |
 | **JIT Converter** | [`agents/jit_converter/node.py`](agents/jit_converter/node.py) | Converts raw Markdown/PDF SOPs into structured Operational Knowledge Format (OKF) playbooks on the fly. |
 | **Plan Validator** | [`agents/plan_validator/validator.py`](agents/plan_validator/validator.py) | Performs semantic faithfulness and parameter linkage verification to prevent command injection and broken dependency chains. |
 | **Orchestration Agent** | [`agents/orchestration/node.py`](agents/orchestration/node.py) | Manages graph state transitions, tracks retry quotas, and handles workflow branch decisions. |
@@ -176,7 +175,6 @@ l1_support_agent_code_only/
 
 ### Prerequisites
 - Python 3.11 or higher
-- Qdrant Vector Database instance (Cloud or local container)
 - Valid API keys for configured providers (Mistral, Google Gemini, Groq, OpenAI, or Ollama)
 
 ### 1. Clone Repository and Environment Setup
@@ -210,11 +208,6 @@ GROQ_API_KEY=your_groq_api_key
 
 # Local LLM Integration (Optional)
 OLLAMA_BASE_URL=http://localhost:11434
-
-# Vector DB (Qdrant) Configuration
-QDRANT_URL=https://your-qdrant-instance.qdrant.tech
-QDRANT_API_KEY=your_qdrant_api_key
-QDRANT_COLLECTION=sop_plans
 
 # Embedding Model Configuration
 HF_MODEL_NAME=sentence-transformers/all-MiniLM-L6-v2

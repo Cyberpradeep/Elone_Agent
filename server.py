@@ -12,9 +12,13 @@ import time
 import uuid
 from typing import Any, Optional
 
+# pyrefly: ignore [missing-import]
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+# pyrefly: ignore [missing-import]
 from fastapi.responses import StreamingResponse
+# pyrefly: ignore [missing-import]
 from fastapi.staticfiles import StaticFiles
+# pyrefly: ignore [missing-import]
 from pydantic import BaseModel
 
 # pyrefly: ignore [missing-import]
@@ -33,6 +37,7 @@ from okf_engine import (
     KB_DIR,
 )
 from shared.ticket_logger import save_ticket_log, load_ticket_log, list_saved_tickets
+from shared.logger import logger
 from ingestion_pipe.scheduler import start_sop_ingestion_scheduler, get_scheduler_status
 
 
@@ -85,14 +90,15 @@ def _serialize(thread_id: str, snap) -> dict:
     if values:
         try:
             save_ticket_log(thread_id, values)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"[Ticket Logger] Failed to save log for thread {thread_id}: {e}")
 
     return {
         "thread_id": thread_id,
         "done": len(next_nodes) == 0 and not awaiting_clarification,
         "awaiting_approval": awaiting_approval,
         "awaiting_clarification": awaiting_clarification,
+        "is_human_approved": values.get("is_human_approved", False),
         "workflow_status": values.get("workflow_status"),
         "intent": values.get("intent"),
         "category": values.get("category"),
@@ -197,8 +203,19 @@ def _stream_worker(run: Run, kickoff: Any):
             snap = graph.get_state(config)
             state = _serialize(run.thread_id, snap)
 
-            if state["awaiting_approval"] and (snap.values.get("current_step_index") or 0) > 0:
-                # Between-step interrupt -- the human already approved this plan.
+            # Auto-continue mid-execution interrupts (between steps or automatic step retries)
+            # when the human operator has already authorized the plan.
+            has_prior_approval = (
+                snap.values.get("is_human_approved", False) is True
+                or (snap.values.get("current_step_index") or 0) > 0
+                or (snap.values.get("execution_retry_attempts") or 0) > 0
+                or (snap.values.get("retry_count") or 0) > 0
+                or len(snap.values.get("execution_results") or {}) > 0
+                or any("[HITL] User approved" in str(a) or "User approved the execution plan" in str(a) for a in (snap.values.get("audit_log") or []))
+            )
+
+            if state["awaiting_approval"] and has_prior_approval:
+                # Between-step or step retry interrupt -- the human already approved this plan.
                 payload = None
                 continue
 
@@ -211,8 +228,18 @@ def _stream_worker(run: Run, kickoff: Any):
         run.events.put((END_SENTINEL, None))
 
 
+def _prune_old_runs():
+    """Prunes finished runs when RUNS registry exceeds capacity to prevent memory leaks."""
+    if len(RUNS) > 200:
+        finished_ids = [tid for tid, r in RUNS.items() if r.finished]
+        for tid in finished_ids[:50]:
+            RUNS.pop(tid, None)
+            STARTED_AT.pop(tid, None)
+
+
 def _start_run(thread_id: str, kickoff: Any) -> Run:
     with RUNS_LOCK:
+        _prune_old_runs()
         existing = RUNS.get(thread_id)
         if existing and not existing.finished:
             raise HTTPException(status_code=409, detail="A run is already in flight for this ticket.")
@@ -397,7 +424,9 @@ def approve_ticket(thread_id: str, body: Optional[ApproveBody] = None):
     # interrupt_before pause that discards the pending execution_agent task
     # (`next` collapses to ()), so the workflow ended having run zero steps.
     audit = ["[HITL] User approved the execution plan. Resuming execution..."]
-    update: dict[str, Any] = {}
+    update: dict[str, Any] = {
+        "is_human_approved": True,
+    }
 
     if body and body.edited_steps:
         edited_plan, notes = _apply_step_edits(snap.values.get("execution_plan") or {}, body.edited_steps)

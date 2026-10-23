@@ -9,8 +9,12 @@ from .schemas import TriageResult
 from .prompts import get_system_prompt
 
 
-def run_triage(ticket_raw: str, category: str | None = None, entities: dict | None = None) -> TriageResult:
-    """Invokes LLM to perform triage and returns structured TriageResult."""
+def run_triage(
+    ticket_raw: str,
+    category: str | None = None,
+    entities: dict | None = None
+) -> tuple[TriageResult | None, str | None]:
+    """Invokes LLM to perform triage and returns (TriageResult, api_error_summary)."""
     llm = get_llm("triage", temperature=0).with_structured_output(TriageResult)
 
     catalog_map = parse_sops_catalog_index()
@@ -22,6 +26,7 @@ def run_triage(ticket_raw: str, category: str | None = None, entities: dict | No
     if entities:
         user_content += f"\n\nAlready Extracted Entities:\n{entities}"
 
+    last_error = None
     try:
         result = llm.invoke(
             [
@@ -29,32 +34,35 @@ def run_triage(ticket_raw: str, category: str | None = None, entities: dict | No
                 {"role": "user", "content": user_content},
             ]
         )
-    except (ValidationError, Exception):
-        result = None
+        if result:
+            return result, None
+    except Exception as e:
+        last_error = str(e)
+        print(f"[Warning] Intake structured LLM failed: {e}")
 
-    if not result:
-        try:
-            fallback_llm = get_llm("triage", temperature=0)
-            json_prompt = dynamic_prompt + "\n\nOutput raw valid JSON only matching the schema."
-            resp = fallback_llm.invoke(
-                [
-                    {"role": "system", "content": json_prompt},
-                    {"role": "user", "content": user_content},
-                ]
-            )
-            content = resp.content if hasattr(resp, "content") else str(resp)
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0].strip()
-            data = json.loads(content)
-            result = TriageResult(**data)
-        except Exception:
-            result = TriageResult(
-                intent="general_inquiry",
-                category=category or "other",
-                priority="low",
-                detailed_description=ticket_raw,
-                ticket_details_confidence=0.4,
-                sop_match_confidence=0.2,
-            )
+    try:
+        fallback_llm = get_llm("triage", temperature=0)
+        json_prompt = dynamic_prompt + "\n\nOutput raw valid JSON only matching the schema."
+        resp = fallback_llm.invoke(
+            [
+                {"role": "system", "content": json_prompt},
+                {"role": "user", "content": user_content},
+            ]
+        )
+        content = resp.content if hasattr(resp, "content") else str(resp)
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0].strip()
+        data = json.loads(content)
+        return TriageResult(**data), None
+    except Exception as e:
+        last_error = str(e)
+        print(f"[Warning] Intake fallback JSON LLM failed: {e}")
 
-    return result
+    err_lower = (last_error or "").lower()
+    is_quota = any(term in err_lower for term in ["429", "rate limit", "overloaded", "quota", "exhausted", "too many requests"])
+    if is_quota:
+        error_summary = "AI API Rate Limit / Quota Exhausted (HTTP 429)"
+    else:
+        error_summary = f"LLM Invocation Failed ({last_error[:80]})" if last_error else "LLM Invocation Returned Empty"
+
+    return None, error_summary
