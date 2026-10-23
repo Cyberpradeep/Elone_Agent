@@ -1,6 +1,7 @@
 import os
-import requests
+import secrets
 from typing import List, Dict, Any
+import requests
 from .base import BaseProvider
 
 
@@ -298,7 +299,6 @@ class MockProvider(BaseProvider):
 
     def generate_temporary_password(self, user_id: str = None, **kwargs) -> Dict[str, Any]:
         """Generates temporary password for user."""
-        import secrets
         temp_pw = f"TempPass_{secrets.token_hex(4)}!"
         return {
             "status": "success",

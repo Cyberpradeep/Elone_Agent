@@ -1,9 +1,9 @@
 EMP_ID,EMP_NAME,EMP_MAIL,DV_ID,DV_NAME,ALLOWED_APP_NAME,ALLOWED_EXECUTABLE,POLICY_STATUS
 EL-001,Chezhian,chezhian@elverve.com,DV_EL_001,DESKTOP-UI5FITD,Docker,docker.exe,Approved
-EL-002,Pradeep,pradeepnaveen930@gmail.com,DV_EL_002,Carnage,Visual Studio Code,Code.exe,Approved
-EL-002,Pradeep,pradeepnaveen930@gmail.com,DV_EL_002,Carnage,Notepad,notepad.exe,Approved
-EL-002,Pradeep,pradeepnaveen930@gmail.com,DV_EL_002,Carnage,Calculator,calc.exe,Approved
-EL-002,Pradeep,pradeepnaveen930@gmail.com,DV_EL_002,Carnage,MS Paint,mspaint.exe,Approved
+EL-002,Pradeep,pradeepnaveen930@gmail.com,DV_EL_002,DESKTOP-O9HENH2,Visual Studio Code,Code.exe,Approved
+EL-002,Pradeep,pradeepnaveen930@gmail.com,DV_EL_002,DESKTOP-O9HENH2,Notepad,notepad.exe,Approved
+EL-002,Pradeep,pradeepnaveen930@gmail.com,DV_EL_002,DESKTOP-O9HENH2,Calculator,calc.exe,Approved
+EL-002,Pradeep,pradeepnaveen930@gmail.com,DV_EL_002,DESKTOP-O9HENH2,MS Paint,mspaint.exe,Approved
 EL-003,Semmozhi,chezhiantech@gmail.com,DV_EL_003,Prabanjan,Python,python.exe,Approved
 EL-004,Jane Smith,jane.smith@testcorp.com,DV_EL_004,target machine,Visual Studio Code,Code.exe,Approved
 EL-004,Jane Smith,jane.smith@testcorp.com,DV_EL_004,target machine,Notepad,notepad.exe,Approved
@@ -16,7 +16,7 @@ EL-005,John Doe,john.doe@testcorp.com,DV_EL_005,target machine,Calculator,calc.e
 EL-005,John Doe,john.doe@testcorp.com,DV_EL_005,target machine,Visual Studio Code,Code.exe,Denied
 EL-005,John Doe,john.doe@testcorp.com,DV_EL_005,target machine,Docker,docker.exe,Denied
 EL-001,Chezhian,chezhian@elverve.com,DV_EL_001,DESKTOP-UI5FITD,Mock Portal,mock_portal.exe,Approved
-EL-002,Pradeep,pradeepnaveen930@gmail.com,DV_EL_002,Carnage,Mock Portal,mock_portal.exe,Approved
+EL-002,Pradeep,pradeepnaveen930@gmail.com,DV_EL_002,DESKTOP-O9HENH2,Mock Portal,mock_portal.exe,Approved
 EL-003,Semmozhi,chezhiantech@gmail.com,DV_EL_003,Prabanjan,Mock Portal,mock_portal.exe,Approved
 EL-004,Jane Smith,jane.smith@testcorp.com,DV_EL_004,target machine,Mock Portal,mock_portal.exe,Approved
 EL-005,John Doe,john.doe@testcorp.com,DV_EL_005,target machine,Mock Portal,mock_portal.exe,Approved

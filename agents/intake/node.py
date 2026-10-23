@@ -1,11 +1,12 @@
 """Main LangGraph Node Entrypoint for Intake Agent."""
 
+import re
 from typing import Literal
 # pyrefly: ignore [missing-import]
 from langgraph.types import Command
 
 from shared.state import SupportState
-from shared.asset_lookup import extract_and_lookup_asset
+from shared.asset_lookup import extract_and_lookup_asset, lookup_asset_by_identifier
 from okf_engine import parse_sops_catalog_index
 from .schemas import TriageResult
 from .llm import run_triage
@@ -39,13 +40,11 @@ def intake_agent(state: SupportState) -> Command[Literal["planner_agent", "orche
     # Validate employee email against Asset Management inventory
     target_email = state.get("customer_email") or enriched_entities.get("email")
     if not target_email and ticket_raw:
-        import re
         email_match = re.search(r"[\w\.-]+@[\w\.-]+\.\w+", ticket_raw)
         if email_match:
             target_email = email_match.group(0)
 
     if target_email:
-        from shared.asset_lookup import lookup_asset_by_identifier
         asset_record = lookup_asset_by_identifier(target_email)
         if not asset_record:
             audit_msg = f"[Intake Asset Verification Failed] Employee email '{target_email}' is not present in Asset Management records. Escalating immediately."
@@ -63,7 +62,23 @@ def intake_agent(state: SupportState) -> Command[Literal["planner_agent", "orche
                 goto="orchestration_agent",
             )
 
-    result = run_triage(ticket_raw, category=category, entities=enriched_entities)
+    result, llm_error = run_triage(ticket_raw, category=category, entities=enriched_entities)
+    if llm_error:
+        audit_msg = f"[Intake Error] {llm_error}. Escalating ticket for manual engineer review."
+        print(f"  {audit_msg}")
+        return Command(
+            update={
+                "intent": "AI Provider Quota Exhaustion",
+                "priority": "high",
+                "category": category or "software",
+                "entities": enriched_entities,
+                "workflow_status": "escalated",
+                "orchestrator_reasoning": f"Automation Halted: {llm_error}. Model provider rate limits or API quota exhausted.",
+                "audit_log": [audit_msg],
+            },
+            goto="orchestration_agent",
+        )
+
     if not result:
         result = TriageResult(
             intent="general_inquiry",

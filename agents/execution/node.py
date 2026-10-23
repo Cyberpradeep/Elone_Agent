@@ -161,7 +161,7 @@ def execution_agent(state: SupportState) -> Command[Literal["execution_result_ag
         )
 
 
-    # 5. Handle Default CLI Command Steps
+    # 6. Handle Default CLI Command Steps
     stdout, stderr, exit_code, label = execute_command_step(
         target_step, step_num, len(steps), entities, variables
     )

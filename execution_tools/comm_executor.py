@@ -1,7 +1,10 @@
 """Communication tool executor for send_email notifications."""
 
+import inspect
 import os
 from typing import Any, Dict
+
+from shared.providers.system_ops import SystemOpsProvider
 from shared.tool_catalog import PROVIDERS
 # pyrefly: ignore [missing-import]
 from elone_sop import find_platform_schema
@@ -18,7 +21,6 @@ def execute_comm_tool(func_name: str, inputs: Dict[str, Any], provider_name: str
         print(f"  Body:\n{body}\n")
 
         try:
-            from shared.providers.system_ops import SystemOpsProvider
             provider = SystemOpsProvider()
             return provider.send_email(inputs)
         except Exception as e:
@@ -54,7 +56,6 @@ def execute_comm_tool(func_name: str, inputs: Dict[str, Any], provider_name: str
         for provider in target_providers:
             if hasattr(provider, func_name):
                 func = getattr(provider, func_name)
-                import inspect
                 sig = inspect.signature(func)
                 valid_kwargs = {k: v for k, v in inputs.items() if k in sig.parameters}
                 return func(**valid_kwargs)

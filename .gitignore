@@ -1,36 +1,110 @@
-# Environments & Secret Keys
+# =============================================================================
+# Elone Agent — Git Ignore Rules
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Environment & Secrets (Never commit secrets or active API keys)
+# -----------------------------------------------------------------------------
 .env
 .env.*
+.env.local
+.env.*.local
+*.env
+!.env.example
+
+# -----------------------------------------------------------------------------
+# Virtual Environments
+# -----------------------------------------------------------------------------
+venv/
 .venv/
 env/
-venv/
 ENV/
+*.venv/
 env.bak/
 venv.bak/
 
-# Agent IDE & Tracing Local Storage
+# -----------------------------------------------------------------------------
+# Python Bytecode, Caches & Testing
+# -----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+*.so
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# -----------------------------------------------------------------------------
+# Packaging & Distribution
+# -----------------------------------------------------------------------------
+dist/
+build/
+*.egg-info/
+*.egg
+.eggs/
+
+# -----------------------------------------------------------------------------
+# Operating System Artifacts
+# -----------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+[Dd]esktop.ini
+
+# -----------------------------------------------------------------------------
+# IDEs & Editor Files
+# -----------------------------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# -----------------------------------------------------------------------------
+# Agent IDE, Observability & Local Database Storage
+# -----------------------------------------------------------------------------
 .agents/
 .phoenix/
 phoenix.db
 *.db
 *.sqlite
-*.log
+*.sqlite3
 
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
+# -----------------------------------------------------------------------------
+# Microsoft Office Lock & Temporary Files (Word/Excel/PowerPoint)
+# -----------------------------------------------------------------------------
+~$*
+~$*.docx
+~$*.xlsx
+~$*.pptx
+*.tmp
+*.temp
 
-# Testing, Scratch & Evals
-.pytest_cache/
+# -----------------------------------------------------------------------------
+# Archives & Temporary Working Directories
+# -----------------------------------------------------------------------------
+*.zip
+*.tar.gz
 scratch/
+tmp/
+temp/
 
-
-# IDE & OS generated files
-.vscode/
-.idea/
-.DS_Store
-.DS_Store?
-._*
-ehthumbs.db
-Thumbs.db
+# -----------------------------------------------------------------------------
+# Knowledge Base Uploads, Logs, Telemetry & Manifests
+# -----------------------------------------------------------------------------
+*.log
+logs/
+knowledge_base/logs/
+knowledge_base/patterns/logs/
+knowledge_base/_uploads/*
+!knowledge_base/_uploads/.gitkeep
+knowledge_base/_uploads/_processed_manifest.json
+gemini_monitor/daily_usage.json
+gemini_monitor/*.tmp

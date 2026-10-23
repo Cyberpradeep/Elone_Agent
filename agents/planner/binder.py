@@ -171,7 +171,7 @@ def synthesize_execution_plan_with_deep_cot(
             reflection_rules=reflection_rules or "(No reflection rules)",
             device_quirks=device_quirks or "(No device quirks)",
         )
-        response = llm.invoke([{"role": "system", "content": prompt}])
+        response = llm.invoke([{"role": "user", "content": prompt}])
         raw_res = response.content if hasattr(response, "content") else str(response)
         content = raw_res if isinstance(raw_res, str) else str(raw_res)
         cleaned_content = re.sub(r"```json\s*", "", content)

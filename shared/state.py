@@ -65,6 +65,7 @@ class SupportState(TypedDict, total=False):
     variables: Optional[dict]
     needs_clarification: Optional[bool]
     is_human_rejected: Optional[bool]
+    is_human_approved: Optional[bool]
 
     final_response: Optional[str]
     customer_ticket_reply: Optional[str]

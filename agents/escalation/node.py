@@ -4,8 +4,10 @@ import uuid
 from langgraph.types import Command
 from typing import Literal
 
+from shared.state import SupportState
 
-def escalation_agent(state: dict) -> Command[Literal["summarization_agent"]]:
+
+def escalation_agent(state: SupportState) -> Command[Literal["summarization_agent"]]:
     """Escalation Agent Node: Constructs a structured L2 Engineering Escalation Ticket."""
     ticket_id = state.get("ticket_id") or "1000"
     intent = state.get("intent") or "System Troubleshooting"

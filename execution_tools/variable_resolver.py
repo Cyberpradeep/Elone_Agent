@@ -1,3 +1,4 @@
+import json
 import re
 from typing import Any, Dict
 
@@ -49,7 +50,6 @@ def resolve_template_variables(text: str, entities: Dict[str, Any] = None, varia
         if current is not None and not isinstance(current, (dict, list)):
             return str(current)
         elif isinstance(current, (dict, list)):
-            import json
             return json.dumps(current)
         
         return match.group(0)
