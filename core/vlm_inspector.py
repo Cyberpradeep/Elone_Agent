@@ -129,12 +129,13 @@ def extract_confidence_score(report_text: str) -> Dict[str, Any]:
 
 def analyze_image_bytes(image_bytes: bytes, mime_type: str) -> str:
     """Analyzes image bytes using VLM via LangChain with rate-limit retry backoff and token cost monitoring."""
-    # Pixel Bomb and Downscaling Security Guard
-    is_valid, sec_err, sanitized_bytes = validate_and_sanitize_image_bytes(image_bytes, mime_type)
+    # Strict Fail-Closed Pixel Bomb and Downscaling Security Guard
+    is_valid, sec_err, sanitized_bytes, actual_mime = validate_and_sanitize_image_bytes(image_bytes, mime_type)
     if not is_valid:
         print(f"[VLM Security Shield] Image rejected: {sec_err}")
         return f"[IMAGE EXCLUDED FOR SECURITY: {sec_err}]"
     image_bytes = sanitized_bytes
+    mime_type = actual_mime
 
     try:
         # pyrefly: ignore [missing-import]
@@ -213,19 +214,33 @@ def analyze_and_save_image(image_bytes: bytes, mime_type: str, label: str, sop_s
     which calls this once per image at the exact position the image occurs in the
     source SOP so the VLM report can be interleaved right after the text it illustrates.
     """
+    # 1. Strict Fail-Closed Pre-Write Security Validation
+    is_valid, sec_err, sanitized_bytes, actual_mime = validate_and_sanitize_image_bytes(image_bytes, mime_type)
+    if not is_valid:
+        print(f"[VLM Security Shield] Image {index} ('{label}') rejected before writing to disk: {sec_err}")
+        return f"[IMAGE EXCLUDED FOR SECURITY: {sec_err}]", {
+            "image_path": "",
+            "file_path": "",
+            "confidence_score": 0.0,
+            "confidence_level": "Low"
+        }
+
     sop_image_dir = os.path.join(IMAGES_LOG_DIR, sop_slug)
     os.makedirs(sop_image_dir, exist_ok=True)
 
-    ext = mime_type.split("/")[-1].replace("jpeg", "jpg")
+    # 2. Synchronize File Extension with Verified Output MIME Type
+    ext = "jpg" if actual_mime == "image/jpeg" else actual_mime.split("/")[-1]
     if ext not in ("png", "jpg", "webp", "gif"):
-        ext = "png"
+        ext = "jpg"
     img_filename = f"img_{index}.{ext}"
     saved_img_path = os.path.join(sop_image_dir, img_filename)
+
+    # Write only verified & sanitized bytes to disk
     with open(saved_img_path, "wb") as f:
-        f.write(image_bytes)
+        f.write(sanitized_bytes)
 
     rel_img_path = os.path.relpath(saved_img_path, BASE_DIR).replace("\\", "/")
-    report_text = analyze_image_bytes(image_bytes, mime_type)
+    report_text = analyze_image_bytes(sanitized_bytes, actual_mime)
     report_str = "\n".join(report_text) if isinstance(report_text, list) else str(report_text)
 
     safe_report = report_str.encode("ascii", errors="replace").decode("ascii")
@@ -242,7 +257,7 @@ def analyze_and_save_image(image_bytes: bytes, mime_type: str, label: str, sop_s
     meta_payload = {
         "image_filename": img_filename,
         "label": label,
-        "mime_type": mime_type,
+        "mime_type": actual_mime,
         "confidence_score": conf_info["score"],
         "confidence_level": conf_info["level"],
         "confidence_reason": conf_info["reason"],

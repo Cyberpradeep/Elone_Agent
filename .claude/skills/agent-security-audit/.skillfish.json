@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "name": "agent-security-audit",
+  "owner": "cmaenner",
+  "repo": "agent-security-playbook",
+  "path": "skills/agent-security-audit",
+  "branch": "main",
+  "sha": "3a572958a4f5b26a454632fdb136d16129e9ebf7",
+  "source": "manual"
+}

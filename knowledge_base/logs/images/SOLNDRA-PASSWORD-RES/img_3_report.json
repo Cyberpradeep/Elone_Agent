@@ -2,8 +2,8 @@
   "image_filename": "img_3.png",
   "label": "Image 3 (inline, following the text above)",
   "mime_type": "image/png",
-  "confidence_score": 0.5,
+  "confidence_score": 0.0,
   "confidence_level": "Low",
-  "confidence_reason": "**",
-  "vlm_report": "The image shows a screenshot of the CoreID Admin Console, specifically the Identity Verification page. The page is divided into two sections: the left side contains a navigation menu with various options, while the right side displays the main content area.\n\n**UI Action:**\n\n* Click the \"Manager name matches ticket\" checkbox.\n\n**Visible Entities:**\n\n* Employee ID: SOL-04821\n* Manager name: A. Rao\n* Department: J. Employee\n* Last 4 digits of phone on file: Not visible\n\n**Errors:**\n\n* None visible\n\n**Confidence Score:**\n\n* 0.95\n\n**Confidence Level:**\n\n* High\n\n**Confidence Reason:**\n\n* The screenshot is clear and legible, with all necessary information visible."
+  "confidence_reason": "VLM vision analysis failed or encountered an upstream API error.",
+  "vlm_report": "VLM Analysis FAILED (non-retryable error): HTTPSConnectionPool(host='ai.api.nvidia.com', port=443): Read timed out. (read timeout=60)"
 }

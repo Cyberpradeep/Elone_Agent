@@ -2,8 +2,8 @@
   "image_filename": "img_1.png",
   "label": "Image 1 (inline, following the text above)",
   "mime_type": "image/png",
-  "confidence_score": 0.5,
+  "confidence_score": 0.0,
   "confidence_level": "Low",
-  "confidence_reason": "** Clear and legible UI with minimal visual clutter.",
-  "vlm_report": "**SCREEN / CONTEXT:** CoreID Admin Console > Tickets > Ticket #SOL-84213\n\n**UI ACTION:** Click \"Opened\" tab\n\n**VISIBLE ENTITIES:**\n\n* Ticket: #SOL-84213\n* Requester: J. Employee\n* Employee ID: SOL-04821\n* Manager: A. Menon\n* Department: Finance\n* Status: Opened\n* Date/Time: Today, 10:42 AM\n\n**ERRORS:** None visible\n\n**CONFIDENCE SCORE:** 0.95\n\n**CONFIDENCE LEVEL:** High\n\n**CONFIDENCE REASON:** Clear and legible UI with minimal visual clutter."
+  "confidence_reason": "VLM vision analysis failed or encountered an upstream API error.",
+  "vlm_report": "VLM Analysis FAILED (non-retryable error): HTTPSConnectionPool(host='ai.api.nvidia.com', port=443): Read timed out. (read timeout=60)"
 }

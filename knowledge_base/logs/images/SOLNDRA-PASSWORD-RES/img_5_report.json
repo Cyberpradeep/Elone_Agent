@@ -2,8 +2,8 @@
   "image_filename": "img_5.png",
   "label": "Image 5 (inline, following the text above)",
   "mime_type": "image/png",
-  "confidence_score": 0.5,
+  "confidence_score": 0.0,
   "confidence_level": "Low",
-  "confidence_reason": "** Clear and legible UI with minimal visual clutter.",
-  "vlm_report": "**SCREEN / CONTEXT:** CoreID Admin Console > Tickets > Ticket #SOL-84213 - Resolution\n\n**UI ACTION:** Click \"Resolved\" with \"Identity verified (2 of 4 checks)\" and \"Temporary password issued via CoreID. Force-change-at-next-sign-in enabled. No OTP sent - admin-mediated reset per policy\" visible.\n\n**VISIBLE ENTITIES:**\n\n* Ticket: #SOL-84213\n* Status: Resolved\n* Identity verification status: 2 of 4 checks\n* Temporary password issued via: CoreID\n* Force-change-at-next-sign-in: Enabled\n* OTP sent: No\n* Admin-mediated reset per policy: Yes\n\n**ERRORS:** None visible\n\n**CONFIDENCE SCORE:** 0.95\n\n**CONFIDENCE LEVEL:** High\n\n**CONFIDENCE REASON:** Clear and legible UI with minimal visual clutter."
+  "confidence_reason": "VLM vision analysis failed or encountered an upstream API error.",
+  "vlm_report": "VLM Analysis FAILED (non-retryable error): HTTPSConnectionPool(host='ai.api.nvidia.com', port=443): Read timed out. (read timeout=60)"
 }

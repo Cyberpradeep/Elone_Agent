@@ -24,7 +24,7 @@ ROLE_PROVIDER_MAP = {
         "provider": "gemini",
         "model": "gemini-2.5-flash",
         "fallbacks": [
-            {"provider":"nvidia","model":"minimaxai/minimax-m3"},
+            {"provider": "groq", "model": "qwen/qwen3.8-27b"},
             {"provider": "mistral", "model": "mistral-small-latest"},
         ],
     },
@@ -32,8 +32,7 @@ ROLE_PROVIDER_MAP = {
         "provider": "mistral",
         "model": "mistral-small-latest",
         "fallbacks": [
-            {"provider":"nvidia","model":"minimaxai/minimax-m3"},
-            # {"provider": "mistral", "model": "codestral-latest"},
+            {"provider": "groq", "model": "qwen/qwen3.8-27b"},
             {"provider": "gemini", "model": "gemini-2.5-flash"},
         ],
     },

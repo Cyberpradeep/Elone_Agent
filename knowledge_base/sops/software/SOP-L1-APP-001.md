@@ -101,6 +101,8 @@ steps:
   execute_if: variables.ifeo_blocked == true
   timeout_seconds: 30
   shell: powershell
+integrity_version: v2
+integrity_hmac_sha256: c07a11e714fa5d78ad7f7f04dc1b8cf11bd688ad8f4ebf360cea05889797b5e4
 ---
 
 # Software Application Unblock Request Playbook
