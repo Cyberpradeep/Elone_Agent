@@ -27,6 +27,7 @@ venv.bak/
 # Python Bytecode, Caches & Testing
 # -----------------------------------------------------------------------------
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
 *.pyo
@@ -97,17 +98,34 @@ tmp/
 temp/
 
 # -----------------------------------------------------------------------------
-# Knowledge Base Uploads, Logs, Telemetry & Manifests
+# Knowledge Base Uploads, Drafts, Logs, Telemetry & Governance Runtime Data
 # -----------------------------------------------------------------------------
 *.log
 logs/
+**/logs/
 knowledge_base/logs/
 knowledge_base/patterns/logs/
 knowledge_base/_uploads/*
 !knowledge_base/_uploads/.gitkeep
-knowledge_base/_uploads/_processed_manifest.json
-gemini_monitor/daily_usage.json
-gemini_monitor/*.tmp
+!knowledge_base/_uploads/SOP_Kill_Hang_Application_Windows.pdf
+!knowledge_base/_uploads/solndra_password_reset.docx
+!knowledge_base/_uploads/ARVpndetails.docx
+
+# Staged unapproved drafts & governance ledger runtime state
+**/_drafts/
+**/_governance_ledger.json
+**/_retrieval_catalog.json
+**/_processed_manifest.json
+
+# API call usage tracker & temp cache
+**/daily_usage.json
+test_sop_*.txt
+quick_trace_*.txt
+# API call usage tracker & temp cache
+**/daily_usage.json
+test_sop_*.txt
+quick_trace_*.txt
 
 
+/docs
 docs
