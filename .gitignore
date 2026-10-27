@@ -6,6 +6,7 @@
 # Environment & Secrets (Never commit secrets or active API keys)
 # -----------------------------------------------------------------------------
 .env
+.env.*
 .env.local
 .env.*.local
 *.env
@@ -67,6 +68,16 @@ ehthumbs.db
 *~
 
 # -----------------------------------------------------------------------------
+# Agent IDE, Observability & Local Database Storage
+# -----------------------------------------------------------------------------
+.agents/
+.phoenix/
+phoenix.db
+*.db
+*.sqlite
+*.sqlite3
+
+# -----------------------------------------------------------------------------
 # Microsoft Office Lock & Temporary Files (Word/Excel/PowerPoint)
 # -----------------------------------------------------------------------------
 ~$*
@@ -86,12 +97,17 @@ tmp/
 temp/
 
 # -----------------------------------------------------------------------------
-# Pipeline Runtime Logs, Telemetry & Manifests
+# Knowledge Base Uploads, Logs, Telemetry & Manifests
 # -----------------------------------------------------------------------------
 *.log
 logs/
 knowledge_base/logs/
 knowledge_base/patterns/logs/
+knowledge_base/_uploads/*
+!knowledge_base/_uploads/.gitkeep
 knowledge_base/_uploads/_processed_manifest.json
 gemini_monitor/daily_usage.json
 gemini_monitor/*.tmp
+
+
+docs

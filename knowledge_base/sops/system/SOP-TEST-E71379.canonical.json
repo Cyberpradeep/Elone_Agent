@@ -1,0 +1,150 @@
+{
+  "schema_version": "1.0",
+  "sop_id": "SOP-TEST-E71379",
+  "version": 1,
+  "tenant_id": "tn_northwind",
+  "title": "Flush System Diagnostics",
+  "title_lines": [
+    1,
+    2
+  ],
+  "metadata_lines": [
+    3,
+    4
+  ],
+  "department": {
+    "status": "present",
+    "value": "System",
+    "source_lines": [
+      3
+    ]
+  },
+  "owner": {
+    "status": "present",
+    "value": "author@corp.com",
+    "source_lines": [
+      4
+    ]
+  },
+  "version_label": {
+    "status": "present",
+    "value": "v1.0",
+    "source_lines": [
+      4
+    ]
+  },
+  "review_date": {
+    "status": "present",
+    "value": "2026-10-27",
+    "source_lines": [
+      4
+    ]
+  },
+  "source": {
+    "filename": "sop-test-e71379.txt",
+    "sha256": "a908a15e326e1bf31124f4960fa60f8690aa1b27f2d971e947c7ef1ba143c105",
+    "size": 63,
+    "detected_type": "text/plain",
+    "pages": 1,
+    "extracted_lines": 2,
+    "ocr": false
+  },
+  "purpose": {
+    "text": "Diagnostic and cache flush playbook.",
+    "source_lines": [
+      1,
+      2
+    ],
+    "quote": "Diagnostic and cache flush playbook.",
+    "verified": true
+  },
+  "scope": {
+    "text": "Applies to system operations and authorized agents.",
+    "source_lines": [
+      2,
+      3
+    ],
+    "quote": "system",
+    "verified": true
+  },
+  "preconditions": [],
+  "roles": [
+    {
+      "role": "Operator",
+      "responsibility": "Executes Flush System Diagnostics",
+      "source_lines": [
+        1
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "n": 1,
+      "action": "Execute step 1",
+      "input": "ping 127.0.0.1",
+      "expected_outcome": null,
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        2,
+        3
+      ],
+      "quote": "Execute step 1",
+      "verified": false
+    },
+    {
+      "n": 2,
+      "action": "Execute step 2",
+      "input": "ipconfig /flushdns",
+      "expected_outcome": null,
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        4,
+        5
+      ],
+      "quote": "Execute step 2",
+      "verified": false
+    }
+  ],
+  "exceptions": [],
+  "notes": [],
+  "references": [],
+  "media": [],
+  "issues": [],
+  "classification": {
+    "level": "L0",
+    "score": 5,
+    "evidence_categories": [
+      "baseline_internal_sop"
+    ],
+    "rule_level": "L0",
+    "ai_suggested_level": "L0",
+    "rationale": "Deterministic rule classification",
+    "confirmed": false
+  },
+  "quality": {
+    "completeness": 100.0,
+    "traceability": 0.0,
+    "schema_valid": true,
+    "blocking_issues_count": 0,
+    "quality_score": 60.0,
+    "status": "Failed checks"
+  },
+  "transformations": [],
+  "lifecycle": {
+    "state": "structuring",
+    "uploaded_by": "author@corp.com",
+    "created_at": "2026-10-27T09:54:12.353851+00:00",
+    "approvals": []
+  },
+  "provenance": {
+    "producing_agent": "A2_structuring",
+    "provider": "elverve_ai",
+    "generated_at": "2026-10-27T09:54:12.353851+00:00"
+  }
+}
