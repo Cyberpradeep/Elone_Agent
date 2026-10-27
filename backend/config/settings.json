@@ -1,0 +1,65 @@
+{
+  "file_upload": {
+    "max_file_size_mb": 50.0,
+    "max_page_count": 10,
+    "max_text_lines": 600,
+    "max_text_words": 5000,
+    "max_table_rows": 600,
+    "allowed_extensions": [
+      ".pdf",
+      ".docx",
+      ".csv",
+      ".xls",
+      ".xlsx",
+      ".md",
+      ".txt"
+    ]
+  },
+  "images": {
+    "max_images_per_sop": 15,
+    "max_image_dimension": 4096,
+    "target_image_dimension": 1024,
+    "allowed_extensions": [
+      ".png",
+      ".jpg",
+      ".jpeg",
+      ".webp",
+      ".gif"
+    ]
+  },
+  "llm_models": {
+    "execution_planning": {
+      "provider": "groq",
+      "model": "qwen/qwen3.8-27b",
+      "temperature": 0.0
+    },
+    "planning_validation": {
+      "provider": "zai",
+      "model": "glm-4.7-flash",
+      "temperature": 0.0
+    },
+    "vlm_image_analysis": {
+      "provider": "nvidia",
+      "model": "meta/llama-3.2-11b-vision-instruct",
+      "temperature": 0.2,
+      "timeout": 150
+    },
+    "fallbacks": [
+      {
+        "provider": "zai",
+        "model": "glm-4.5-flash"
+      },
+      {
+        "provider": "groq",
+        "model": "qwen/qwen3.8-27b"
+      }
+    ]
+  },
+  "governance": {
+    "min_passing_score": 80.0,
+    "max_daily_calls": 0,
+    "unlimited_daily_calls": true,
+    "sop_scan_interval_minutes": 10
+  }
+}
+
