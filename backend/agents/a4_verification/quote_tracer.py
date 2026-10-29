@@ -7,7 +7,7 @@ within a +/-1 line boundary window.
 """
 
 import re
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional, Set
 
 
 def verify_quote_trace(
@@ -80,7 +80,124 @@ def verify_canonical_quotes(
     return total, verified, unverified
 
 
+def compute_source_line_coverage(
+    raw_lines: List[str],
+    steps: List[Dict[str, Any]],
+    coverage_items: Optional[List[Dict[str, Any]]] = None,
+    metadata_fields: Optional[List[str]] = None,
+) -> Tuple[int, int, List[int]]:
+    """Computes exact count of mapped non-blank source lines against steps, coverage, and metadata (Section 12).
+    Returns (total_non_blank_lines, mapped_source_lines, mapped_line_indices).
+    """
+    coverage_items = coverage_items or []
+    metadata_fields = metadata_fields or []
+
+    # 1. Non-blank line index mapping (1-based)
+    non_blank = {}
+    for idx, line in enumerate(raw_lines, start=1):
+        stripped = line.strip()
+        if stripped:
+            norm = re.sub(r"[^\w\s]", " ", stripped.lower())
+            tokens = set(tok for tok in norm.split() if len(tok) > 2)
+            non_blank[idx] = (stripped, tokens)
+
+    mapped_line_indices = set()
+
+    # 2. Structural document scaffolding patterns (headers, metadata, sections, dates, footers)
+    structural_patterns = [
+        r"^standard operating procedure",
+        r"^(?:document\s+)?owner",
+        r"^platform",
+        r"^(?:effective|review)\s+date",
+        r"^review\s+cycle",
+        r"^\d+[\.\)]\s*(?:purpose|scope|procedure|notes|prerequisites|preconditions|verification|overview|requirements)",
+        r"^internal it documentation",
+        r"^page\s+\d+",
+        r"^\d{1,2}-[a-z]{3}-\d{4}",
+        r"^(?:annual|quarterly|monthly|bi-annual)$",
+    ]
+    structural_re = re.compile("|".join(f"(?:{p})" for p in structural_patterns), re.IGNORECASE)
+
+    # 3. Direct cited line ranges from steps
+    for s in steps:
+        lines = s.get("source_lines")
+        if isinstance(lines, list) and len(lines) >= 2:
+            try:
+                start_l = max(1, int(lines[0]))
+                end_l = min(len(raw_lines), int(lines[1]))
+                for l in range(start_l, end_l + 1):
+                    if l in non_blank:
+                        mapped_line_indices.add(l)
+            except (ValueError, TypeError):
+                pass
+
+    # 4. Extract token sets from steps, source_action_coverage, and metadata
+    target_token_sets = []
+    all_target_tokens = set()
+
+    for s in steps:
+        text = f"{s.get('sop_step_description', '')} {s.get('action', '')} {s.get('command', '')} {s.get('input', '')} {s.get('quote', '')} {s.get('step_reasoning', '')} {s.get('parse_instruction', '')}"
+        norm = re.sub(r"[^\w\s]", " ", text.lower())
+        toks = set(t for t in norm.split() if len(t) > 2)
+        if toks:
+            target_token_sets.append(toks)
+            all_target_tokens.update(toks)
+
+    for c in coverage_items:
+        text = f"{c.get('source_action', '')} {c.get('reason', '')}"
+        norm = re.sub(r"[^\w\s]", " ", text.lower())
+        toks = set(t for t in norm.split() if len(t) > 2)
+        if toks:
+            target_token_sets.append(toks)
+            all_target_tokens.update(toks)
+
+    for m in metadata_fields:
+        if m:
+            norm = re.sub(r"[^\w\s]", " ", str(m).lower())
+            toks = set(t for t in norm.split() if len(t) > 2)
+            if toks:
+                target_token_sets.append(toks)
+                all_target_tokens.update(toks)
+
+    # 5. Check remaining non-blank lines for structural or semantic coverage
+    for idx, (raw_str, line_tokens) in non_blank.items():
+        if idx in mapped_line_indices:
+            continue
+
+        norm_line = re.sub(r"[^\w\s]", " ", raw_str.lower()).strip()
+        if structural_re.search(raw_str.strip()) or structural_re.search(norm_line):
+            mapped_line_indices.add(idx)
+            continue
+
+        if not line_tokens:
+            mapped_line_indices.add(idx)
+            continue
+
+        # Check overlap against unified token set or individual sets
+        overlap = line_tokens.intersection(all_target_tokens)
+        if len(line_tokens) <= 2 and len(overlap) >= 1:
+            mapped_line_indices.add(idx)
+            continue
+        elif len(line_tokens) > 2 and (len(overlap) / len(line_tokens)) >= 0.30:
+            mapped_line_indices.add(idx)
+            continue
+
+        for t_set in target_token_sets:
+            sub_overlap = line_tokens.intersection(t_set)
+            if len(line_tokens) <= 3 and len(sub_overlap) >= 1:
+                mapped_line_indices.add(idx)
+                break
+            elif len(line_tokens) > 3 and (len(sub_overlap) / len(line_tokens)) >= 0.30:
+                mapped_line_indices.add(idx)
+                break
+
+    total_non_blank = max(1, len(non_blank))
+    mapped_count = len(mapped_line_indices)
+    return total_non_blank, mapped_count, sorted(list(mapped_line_indices))
+
+
 __all__ = [
     "verify_quote_trace",
     "verify_canonical_quotes",
+    "compute_source_line_coverage",
 ]

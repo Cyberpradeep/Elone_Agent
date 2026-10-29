@@ -21,7 +21,7 @@ from tools.tool_functions import DYNAMIC_CATALOG_TOOLS
 # pyrefly: ignore [missing-import]
 from agents.a4_verification.plan_validator import validate_plan_faithfulness_and_linkage
 from utils.security import escape_prompt_delimiters
-from config.settings import get_max_images_per_sop
+from config.settings import get_max_images_per_sop, get_execution_mode
 # pyrefly: ignore [missing-import]
 from schemas import OKFPlaybookModel
 # pyrefly: ignore [missing-import]
@@ -85,10 +85,11 @@ def _log_converter_input(raw_filepath: str, sop_slug: str, enriched_sop_text: st
     return log_path
 
 
-def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) -> Dict[str, Any]:
+def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None, feedback_override: Optional[Any] = None) -> Dict[str, Any]:
     """Phase 1 (read-only): parse the raw SOP and draft the OKF playbook.
     Touches nothing on disk -- returns the proposed frontmatter plus the
     faithfulness-validation notes, so a reviewer can accept or correct the plan.
+    Supports feedback_override from Agent A4 correction loops (Section 7).
     """
     print(f"\n[JIT OKF Converter Agent Node] Document-order-preserving parsing: {os.path.basename(raw_filepath)}...")
 
@@ -172,22 +173,28 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
     # -------------------------------------------------------------------------
     # STAGE 2: Specialized Converter Selection
     # -------------------------------------------------------------------------
-    classification = triage_res.get("classification", "command")
-    if classification == "command":
+    if get_execution_mode() == "command_only":
+        classification = "command"
         base_template = COMMAND_COT_PROMPT
         use_tools = False
-        print(f"[Stage 2: Converter Dispatch] Selected 'COMMAND_COT_PROMPT' (0 tools bound | Pure PowerShell focus)")
-    elif classification == "tool_call":
-        base_template = TOOL_COT_PROMPT
-        use_tools = True
-        print(f"[Stage 2: Converter Dispatch] Selected 'TOOL_COT_PROMPT' (Dynamic Tool Calling enabled)")
+        print(f"[Stage 2: Converter Dispatch] Execution Mode: 'command_only' enforced (Selected 'COMMAND_COT_PROMPT' | 0 tools bound | Pure Shell/PowerShell focus)")
     else:
-        base_template = HYBRID_COT_PROMPT
-        use_tools = True
-        print(f"[Stage 2: Converter Dispatch] Selected 'HYBRID_COT_PROMPT' (Cross-Paradigm Bridge)")
+        classification = triage_res.get("classification", "command")
+        if classification == "command":
+            base_template = COMMAND_COT_PROMPT
+            use_tools = False
+            print(f"[Stage 2: Converter Dispatch] Selected 'COMMAND_COT_PROMPT' (0 tools bound | Pure PowerShell focus)")
+        elif classification == "tool_call":
+            base_template = TOOL_COT_PROMPT
+            use_tools = True
+            print(f"[Stage 2: Converter Dispatch] Selected 'TOOL_COT_PROMPT' (Dynamic Tool Calling enabled)")
+        else:
+            base_template = HYBRID_COT_PROMPT
+            use_tools = True
+            print(f"[Stage 2: Converter Dispatch] Selected 'HYBRID_COT_PROMPT' (Cross-Paradigm Bridge)")
 
     max_retries = 3
-    feedback_history = []
+    feedback_history = list(feedback_override) if feedback_override else []
     last_data = None
     last_is_valid = False
     last_validation_errors = []
@@ -257,7 +264,7 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
 
                     if cache_key in executed_tool_cache:
                         t_output = executed_tool_cache[cache_key]
-                        output_json_str = json.dumps(t_output, indent=2, default=str)
+                        output_json_str = json.dumps(t_output, separators=(',', ':'), default=str)
                         messages.append(ToolMessage(content=output_json_str, tool_call_id=t_id))
                         continue
 
@@ -270,7 +277,7 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
                         t_output = {"error": f"Unknown tool '{t_name}'. Available: {list(tool_map.keys())}"}
 
                     executed_tool_cache[cache_key] = t_output
-                    output_json_str = json.dumps(t_output, indent=2, default=str)
+                    output_json_str = json.dumps(t_output, separators=(',', ':'), default=str)
                     messages.append(ToolMessage(content=output_json_str, tool_call_id=t_id))
             else:
                 raw_c = res.content if hasattr(res, "content") else str(res)
@@ -281,17 +288,27 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
                 break
 
         # JSON parsing
-        match = re.search(r"```(?:json|python)?\s*(\{.*?\})\s*```", content, re.DOTALL)
-        clean_json = match.group(1) if match else (re.search(r"(\{.*\})", content, re.DOTALL).group(1) if re.search(r"(\{.*\})", content, re.DOTALL) else content.strip())
+        clean_json = content.strip()
+        code_fence_match = re.search(r"```(?:json|python)?\s*([\s\S]*?)\s*```", content, re.DOTALL)
+        if code_fence_match:
+            block = code_fence_match.group(1).strip()
+            brace_match = re.search(r"(\{[\s\S]*\})", block)
+            clean_json = brace_match.group(1) if brace_match else block
+        else:
+            brace_match = re.search(r"(\{[\s\S]*\})", content)
+            if brace_match:
+                clean_json = brace_match.group(1)
+
         clean_json = re.sub(r"^\s*\{\{", "{", clean_json)
         clean_json = re.sub(r"\}\}\s*$", "}", clean_json)
         clean_json = re.sub(r",\s*([\]}])", r"\1", clean_json)
 
         data = None
+        json_err_msg = ""
         try:
             data = json.loads(clean_json)
-        except Exception:
-            pass
+        except Exception as e1:
+            json_err_msg = str(e1)
 
         if data is None:
             try:
@@ -300,22 +317,51 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
                 pass
 
         if data is None:
-            try:
-                normalized = re.sub(r"'([^'\\]*(?:\\.[^'\\]*)*)'", r'"\1"', clean_json)
-                normalized = re.sub(r"\bTrue\b", "true", normalized)
-                normalized = re.sub(r"\bFalse\b", "false", normalized)
-                normalized = re.sub(r"\bNone\b", "null", normalized)
-                data = json.loads(normalized)
-            except Exception as json_err:
-                err_msg = f"Scenario 1 Error (Attempt {attempt}): JSON Parsing Failed: {json_err}"
-                print(f"[JIT Converter Warning] {err_msg}")
-                feedback_history.append(f"- {err_msg}. MANDATE: Enforce valid JSON output format.")
-                continue
+            # Only attempt single-to-double quote substitution if text uses Python single-quoted keys ({'key': ...})
+            # This prevents destroying English contractions (e.g. User's, doesn't) in standard JSON
+            has_single_quoted_keys = bool(re.search(r"\{\s*'|\n\s*'[\w_-]+'\s*:", clean_json))
+            if has_single_quoted_keys:
+                try:
+                    normalized = re.sub(r"'([^'\\]*(?:\\.[^'\\]*)*)'", r'"\1"', clean_json)
+                    normalized = re.sub(r"\bTrue\b", "true", normalized)
+                    normalized = re.sub(r"\bFalse\b", "false", normalized)
+                    normalized = re.sub(r"\bNone\b", "null", normalized)
+                    data = json.loads(normalized)
+                except Exception:
+                    pass
+
+        if data is None:
+            err_msg = f"Scenario 1 Error (Attempt {attempt}): JSON Parsing Failed: {json_err_msg or 'Invalid JSON syntax'}"
+            print(f"[JIT Converter Warning] {err_msg}")
+            feedback_history.append(f"- {err_msg}. MANDATE: Enforce valid JSON output format without truncation.")
+            continue
 
         # Schema Validation
         try:
             if not isinstance(data, dict):
                 raise ValueError("Parsed JSON must be a dictionary object.")
+
+            # Filter out non-executable steps (e.g. manual_ui_omitted) erroneously placed in 'steps'
+            raw_steps = data.get("steps", [])
+            if isinstance(raw_steps, list):
+                clean_steps = []
+                coverage_list = data.setdefault("source_action_coverage", [])
+                for s in raw_steps:
+                    if not isinstance(s, dict):
+                        continue
+                    st = str(s.get("step_type", "")).lower().strip()
+                    if st in {"manual_ui_omitted", "omitted", "ui_omitted", "manual"}:
+                        action_desc = s.get("sop_step_description") or s.get("name") or "Manual UI action"
+                        coverage_list.append({
+                            "source_action": action_desc,
+                            "coverage": "manual_ui_omitted",
+                            "reason": s.get("step_reasoning") or "Manual/UI step omitted from automated execution.",
+                        })
+                    else:
+                        clean_steps.append(s)
+                for idx, s in enumerate(clean_steps, 1):
+                    s["step_number"] = idx
+                data["steps"] = clean_steps
 
             is_exec = data.get("is_executable", True)
             if is_exec is False or len(data.get("steps", [])) == 0:
@@ -364,6 +410,37 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
 
         steps = data.get("steps", [])
 
+        # Harmonize and align source_action_coverage with actual steps
+        coverage_items = data.get("source_action_coverage")
+        if isinstance(coverage_items, list):
+            tool_to_step = {}
+            for s in steps:
+                if isinstance(s, dict) and s.get("step_type") == "tool_call":
+                    plat = s.get("platform")
+                    fn = s.get("function_name")
+                    step_num = s.get("step_number")
+                    if fn:
+                        canonical = f"{plat}.{fn}" if plat else fn
+                        tool_to_step[canonical] = step_num
+                        tool_to_step[fn] = step_num
+
+            for item in coverage_items:
+                if not isinstance(item, dict):
+                    continue
+                cov = str(item.get("coverage", "")).lower().strip()
+                if cov in {"manual_ui_omitted", "unsupported_required"}:
+                    item["step_number"] = None
+                    if not item.get("reason"):
+                        item["reason"] = "Manual UI action omitted from automated execution."
+                elif cov == "tool_covered":
+                    tool = str(item.get("tool", "")).strip()
+                    if tool in tool_to_step:
+                        item["step_number"] = tool_to_step[tool]
+                    elif "." in tool:
+                        fn_only = tool.split(".", 1)[1]
+                        if fn_only in tool_to_step:
+                            item["step_number"] = tool_to_step[fn_only]
+
         # Faithfulness & Linkage Validation
         is_valid, validation_errors = validate_plan_faithfulness_and_linkage(
             raw_text,
@@ -407,20 +484,43 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
     category = (data.get("category") or "other").lower().strip()
     target_os = data.get("target_os", "windows")
     description = data.get("description", f"Automated playbook for {title}.")
-    confidence_score = float(data.get("confidence_score") if data.get("confidence_score") is not None else 0.95)
-    confidence_level = str(data.get("confidence_level") or "High")
-    confidence_reason = data.get("confidence_reason") or "Conversion completed with verified tool mappings."
+    # Genuine confidence derivation from converter or plan validator
+    v_score = data.get("validation_confidence_score")
+    c_score = data.get("confidence_score")
+    if c_score is not None:
+        confidence_score = float(c_score)
+    elif v_score is not None:
+        confidence_score = float(v_score)
+    else:
+        confidence_score = 0.50
+
+    confidence_level = data.get("confidence_level") or data.get("validation_confidence_level")
+    if not confidence_level:
+        confidence_level = "High" if confidence_score >= 0.85 else ("Medium" if confidence_score >= 0.60 else "Low")
+
+    confidence_reason = (
+        data.get("confidence_reason")
+        or data.get("validation_confidence_reason")
+        or f"Confidence evaluated from step linkage and validation audit ({confidence_level})."
+    )
+
     steps = data.get("steps", [])
     source_action_coverage = data.get("source_action_coverage") or []
     automation_status = data.get("automation_status") or "fully_automated"
     if any(item.get("coverage") == "unsupported_required" for item in source_action_coverage if isinstance(item, dict)):
         automation_status = "needs_review"
 
-    has_command_step = any(s.get("step_type") == "command" or s.get("command") for s in steps)
-    default_req = ["hostname", "email"] if has_command_step else ["email"]
-    raw_req_entities = data.get("required_entities", default_req)
-    if not has_command_step and "hostname" in raw_req_entities:
-        raw_req_entities = [e for e in raw_req_entities if e != "hostname"]
+    # Parameter extraction from step commands and tool inputs (replacing hardcoded fallback)
+    raw_req_entities = data.get("required_entities")
+    if raw_req_entities is None:
+        discovered_entities = set()
+        for s in steps:
+            cmd_str = f"{s.get('command', '')} {json.dumps(s.get('comm_inputs') or {})}"
+            for match in re.findall(r"\{\{([A-Za-z0-9_]+)\}\}|<([A-Za-z0-9_]+)>|\$([A-Za-z0-9_]+)", cmd_str):
+                var_name = next(v for v in match if v)
+                if var_name.lower() not in ("true", "false", "null", "none", "null", "true", "false", "this", "it"):
+                    discovered_entities.add(var_name.lower())
+        raw_req_entities = list(discovered_entities)
 
     required_entities = list(dict.fromkeys([ENTITY_KEY_MAP.get(str(e).lower(), str(e)) for e in raw_req_entities]))
     trigger_words = data.get("trigger_words", [title])
@@ -453,6 +553,7 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None) 
         "trigger_words": trigger_words,
         "steps": steps,
         "source_action_coverage": source_action_coverage,
+        "document_metadata": data.get("document_metadata") or {},
     }
 
     return {

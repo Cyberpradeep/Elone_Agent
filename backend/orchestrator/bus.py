@@ -15,8 +15,12 @@ import json
 import uuid
 import datetime
 import hashlib
-from typing import Dict, List, Set, Optional, Tuple, Any, Literal
+from typing import Dict, List, Set, Optional, Tuple, Any, Literal, Callable
 from pydantic import BaseModel, Field, model_validator, ConfigDict
+
+# Section 15 Hard Budgets per Job
+MAX_AGENT_CALLS_PER_JOB = 30
+MAX_LLM_CALLS_PER_JOB = 14
 
 
 # ---------------------------------------------------------------------------
@@ -71,6 +75,25 @@ class AgentMessageBus:
         self.artifact_store = artifact_store or ArtifactStore()
         self._idempotency_cache: Dict[str, ResultMessage] = {}
         self._message_log: List[Dict[str, Any]] = []
+        self._runners: Dict[str, Callable[[TaskMessage, "AgentMessageBus"], ResultMessage]] = {}
+        self._job_budgets: Dict[str, Dict[str, int]] = {}
+
+    def register_runner(self, agent_id: str, runner_func: Callable[[TaskMessage, "AgentMessageBus"], ResultMessage]) -> None:
+        """Registers a protocol runner for an agent role (Section 5)."""
+        self._runners[agent_id] = runner_func
+
+    def load_standard_runners(self) -> None:
+        """Loads default agent runners from orchestrator.agent_runners."""
+        try:
+            from orchestrator.agent_runners import STANDARD_AGENT_RUNNERS
+            for agent_id, runner_func in STANDARD_AGENT_RUNNERS.items():
+                self.register_runner(agent_id, runner_func)
+        except Exception:
+            pass
+
+    def get_job_budget(self, correlation_id: str) -> Dict[str, int]:
+        """Returns current resource usage metrics for a job."""
+        return self._job_budgets.get(correlation_id, {"agent_calls": 0, "llm_calls": 0})
 
     def dispatch_task(
         self,
@@ -85,7 +108,15 @@ class AgentMessageBus:
         if task.idempotency_key in self._idempotency_cache:
             return self._idempotency_cache[task.idempotency_key]
 
-        # 2. Correlation & Content Hash Matching (Section 6.3)
+        # 2. Check Job Budget (Section 15 & Test 9)
+        budget = self._job_budgets.setdefault(task.correlation_id, {"agent_calls": 0, "llm_calls": 0})
+        if budget["agent_calls"] >= MAX_AGENT_CALLS_PER_JOB:
+            raise AgentProtocolError(
+                f"Job agent call budget of {MAX_AGENT_CALLS_PER_JOB} exceeded",
+                error_code="budget_exceeded"
+            )
+
+        # 3. Correlation & Content Hash Matching (Section 6.3)
         if expected_correlation_id and task.correlation_id != expected_correlation_id:
             raise AgentProtocolError(
                 f"Correlation mismatch: expected '{expected_correlation_id}', got '{task.correlation_id}'",
@@ -98,11 +129,11 @@ class AgentMessageBus:
                 error_code="version_mismatch"
             )
 
-        # 3. Route Check (Section 7)
+        # 4. Route Check (Section 7)
         if (task.sender, task.recipient) not in ALLOWED_ROUTES:
             raise RouteNotAllowedError(task.sender, task.recipient)
 
-        # 4. Check recipient read permissions on input artifacts (Section 6.3)
+        # 5. Check recipient read permissions on input artifacts (Section 6.3)
         allowed_read_types = ARTIFACT_PERMISSIONS.get(task.recipient, {}).get("reads", set())
         for art_id in task.input_artifact_references:
             art = self.artifact_store.get(art_id, requesting_tenant=task.tenant_id)
@@ -121,6 +152,30 @@ class AgentMessageBus:
             "idempotency_key": task.idempotency_key,
         })
         return None  # Ready for agent execution
+
+    def execute_task(
+        self,
+        task: TaskMessage,
+        expected_correlation_id: Optional[str] = None,
+        expected_content_hash: Optional[str] = None,
+    ) -> ResultMessage:
+        """Executes a task through its registered agent runner under msg/1.0 protocol (Section 6.3)."""
+        cached = self.dispatch_task(task, expected_correlation_id, expected_content_hash)
+        if cached:
+            return cached
+
+        runner = self._runners.get(task.recipient)
+        if not runner:
+            raise AgentProtocolError(
+                f"No runner registered for agent '{task.recipient}'",
+                error_code="unauthorized_tool"
+            )
+
+        # Increment agent call counter against job budget
+        self._job_budgets[task.correlation_id]["agent_calls"] += 1
+
+        result = runner(task, self)
+        return self.record_result(task, result)
 
     def record_result(
         self,

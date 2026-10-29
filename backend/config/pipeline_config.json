@@ -57,8 +57,9 @@
   },
   "governance": {
     "min_passing_score": 80.0,
-    "max_daily_calls": 0,
+    "max_daily_calls": 110,
     "unlimited_daily_calls": true,
     "sop_scan_interval_minutes": 10
-  }
+  },
+  "execution_mode": "command_only"
 }

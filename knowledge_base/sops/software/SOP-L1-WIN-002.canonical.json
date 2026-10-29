@@ -23,6 +23,7 @@
     "status": "present",
     "value": "author@corp.com",
     "source_lines": [
+      3,
       4
     ]
   },
@@ -30,30 +31,32 @@
     "status": "present",
     "value": "v1.0",
     "source_lines": [
+      3,
       4
     ]
   },
   "review_date": {
     "status": "present",
-    "value": "2026-10-27",
+    "value": "2026-10-29",
     "source_lines": [
+      3,
       4
     ]
   },
   "source": {
     "filename": "sop-l1-win-002.txt",
-    "sha256": "618cc9599e4601b0d0ead02c9bdf657fb5f448741e4a4802e32b654aa5be4b2d",
-    "size": 277,
+    "sha256": "dc8e7d1835092666e6eba35564ac242645662e523199760997c31de40ed63178",
+    "size": 287,
     "detected_type": "text/plain",
     "pages": 1,
     "extracted_lines": 4,
     "ocr": false
   },
   "purpose": {
-    "text": "Automated workflow to verify if a specific application process is running and forcibly terminate it if detected.",
+    "text": "Automated workflow to verify if a specific application process is running and forcibly terminate it if confirmed.",
     "source_lines": [
-      1,
-      2
+      2,
+      3
     ],
     "quote": "Automated workflow to verify if a specific application process is running and forcibly terminate it ",
     "verified": true
@@ -61,10 +64,10 @@
   "scope": {
     "text": "Applies to software operations and authorized agents.",
     "source_lines": [
-      2,
-      3
+      1,
+      2
     ],
-    "quote": "software",
+    "quote": "Applies to software operations and authorized agents.",
     "verified": true
   },
   "preconditions": [],
@@ -80,7 +83,7 @@
   "steps": [
     {
       "n": 1,
-      "action": "Verify if the target application process is currently running.",
+      "action": "Verify if the target application process is currently running on the system.",
       "input": "tasklist | findstr \"{{entities.application}}\"",
       "expected_outcome": "If stdout contains '{{entities.application}}', set variables.process_running = true, else set variables.process_running = false",
       "warning": null,
@@ -88,15 +91,15 @@
       "requires_approval": false,
       "risk": "low",
       "source_lines": [
-        2,
-        3
+        3,
+        4
       ],
-      "quote": "Verify if the target application process is currently running.",
+      "quote": "Verify if the target application process is currently running on the system.",
       "verified": true
     },
     {
       "n": 2,
-      "action": "Forcefully terminate the hung application process.",
+      "action": "Force-terminate the hung application process.",
       "input": "taskkill /F /IM \"{{entities.application}}.exe\"",
       "expected_outcome": "If exit code is 0, set variables.process_terminated = true, else set variables.process_terminated = false",
       "warning": null,
@@ -105,9 +108,9 @@
       "risk": "low",
       "source_lines": [
         4,
-        5
+        4
       ],
-      "quote": "Forcefully terminate the hung application process.",
+      "quote": "Force-terminate the hung application process.",
       "verified": true
     }
   ],
@@ -139,12 +142,12 @@
   "lifecycle": {
     "state": "structuring",
     "uploaded_by": "author@corp.com",
-    "created_at": "2026-10-27T11:04:50.634737+00:00",
+    "created_at": "2026-10-29T09:34:25.418943+00:00",
     "approvals": []
   },
   "provenance": {
     "producing_agent": "A2_structuring",
     "provider": "elverve_ai",
-    "generated_at": "2026-10-27T11:04:50.634737+00:00"
+    "generated_at": "2026-10-29T09:34:25.418943+00:00"
   }
 }

@@ -6,11 +6,11 @@ platform: system
 category: software
 target_os: windows
 description: Automated workflow to verify if a specific application process is running
-  and forcibly terminate it if detected.
+  and forcibly terminate it if confirmed.
 confidence_score: 0.98
 confidence_level: High
 confidence_reason: All steps mapped to deterministic Windows PowerShell commands with
-  exact variable linkage and conditional execution.
+  exact variable linkage and conditional execution based on process presence.
 is_executable: true
 unexecutable_reason: null
 automation_status: fully_automated
@@ -25,7 +25,8 @@ trigger_words:
 - application
 steps:
 - step_number: 1
-  sop_step_description: Verify if the target application process is currently running.
+  sop_step_description: Verify if the target application process is currently running
+    on the system.
   step_type: command
   platform: null
   function_name: null
@@ -39,7 +40,7 @@ steps:
   timeout_seconds: 30
   shell: powershell
 - step_number: 2
-  sop_step_description: Forcefully terminate the hung application process.
+  sop_step_description: Force-terminate the hung application process.
   step_type: command
   platform: null
   function_name: null
@@ -58,36 +59,29 @@ source_action_coverage:
   step_number: null
   tool: null
   condition: null
-  reason: GUI setup instruction omitted; execution environment is assumed to be PowerShell.
+  reason: 'GUI setup instruction omitted; execution environment is defined by shell:
+    powershell.'
 - source_action: Verify the application is running using tasklist | findstr
   coverage: command_covered
   step_number: 1
   tool: null
   condition: null
-  reason: Deterministic diagnostic command to check process existence.
+  reason: Diagnostic check to confirm process existence before termination.
 - source_action: Terminate the application using taskkill /F /IM
   coverage: command_covered
   step_number: 2
   tool: null
   condition: null
-  reason: Deterministic corrective command gated on process detection.
-validation_confidence_score: 0.95
-validation_confidence_level: High
-validation_confidence_reason: All executable actions from the raw SOP are properly
-  represented in the OKF steps with correct parameter mapping. No hallucinations,
-  malicious commands, or prompt injection detected. The coverage ledger correctly
-  accounts for GUI setup omission and command coverage.
-injection_detected: false
-injection_reasoning: ''
+  reason: Corrective action to force-terminate the hung process.
 integrity_version: v2
-integrity_hmac_sha256: 46ec3251d7731b3bee1afa53282f2271e551f8722d952e093f9f2761e9117d55
+integrity_hmac_sha256: 25e78014594c8c8352e5ae49630c1cfc4cc3b35cbeba7d26558eae07aa342b46
 ---
 
 # Check and Terminate a Hung Application – Windows Playbook
 
 ## Overview
-Automated workflow to verify if a specific application process is running and forcibly terminate it if detected.
+Automated workflow to verify if a specific application process is running and forcibly terminate it if confirmed.
 
 ## Execution Steps
-- **Step 1**: Verify if the target application process is currently running. (`tasklist | findstr "{{entities.application}}"`)
-- **Step 2**: Forcefully terminate the hung application process. (`taskkill /F /IM "{{entities.application}}.exe"`)
+- **Step 1**: Verify if the target application process is currently running on the system. (`tasklist | findstr "{{entities.application}}"`)
+- **Step 2**: Force-terminate the hung application process. (`taskkill /F /IM "{{entities.application}}.exe"`)

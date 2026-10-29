@@ -1,0 +1,182 @@
+{
+  "schema_version": "1.0",
+  "sop_id": "SOL-PWD-RESET-ESCALATED",
+  "version": 1,
+  "tenant_id": "tn_northwind",
+  "title": "Reset a Locked-Out User's Password via CoreID Admin Console",
+  "title_lines": [
+    1,
+    2
+  ],
+  "metadata_lines": [
+    3,
+    4
+  ],
+  "department": {
+    "status": "present",
+    "value": "Password_reset",
+    "source_lines": [
+      3
+    ]
+  },
+  "owner": {
+    "status": "present",
+    "value": "author@corp.com",
+    "source_lines": [
+      4
+    ]
+  },
+  "version_label": {
+    "status": "present",
+    "value": "v1.0",
+    "source_lines": [
+      4
+    ]
+  },
+  "review_date": {
+    "status": "present",
+    "value": "2026-10-29",
+    "source_lines": [
+      4
+    ]
+  },
+  "source": {
+    "filename": "sol-pwd-reset-escalated.txt",
+    "sha256": "cd81c81ae687f12b793ff301805e6fae2efed432db372678db98705ca58dfc6a",
+    "size": 974,
+    "detected_type": "text/plain",
+    "pages": 1,
+    "extracted_lines": 6,
+    "ocr": false
+  },
+  "purpose": {
+    "text": "L1 escalation runbook for Solandra Corp: an authorized agent with the CoreID Password Reset Admin role locates a locked user, verifies caller identity via the 2-of-4 checklist, generates a temporary password with force-change-at-next-sign-in enabled, and resolves the ticket with an audit note. The temporary password is relayed verbally over the verified phone line and is never sent by email, chat, or ticket comment.",
+    "source_lines": [
+      1,
+      2
+    ],
+    "quote": "L1 escalation runbook for Solandra Corp: an authorized agent with the CoreID Password Reset Admin ro",
+    "verified": true
+  },
+  "scope": {
+    "text": "Applies to password_reset operations and authorized agents.",
+    "source_lines": [
+      2,
+      3
+    ],
+    "quote": "password_reset",
+    "verified": true
+  },
+  "preconditions": [],
+  "roles": [
+    {
+      "role": "Operator",
+      "responsibility": "Executes Reset a Locked-Out User's Password via CoreID Admin Console",
+      "source_lines": [
+        1
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "n": 1,
+      "action": "Search the CoreID user directory by employee ID to locate the account and confirm its lock status.",
+      "input": "{\"employee_id\": \"{{entities.employee_id}}\"}",
+      "expected_outcome": "Extract response.found to variables.user_found, response.user_id to variables.user_id, response.status to variables.account_status, response.manager_name to variables.manager_name, and response.department to variables.department",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        2,
+        3
+      ],
+      "quote": "Search the CoreID user directory by employee ID to locate the account and confirm its lock status.",
+      "verified": true
+    },
+    {
+      "n": 2,
+      "action": "Verify the caller's identity against the CoreID checklist (minimum 2 of 4 items: employee ID, manager name, department, phone last 4). No one-time code is sent.",
+      "input": "{\"user_id\": \"{{variables.user_id}}\", \"employee_id\": \"{{entities.employee_id}}\", \"manager_name\": \"{{entities.manager_name}}\", \"department\": \"{{entities.department}}\", \"phone_last4\": \"{{entities.phone_last4}}\"}",
+      "expected_outcome": "Extract response.verified to variables.identity_verified, response.matched_count to variables.matched_count, and response.matched_items to variables.matched_items",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        4,
+        5
+      ],
+      "quote": "Verify the caller's identity against the CoreID checklist (minimum 2 of 4 items: employee ID, manager name, department, phone last 4). No one-time code is sent.",
+      "verified": true
+    },
+    {
+      "n": 3,
+      "action": "Generate a temporary password for the locked user with force-change-at-next-sign-in left enabled.",
+      "input": "{\"user_id\": \"{{variables.user_id}}\"}",
+      "expected_outcome": "Extract response.temporary_password to variables.temporary_password, response.force_change_at_next_sign_in to variables.force_change_enabled, and response.status to variables.password_status",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        6,
+        7
+      ],
+      "quote": "Generate a temporary password for the locked user with force-change-at-next-sign-in left enabled.",
+      "verified": true
+    },
+    {
+      "n": 4,
+      "action": "Log the resolution audit note (identity checks matched, temporary password issued, force-change enabled) and set the ticket to Resolved.",
+      "input": "{\"ticket_id\": \"{{entities.ticket_id}}\", \"resolution_note\": \"Admin-mediated password reset completed. Caller identity verified ({{variables.matched_count}} of 4 checks matched: {{variables.matched_items}}). Temporary password issued via CoreID. Force-change-at-next-sign-in: enabled. No OTP sent - admin-mediated reset per policy. Temporary password relayed verbally over verified phone line.\"}",
+      "expected_outcome": "Extract response.status to variables.ticket_status and response.audit_logged to variables.audit_logged",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        8,
+        9
+      ],
+      "quote": "Log the resolution audit note (identity checks matched, temporary password issued, force-change enabled) and set the ticket to Resolved.",
+      "verified": false
+    }
+  ],
+  "exceptions": [],
+  "notes": [],
+  "references": [],
+  "media": [],
+  "issues": [],
+  "classification": {
+    "level": "L0",
+    "score": 5,
+    "evidence_categories": [
+      "baseline_internal_sop"
+    ],
+    "rule_level": "L0",
+    "ai_suggested_level": "L0",
+    "rationale": "Deterministic rule classification",
+    "confirmed": false
+  },
+  "quality": {
+    "completeness": 100.0,
+    "traceability": 75.0,
+    "schema_valid": true,
+    "blocking_issues_count": 0,
+    "quality_score": 90.0,
+    "status": "Needs attention"
+  },
+  "transformations": [],
+  "lifecycle": {
+    "state": "structuring",
+    "uploaded_by": "author@corp.com",
+    "created_at": "2026-10-29T07:26:33.162981+00:00",
+    "approvals": []
+  },
+  "provenance": {
+    "producing_agent": "A2_structuring",
+    "provider": "elverve_ai",
+    "generated_at": "2026-10-29T07:26:33.162981+00:00"
+  }
+}

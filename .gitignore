@@ -129,3 +129,5 @@ quick_trace_*.txt
 
 /docs
 docs
+.pdf_tools
+*SOP-TEST-*

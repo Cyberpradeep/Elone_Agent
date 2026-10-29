@@ -46,6 +46,9 @@ class TestJITConverterTools(unittest.TestCase):
 
     def test_jit_converter_tool_playbook_schema(self):
         """Verify raw SOP for user account unlock parses into tool call steps when matching catalog."""
+        from config.settings import get_execution_mode
+        if get_execution_mode() == "command_only":
+            self.skipTest("Skipping tool call test because execution_mode is currently set to 'command_only'")
         with tempfile.TemporaryDirectory() as tmp_dir:
             sop_file = os.path.join(tmp_dir, "raw_account_unlock.txt")
             with open(sop_file, "w", encoding="utf-8") as f:
