@@ -69,6 +69,7 @@ _DEFAULT_CONFIG: Dict[str, Any] = {
         "unlimited_daily_calls": True,
         "sop_scan_interval_minutes": 10,
     },
+    "execution_mode": "command_only",
 }
 
 
@@ -147,6 +148,9 @@ class PipelineSettings:
                     cfg["governance"]["unlimited_daily_calls"] = True
             except ValueError:
                 pass
+
+        if os.environ.get("EXECUTION_MODE"):
+            cfg["execution_mode"] = os.environ["EXECUTION_MODE"].strip().lower()
 
         self._cached_config = cfg
         return self._cached_config
@@ -239,6 +243,10 @@ class PipelineSettings:
     def min_passing_score(self) -> float:
         return float(self._cached_config.get("governance", {}).get("min_passing_score", 80.0))
 
+    @property
+    def execution_mode(self) -> str:
+        return str(self._cached_config.get("execution_mode", "command_only")).strip().lower()
+
 
 # Global singleton instance
 settings = PipelineSettings()
@@ -246,6 +254,9 @@ settings = PipelineSettings()
 # Exported helper accessor functions for clean, decoupled consumption
 def get_settings() -> PipelineSettings:
     return settings
+
+def get_execution_mode() -> str:
+    return settings.execution_mode
 
 def is_unlimited_daily_calls() -> bool:
     return settings.is_unlimited_daily_calls

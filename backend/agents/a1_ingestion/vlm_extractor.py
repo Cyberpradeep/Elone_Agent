@@ -126,6 +126,20 @@ def extract_confidence_score(report_text: str) -> Dict[str, Any]:
     return {"score": score, "level": level, "reason": reason}
 
 
+def estimate_image_tokens(image_bytes: bytes) -> int:
+    """Calculates dynamic image token consumption based on image resolution patches."""
+    try:
+        from PIL import Image
+        import io
+        with Image.open(io.BytesIO(image_bytes)) as img:
+            width, height = img.size
+        tiles_x = max(1, (width + 511) // 512)
+        tiles_y = max(1, (height + 511) // 512)
+        return min(4096, (tiles_x * tiles_y * 560) + 200)
+    except Exception:
+        return max(256, min(2400, len(image_bytes) // 256))
+
+
 def analyze_image_bytes(image_bytes: bytes, mime_type: str) -> str:
     """Analyzes image bytes using VLM via LangChain with rate-limit retry backoff."""
     is_valid, sec_err, sanitized_bytes, actual_mime = validate_and_sanitize_image_bytes(image_bytes, mime_type)
@@ -155,12 +169,12 @@ def analyze_image_bytes(image_bytes: bytes, mime_type: str) -> str:
 
     max_retries = 2
     last_error: Optional[Exception] = None
+    img_tok = estimate_image_tokens(image_bytes)
     for attempt in range(1, max_retries + 1):
         try:
             res = llm.invoke([message])
             in_tok = 0
             out_tok = 0
-            img_tok = 1600
             if hasattr(res, "usage_metadata") and res.usage_metadata:
                 in_tok = res.usage_metadata.get("input_tokens", 0)
                 out_tok = res.usage_metadata.get("output_tokens", 0)
