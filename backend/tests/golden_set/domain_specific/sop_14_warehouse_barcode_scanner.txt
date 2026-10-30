@@ -1,0 +1,25 @@
+STANDARD OPERATING PROCEDURE: Warehouse Barcode Scanner Terminal Soft Reset & Staging Recovery
+Document ID: SOP-WHS-014
+Owner: Mike Ross, Logistics Systems Lead
+Effective Date: 2026-10-26
+Department: Warehouse Logistics
+Classification: Internal Only
+
+1. Purpose
+Provides warehouse fulfillment IT technicians with terminal commands to recover frozen Zebra TC52 mobile barcode scanners connected to the depot diagnostic dock.
+
+2. Preconditions
+- Scanner is docked into USB staging cradle connected to the warehouse terminal workstation whs-depot-01.corp.internal.
+- Device battery indicates >= 20% charge.
+- Technician holds authorized access to ADB staging utilities.
+
+3. Procedure
+1. Check USB dock communication and verify connected scanner state using adb get-state.
+2. Forcefully terminate and purge memory cache for the warehouse fulfillment scan app using adb shell pm clear com.zebra.fulfillment.scanner.
+3. Broadcast the StageNow automated staging intent profile using adb shell am broadcast -a com.symbol.stagenow.action.EXECUTE -e script_file "/enterprise/usr/persist/whs_config.xml".
+4. Query device diagnostic logcat buffer to confirm successful profile application using adb logcat -d -s StageNow | grep -E "Configuration\s+applied\s+successfully".
+5. Soft reboot the mobile computer scanner to apply persistent runtime settings using adb reboot.
+
+4. Escalation Criteria
+- If adb get-state returns unauthorized or device offline, re-seat device in USB dock or replace staging cable.
+- If scan engine hardware fails to calibrate after reboot, mark scanner hardware defective and route to vendor RMA.

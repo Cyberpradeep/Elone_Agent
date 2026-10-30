@@ -32,6 +32,7 @@ from agents.a1_ingestion.intake_validator import validate_sop_file
 from agents.a1_ingestion.document_extractor import extract_ordered_sop_content
 from agents.a2_structuring.execution_planner import plan_okf_from_raw
 from agents.a2_structuring.canonical_builder import build_canonical_sop_from_draft, write_canonical_sop_json
+from agents.a2_structuring.text_cleaner import clean_and_normalize_text
 from agents.a3_security.secret_scanner import scan_for_secrets
 from utils.security import redact_sensitive_dlp
 from agents.a3_security.ast_sandbox import scan_commands_for_ast_threats
@@ -228,9 +229,9 @@ def run_a3_security(task: TaskMessage, bus: Any) -> ResultMessage:
         )
         bus.artifact_store.put(findings_art)
 
-        # Secret Gate Policy: If live secret detected, terminal quarantine (Section 10)
-        # Note: In our DLP, detected secret is masked. If critical secret found that requires block:
-        is_blocked = total_secrets > 0 and task.requested_operation.get("strict_quarantine_on_secret", False)
+        # Secret Gate Policy: If live credential detected, terminal quarantine (Section 10)
+        crit_secrets = sum(redaction_counts.get(k, 0) for k in ("passwords", "api_keys", "private_keys"))
+        is_blocked = crit_secrets > 0 or task.requested_operation.get("strict_quarantine_on_secret", False)
 
         return ResultMessage(
             task_id=task.task_id,
@@ -314,15 +315,19 @@ def run_a2_structuring(task: TaskMessage, bus: Any) -> ResultMessage:
         except AgentProtocolError:
             feedback_errors = task.requested_operation.get("errors") or []
 
-    # 1. Cleaned text representation (Rule WS-01 whitespace normalization)
-    cleaned_lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
-    cleaned_text = "\n".join(cleaned_lines)
+    # 1. Cleaned text representation (Rules WS-01, HF-01, HF-02)
+    cleaned_text, transformations = clean_and_normalize_text(raw_text)
+    cleaned_lines = [line.strip() for line in cleaned_text.splitlines() if line.strip()]
 
     cleaned_art = Artifact.create(
         tenant_id=task.tenant_id,
         artifact_type="cleaned",
         created_by="A2",
-        data={"cleaned_text": cleaned_text, "lines_count": len(cleaned_lines)},
+        data={
+            "cleaned_text": cleaned_text,
+            "lines_count": len(cleaned_lines),
+            "transformations": transformations,
+        },
     )
     bus.artifact_store.put(cleaned_art)
 
@@ -349,6 +354,7 @@ def run_a2_structuring(task: TaskMessage, bus: Any) -> ResultMessage:
             tenant_id=task.tenant_id,
             uploaded_by=task.requested_operation.get("uploaded_by", "author@corp.com"),
             source_metadata=source_meta,
+            transformations=transformations,
         )
     except Exception as conv_err:
         return ResultMessage(
@@ -434,6 +440,12 @@ def run_a4_verification(task: TaskMessage, bus: Any) -> ResultMessage:
         for n in canonical_data.get("notes"):
             if isinstance(n, dict):
                 metadata_fields.append(n.get("text", ""))
+    if isinstance(canonical_data.get("preconditions"), list):
+        for p in canonical_data["preconditions"]:
+            metadata_fields.append(p.get("text", "") if isinstance(p, dict) else str(p))
+    if isinstance(canonical_data.get("exceptions"), list):
+        for e in canonical_data["exceptions"]:
+            metadata_fields.append(f"{e.get('condition', '')} {e.get('action', '')}" if isinstance(e, dict) else str(e))
 
     total_non_blank, mapped_source_lines, mapped_indices = compute_source_line_coverage(
         raw_lines=raw_lines,

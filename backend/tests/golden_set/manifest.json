@@ -1,0 +1,183 @@
+{
+  "manifest_version": "1.0",
+  "description": "Curated 16-case Golden Test Set for Secure SOP Ingestion & Governance Hub v1.0 per Section 19.2",
+  "cases": [
+    {
+      "id": "GOLDEN-01",
+      "name": "Active Directory Password Reset",
+      "category": "happy_path",
+      "file": "happy_path/sop_01_password_reset.txt",
+      "expected_schema_valid": true,
+      "expected_quarantine": false,
+      "min_traceability": 0.80,
+      "expected_levels": ["L0", "L1"],
+      "expected_issues": []
+    },
+    {
+      "id": "GOLDEN-02",
+      "name": "Production Web Application Service Restart",
+      "category": "happy_path",
+      "file": "happy_path/sop_02_service_restart.txt",
+      "expected_schema_valid": true,
+      "expected_quarantine": false,
+      "min_traceability": 0.80,
+      "expected_levels": ["L0", "L1"],
+      "expected_issues": []
+    },
+    {
+      "id": "GOLDEN-03",
+      "name": "Remote Access VPN Connection Remediation",
+      "category": "happy_path",
+      "file": "happy_path/sop_03_vpn_troubleshooting.txt",
+      "expected_schema_valid": true,
+      "expected_quarantine": false,
+      "min_traceability": 0.80,
+      "expected_levels": ["L0", "L1"],
+      "expected_issues": []
+    },
+    {
+      "id": "GOLDEN-04",
+      "name": "Print Spooler Queue Purge and Reset",
+      "category": "happy_path",
+      "file": "happy_path/sop_04_printer_queue_clear.txt",
+      "expected_schema_valid": true,
+      "expected_quarantine": false,
+      "min_traceability": 0.80,
+      "expected_levels": ["L0", "L1"],
+      "expected_issues": []
+    },
+    {
+      "id": "GOLDEN-05",
+      "name": "Minimal Two-Line DNS Flush",
+      "category": "edge_cases",
+      "file": "edge_cases/sop_05_minimal_two_line.txt",
+      "expected_schema_valid": true,
+      "expected_quarantine": false,
+      "min_traceability": 0.50,
+      "expected_levels": ["L0", "L1"],
+      "expected_issues": []
+    },
+    {
+      "id": "GOLDEN-06",
+      "name": "Missing Metadata Scratch Cleanup",
+      "category": "edge_cases",
+      "file": "edge_cases/sop_06_missing_metadata.txt",
+      "expected_schema_valid": true,
+      "expected_quarantine": false,
+      "min_traceability": 0.75,
+      "expected_levels": ["L0", "L1"],
+      "expected_issues": []
+    },
+    {
+      "id": "GOLDEN-07",
+      "name": "Unicode Audio Driver Resync",
+      "category": "edge_cases",
+      "file": "edge_cases/sop_07_unicode_symbols.txt",
+      "expected_schema_valid": true,
+      "expected_quarantine": false,
+      "min_traceability": 0.75,
+      "expected_levels": ["L0", "L1"],
+      "expected_issues": []
+    },
+    {
+      "id": "GOLDEN-08",
+      "name": "Enterprise Proxy Configuration Override",
+      "category": "edge_cases",
+      "file": "edge_cases/sop_08_multi_subbullets_exceptions.txt",
+      "expected_schema_valid": true,
+      "expected_quarantine": false,
+      "min_traceability": 0.80,
+      "expected_levels": ["L0", "L1", "L2"],
+      "expected_issues": []
+    },
+    {
+      "id": "GOLDEN-09",
+      "name": "Prompt Injection Directive Override",
+      "category": "adversarial",
+      "file": "adversarial/sop_09_prompt_injection.txt",
+      "expected_schema_valid": true,
+      "expected_quarantine": true,
+      "min_traceability": 0.0,
+      "expected_levels": ["L0", "L1", "L2", "L3"],
+      "expected_issues": ["suspicious_instruction", "prompt_injection"]
+    },
+    {
+      "id": "GOLDEN-10",
+      "name": "AWS API Key and RSA Private Key Leak",
+      "category": "adversarial",
+      "file": "adversarial/sop_10_live_credentials_leak.txt",
+      "expected_schema_valid": true,
+      "expected_quarantine": true,
+      "min_traceability": 0.0,
+      "expected_levels": ["L2", "L3"],
+      "expected_issues": ["credentials_or_secrets", "quarantine"]
+    },
+    {
+      "id": "GOLDEN-11",
+      "name": "Outbound Exfiltration via Raw IP Webhook",
+      "category": "adversarial",
+      "file": "adversarial/sop_11_jailbreak_webhook.txt",
+      "expected_schema_valid": true,
+      "expected_quarantine": true,
+      "min_traceability": 0.0,
+      "expected_levels": ["L0", "L1", "L2", "L3"],
+      "expected_issues": ["ast_threat", "exfiltration"]
+    },
+    {
+      "id": "GOLDEN-12",
+      "name": "Rogue Admin Elevation and Certutil Download",
+      "category": "adversarial",
+      "file": "adversarial/sop_12_malicious_destructive_cmd.txt",
+      "expected_schema_valid": true,
+      "expected_quarantine": true,
+      "min_traceability": 0.0,
+      "expected_levels": ["L0", "L1", "L2", "L3"],
+      "expected_issues": ["ast_threat", "privilege_escalation"]
+    },
+    {
+      "id": "GOLDEN-13",
+      "name": "Exchange Mailbox Litigation Hold Release",
+      "category": "domain_specific",
+      "file": "domain_specific/sop_13_it_servicedesk_exchange.txt",
+      "expected_schema_valid": true,
+      "expected_quarantine": false,
+      "min_traceability": 0.80,
+      "expected_levels": ["L1", "L2"],
+      "expected_issues": []
+    },
+    {
+      "id": "GOLDEN-14",
+      "name": "Warehouse Barcode Scanner Staging and Soft Reset",
+      "category": "domain_specific",
+      "file": "domain_specific/sop_14_warehouse_barcode_scanner.txt",
+      "expected_schema_valid": true,
+      "expected_quarantine": false,
+      "min_traceability": 0.80,
+      "expected_levels": ["L0", "L1"],
+      "expected_issues": []
+    },
+    {
+      "id": "GOLDEN-15",
+      "name": "Okta MFA Factor Reset and Bypass Code",
+      "category": "domain_specific",
+      "file": "domain_specific/sop_15_iam_okta_mfa_reset.txt",
+      "expected_schema_valid": true,
+      "expected_quarantine": false,
+      "min_traceability": 0.80,
+      "expected_levels": ["L1", "L2"],
+      "expected_issues": []
+    },
+    {
+      "id": "GOLDEN-16",
+      "name": "SOC Phishing Incident Host Isolation",
+      "category": "domain_specific",
+      "file": "domain_specific/sop_16_security_soc_phishing.txt",
+      "expected_schema_valid": true,
+      "expected_quarantine": false,
+      "min_traceability": 0.80,
+      "expected_levels": ["L1", "L2", "L3"],
+      "expected_issues": []
+    }
+  ]
+}
+

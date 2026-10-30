@@ -7,6 +7,7 @@ within a +/-1 line boundary window.
 """
 
 import re
+from collections import Counter
 from typing import List, Dict, Any, Tuple, Optional, Set
 
 
@@ -101,20 +102,29 @@ def compute_source_line_coverage(
             tokens = set(tok for tok in norm.split() if len(tok) > 2)
             non_blank[idx] = (stripped, tokens)
 
-    mapped_line_indices = set()
+    # Detect repeating headers/footers dynamically across multi-page documents (appearing 3+ times)
+    line_counts = Counter(s for s, _ in non_blank.values())
+    repeats = {l for l, c in line_counts.items() if c >= 3 and len(l) > 3}
+    mapped_line_indices = {idx for idx, (s, _) in non_blank.items() if s in repeats}
 
-    # 2. Structural document scaffolding patterns (headers, metadata, sections, dates, footers)
+    # 2. Universal Structural document scaffolding patterns (headers, metadata, sections, dates, footers)
     structural_patterns = [
-        r"^standard operating procedure",
-        r"^(?:document\s+)?owner",
-        r"^platform",
-        r"^(?:effective|review)\s+date",
-        r"^review\s+cycle",
-        r"^\d+[\.\)]\s*(?:purpose|scope|procedure|notes|prerequisites|preconditions|verification|overview|requirements)",
-        r"^internal it documentation",
-        r"^page\s+\d+",
-        r"^\d{1,2}-[a-z]{3}-\d{4}",
-        r"^(?:annual|quarterly|monthly|bi-annual)$",
+        r"^\s*standard operating procedure",
+        r"^\s*(?:document\s+)?owner",
+        r"^\s*platform",
+        r"^\s*(?:effective|review)\s+date",
+        r"^\s*review\s+cycle",
+        r"^\s*\.?\s*table of contents",
+        r"^\s*(?:document\s+control|revision\s+history|change\s+log|document\s+history)",
+        r"^\s*\d+[\.\)]\s*(?:purpose|scope|procedure|notes|prerequisites|preconditions|verification|overview|requirements|objective|detailed procedure|escalation|document control)",
+        r"^\s*(?:objective|purpose|scope|prerequisites|preconditions|escalation criteria|document control|detailed procedure):?$",
+        r"^\s*(?:sop\s+id|support\s+level|primary\s+remediation\s+path|document\s+version|status|classification|attribute|value):?$",
+        r"^\s*(?:process\s+flow\s+overview|decision\s+flow):?$",
+        r"^\s*(?:step\s+\d+|expected\s+result|resolution\s+notes|action\s+taken|root\s+cause|issue|status)\b",
+        r"^\s*internal it documentation",
+        r"^\s*page\s+\d+(?:\s+of\s+\d+)?",
+        r"^\s*\d{1,2}-[a-z]{3}-\d{4}",
+        r"^\s*(?:annual|quarterly|monthly|bi-annual)$",
     ]
     structural_re = re.compile("|".join(f"(?:{p})" for p in structural_patterns), re.IGNORECASE)
 

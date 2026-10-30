@@ -19,6 +19,10 @@ from agents.a2_structuring.canonical_builder import (
     build_canonical_sop_from_draft,
     write_canonical_sop_json,
 )
+try:
+    from utils.pipeline_logger import log_info, log_warning
+except ImportError:
+    from backend.utils.pipeline_logger import log_info, log_warning
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 KB_DIR = os.getenv("ELONE_KB_DIR")
@@ -101,7 +105,7 @@ def write_okf_playbook(draft: Dict[str, Any], raw_filename: str = "(reviewed dra
     with open(okf_file_path, "w", encoding="utf-8") as f:
         f.write(okf_content)
 
-    print(f"[SUCCESS] JIT OKF Playbook saved to: {okf_file_path}")
+    log_info("OKF Builder", f"JIT OKF Playbook saved to: {os.path.basename(okf_file_path)}")
 
     # 4. Auto-initialize Reflection Rulebook knowledge_base/patterns/<category>/rules_<SOP_ID>.md
     _initialize_reflection_rulebook(sop_id, title, category)
@@ -116,7 +120,7 @@ def write_okf_playbook(draft: Dict[str, Any], raw_filename: str = "(reviewed dra
         canonical_data = build_canonical_sop_from_draft(draft, raw_text=draft.get("raw_text", ""))
         write_canonical_sop_json(canonical_data, category=category)
     except Exception as e:
-        print(f"[WARN] Dual export canonical JSON generation failed: {e}")
+        log_warning("OKF Builder", f"Dual export canonical JSON generation failed: {e}")
 
     return okf_file_path
 
@@ -142,7 +146,7 @@ type: ReflectionRulebook
 """
         with open(rulebook_path, "w", encoding="utf-8") as f:
             f.write(content)
-        print(f"[Memory Logger] Auto-initialized Reflection Rulebook: {rulebook_path}")
+        log_info("Memory Logger", f"Auto-initialized Reflection Rulebook: {os.path.basename(rulebook_path)}")
 
 
 def _update_sops_catalog_indexes():
@@ -173,7 +177,7 @@ def _update_sops_catalog_indexes():
                         cat_entries.append(f"- [{title}](./{filename}) | Platform: `{platform}` | Triggers: `{triggers_str}` | {desc}")
                         master_entries.append(entry)
                     except Exception as e:
-                        print(f"[OKF Catalog Warning] Failed reading {filename}: {e}")
+                        log_warning("OKF Catalog", f"Failed reading {filename}: {e}")
 
             if cat_entries:
                 cat_index_content = f"# {cat_name.capitalize()} Playbooks Catalog\n\n" + "\n".join(cat_entries) + "\n"

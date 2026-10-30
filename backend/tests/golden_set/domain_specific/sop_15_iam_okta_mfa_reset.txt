@@ -1,0 +1,25 @@
+STANDARD OPERATING PROCEDURE: Identity Provider MFA Factor De-enrollment via Admin API CLI
+Document ID: SOP-IAM-015
+Owner: Priya Sharma, Identity & Access Manager
+Effective Date: 2026-10-27
+Department: Identity & Access Management
+Classification: Confidential
+
+1. Purpose
+Defines safe authentication factor reset using the Okta Identity Cloud REST CLI when an employee loses or replaces their registered mobile authenticator device for portal.corp.internal.
+
+2. Preconditions
+- Employee out-of-band verification completed with HR ticket confirmation.
+- Operator holds Helpdesk Administrator role with valid temporary session token in $OKTA_API_TOKEN.
+- Target tenant gateway portal.corp.internal is reachable.
+
+3. Procedure
+1. Query directory user endpoint to obtain target employee unique identifier using curl -s -f -H "Authorization: SSWS $OKTA_API_TOKEN" "https://portal.corp.internal/api/v1/users?q=user@corp.internal" | jq -r ".[0].id".
+2. List all currently registered authentication factors for target user using curl -s -f -H "Authorization: SSWS $OKTA_API_TOKEN" "https://portal.corp.internal/api/v1/users/$USER_ID/factors".
+3. Delete the specific compromised or lost mobile device factor using curl -s -f -X DELETE -H "Authorization: SSWS $OKTA_API_TOKEN" "https://portal.corp.internal/api/v1/users/$USER_ID/factors/$FACTOR_ID".
+4. Revoke all active user web and API bearer sessions immediately using curl -s -f -X POST -H "Authorization: SSWS $OKTA_API_TOKEN" "https://portal.corp.internal/api/v1/users/$USER_ID/lifecycle/clear_sessions".
+5. Issue a temporary 24-hour factor re-enrollment activation token using curl -s -f -X POST -H "Authorization: SSWS $OKTA_API_TOKEN" "https://portal.corp.internal/api/v1/users/$USER_ID/lifecycle/reset_factors".
+
+4. Escalation Criteria
+- If HTTP 403 Forbidden is returned, verify administrator RBAC permissions and session token expiration.
+- If user account shows anomalous authentication attempts from external IP addresses, lock account and escalate to SOC.

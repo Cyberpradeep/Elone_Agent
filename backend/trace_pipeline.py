@@ -10,21 +10,26 @@ Implements bus-driven, pure artifact-passing SOP governance tracing under protoc
   [Correction Loop]             -> Automated A4 -> A2 feedback loop (bounded to max 1 loop per revision)
   [A5] Human Review & Staging   -> Staged in _drafts/, dual-custody review task RT-xxxxxx (Artifact: 'review_task', 'review_decision')
   [A6] Hub & Indexing Engine    -> HMAC signing, disk commit, multi-tenant search indexing (Artifact: 'publication_record')
-
-Usage:
-  python backend/trace_pipeline.py
-  python backend/trace_pipeline.py --file knowledge_base/_uploads/solndra_password_reset.docx
-  python backend/trace_pipeline.py --sample windows_kill --auto-approve
 """
 
 import os
 import sys
 import time
-import json
 import uuid
 import hashlib
 import argparse
+import warnings
 from typing import Dict, Any, Optional
+
+warnings.filterwarnings("ignore", message=".*automatic function calling.*")
+warnings.filterwarnings("ignore", category=UserWarning, module=".*google.*")
+
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 # Ensure project paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -37,7 +42,7 @@ if PROJECT_ROOT not in sys.path:
 from dotenv import load_dotenv
 load_dotenv(os.path.join(PROJECT_ROOT, ".env"))
 
-# Import configuration and logging
+# Import configuration and context
 from config.settings import get_settings, get_max_file_size_mb, get_max_images_per_sop
 from config.llm_config import print_active_models
 from api.context import UPLOADS_DIR, DRAFTS_DIR, SOPS_DIR
@@ -54,47 +59,31 @@ from schemas.protocol_msg import (
 from orchestrator.bus import AgentMessageBus, ArtifactStore, MAX_AGENT_CALLS_PER_JOB
 from orchestrator.agent_runners import get_retrieval_index
 
-
-def print_banner(title: str, char: str = "="):
-    line = char * 78
-    print(f"\n{line}\n  {title}\n{line}", flush=True)
-
-
-def print_stage_header(stage_num: int, agent_id: str, title: str):
-    print(f"\n{'#' * 78}")
-    print(f"  STAGE {stage_num}: [{agent_id}] {title}")
-    print(f"{'#' * 78}\n", flush=True)
-
-
-def print_protocol_dispatch(task: TaskMessage):
-    print(f"  [Protocol msg/1.0 Task Dispatch]")
-    print(f"    • Sender -> Recipient:   {task.sender} -> {task.recipient} (task_type: '{task.task_type}')")
-    print(f"    • Task ID:               {task.task_id}")
-    print(f"    • Correlation ID:        {task.correlation_id}")
-    print(f"    • Input Artifacts:       {task.input_artifact_references}")
-    print(f"    • Idempotency Key:       {task.idempotency_key}")
-
-
-def print_protocol_result(result: ResultMessage):
-    print(f"  [Protocol msg/1.0 Result Received]")
-    print(f"    • Status:                {result.status.upper()}")
-    print(f"    • Agent ID:              {result.agent_id}")
-    if result.output_artifact_reference:
-        print(f"    • Output Artifact:       {result.output_artifact_reference}")
-    if result.error_code:
-        print(f"    • Error Code:            {result.error_code}")
-    latency = result.processing_metrics.get("latency_ms", 0)
-    tools = result.processing_metrics.get("tools_used", [])
-    print(f"    • Telemetry:             latency={latency}ms | tools={tools}")
+# Import unified Rich pipeline observability helpers
+from utils.pipeline_logger import (
+    log_pipeline_header,
+    log_stage_header,
+    log_protocol_dispatch,
+    log_protocol_result,
+    log_stage1_intake,
+    log_stage2_security,
+    log_stage3_structuring,
+    log_stage4_quality,
+    log_stage5_review,
+    log_stage6_publication,
+    log_pipeline_summary,
+    log_info,
+    log_warning,
+    log_error,
+)
 
 
 def trace_e2e_sop(sop_filepath: str, auto_approve: bool = False, tenant_id: str = "tenant-default"):
     total_start_time = time.time()
     filename = os.path.basename(sop_filepath)
-    ext = os.path.splitext(filename)[1].lower()
 
     if not os.path.exists(sop_filepath):
-        print(f"Error: SOP file '{sop_filepath}' does not exist.")
+        log_error("Pipeline", f"SOP file '{sop_filepath}' does not exist.")
         return
 
     # Compute source content hash for immutable tracking (Section 6.1)
@@ -104,12 +93,8 @@ def trace_e2e_sop(sop_filepath: str, auto_approve: bool = False, tenant_id: str 
     correlation_id = f"job-{uuid.uuid4().hex[:12]}"
     initial_sop_id = f"SOP-{os.path.splitext(filename)[0][:18].upper()}"
 
-    print_banner(f"STARTING FULL PROTOCOL msg/1.0 PIPELINE TRACE FOR: {filename}")
+    log_pipeline_header(filename, content_sha256, correlation_id, tenant_id)
     print_active_models()
-    print(f"  • Source Content SHA-256: {content_sha256}")
-    print(f"  • Active Correlation ID:  {correlation_id}")
-    print(f"  • Active Tenant:          {tenant_id}")
-    print(f"  • Protocol Version:       msg/1.0 (Bus-Driven, Pure Artifact References)")
 
     # Initialize Bus & Register Standard Runners
     bus = AgentMessageBus()
@@ -123,12 +108,12 @@ def trace_e2e_sop(sop_filepath: str, auto_approve: bool = False, tenant_id: str 
         data={"filepath": os.path.abspath(sop_filepath), "filename": filename, "file_size": len(raw_bytes)},
     )
     bus.artifact_store.put(upload_art)
-    print(f"  • Initial Upload Artifact: {upload_art.artifact_id} (type: 'upload')")
+    log_info("Pipeline", f"Initial Upload Artifact registered: {upload_art.artifact_id} (type: 'upload')")
 
     # ---------------------------------------------------------------------------
     # STAGE 1: Agent A1 — Intake Security & Document Parsing
     # ---------------------------------------------------------------------------
-    print_stage_header(1, "Agent A1: Ingestion", "Intake Validation & Parsing")
+    log_stage_header(1, "Agent A1: Ingestion", "Intake Validation & Parsing")
     task_a1 = TaskMessage(
         correlation_id=correlation_id,
         tenant_id=tenant_id,
@@ -141,12 +126,12 @@ def trace_e2e_sop(sop_filepath: str, auto_approve: bool = False, tenant_id: str 
         input_artifact_references=[upload_art.artifact_id],
         idempotency_key=f"{correlation_id}:extract:v1:rev1:loop0",
     )
-    print_protocol_dispatch(task_a1)
+    log_protocol_dispatch(task_a1)
     res_a1 = bus.execute_task(task_a1)
-    print_protocol_result(res_a1)
+    log_protocol_result(res_a1)
 
     if res_a1.status != "success":
-        print(f"\n[ABORT] Stage 1 Intake failed: {res_a1.structured_findings}")
+        log_error("Ingestion", f"Stage 1 Intake failed: {res_a1.structured_findings}")
         return
 
     extracted_art_ref = res_a1.output_artifact_reference
@@ -154,22 +139,23 @@ def trace_e2e_sop(sop_filepath: str, auto_approve: bool = False, tenant_id: str 
     raw_text = extracted_art.data.get("raw_text", "")
     segments = extracted_art.data.get("segments", [])
     parser_type = res_a1.structured_findings.get("parser_type", "universal")
-
-    print(f"  • Extraction Engine:      {parser_type}")
-    print(f"  • Extracted Text Stats:   {len(raw_text)} chars, {len(raw_text.split())} words, {len(raw_text.splitlines())} lines")
-    print(f"  • Ordered Segments:       {len(segments)} segments identified")
     img_segments = [s for s in segments if isinstance(s, dict) and s.get("type") == "image"]
-    print(f"  • Embedded Images Found:  {len(img_segments)} (Capped to max {get_max_images_per_sop()} per policy)")
 
-    print(f"\n  [Sample Extracted Content (first 250 chars)]:\n  " + "-" * 70)
-    snippet = raw_text[:250].replace("\n", "\n  ")
-    print(f"  {snippet}...")
-    print(f"  " + "-" * 70)
+    log_stage1_intake(
+        parser_type=parser_type,
+        char_count=len(raw_text),
+        word_count=len(raw_text.split()),
+        line_count=len(raw_text.splitlines()),
+        seg_count=len(segments),
+        img_count=len(img_segments),
+        max_imgs=get_max_images_per_sop(),
+        sample_text=raw_text,
+    )
 
     # ---------------------------------------------------------------------------
     # STAGE 2: Agent A3 — Security & DLP Inspection (Secret Gate)
     # ---------------------------------------------------------------------------
-    print_stage_header(2, "Agent A3: Security", "DLP Secret Redaction & AST Threat Sandbox")
+    log_stage_header(2, "Agent A3: Security", "DLP Secret Redaction & AST Threat Sandbox")
     task_a3 = TaskMessage(
         correlation_id=correlation_id,
         tenant_id=tenant_id,
@@ -182,13 +168,9 @@ def trace_e2e_sop(sop_filepath: str, auto_approve: bool = False, tenant_id: str 
         input_artifact_references=[extracted_art_ref],
         idempotency_key=f"{correlation_id}:secret_gate:v1:rev1:loop0",
     )
-    print_protocol_dispatch(task_a3)
+    log_protocol_dispatch(task_a3)
     res_a3 = bus.execute_task(task_a3)
-    print_protocol_result(res_a3)
-
-    if res_a3.status == "blocked":
-        print(f"\n[ABORT] Stage 2 Security Secret Gate failed (Terminal Quarantine): {res_a3.structured_findings}")
-        return
+    log_protocol_result(res_a3)
 
     sec_findings_art_ref = res_a3.output_artifact_reference
     sec_data = res_a3.structured_findings
@@ -196,15 +178,25 @@ def trace_e2e_sop(sop_filepath: str, auto_approve: bool = False, tenant_id: str 
     redaction_counts = sec_data.get("redaction_counts", {})
     ast_count = sec_data.get("ast_threats_count", 0)
 
-    print(f"  • DLP Secret Redaction:   {total_redacted} secret token(s) identified & masked")
-    if total_redacted > 0:
-        print(f"  • Masked Breakdown:       {redaction_counts}")
-    print(f"  • AST Sandbox Safety:     {'CLEAR (No malicious payloads)' if ast_count == 0 else f'ALERT: {ast_count} threats detected'}")
+    findings_art = bus.artifact_store.get(sec_findings_art_ref, requesting_tenant=tenant_id)
+    ast_threats = findings_art.data.get("ast_threats", []) if findings_art else []
+
+    log_stage2_security(
+        total_redacted=total_redacted,
+        redaction_counts=redaction_counts,
+        ast_count=ast_count,
+        ast_threats=ast_threats,
+        is_quarantined=(res_a3.status == "blocked"),
+    )
+
+    if res_a3.status == "blocked":
+        log_error("Security Gate", "Stage 2 Secret Gate failed: Pipeline halted at Terminal Quarantine.")
+        return
 
     # ---------------------------------------------------------------------------
     # STAGE 3: Agent A2 — Structuring & JIT Converter
     # ---------------------------------------------------------------------------
-    print_stage_header(3, "Agent A2: Structuring", "Triage Routing & JIT Playbook Planning")
+    log_stage_header(3, "Agent A2: Structuring", "Triage Routing & JIT Playbook Planning")
     task_a2 = TaskMessage(
         correlation_id=correlation_id,
         tenant_id=tenant_id,
@@ -217,12 +209,12 @@ def trace_e2e_sop(sop_filepath: str, auto_approve: bool = False, tenant_id: str 
         input_artifact_references=[extracted_art_ref],
         idempotency_key=f"{correlation_id}:clean_and_structure:v1:rev1:loop0",
     )
-    print_protocol_dispatch(task_a2)
+    log_protocol_dispatch(task_a2)
     res_a2 = bus.execute_task(task_a2)
-    print_protocol_result(res_a2)
+    log_protocol_result(res_a2)
 
     if res_a2.status != "success":
-        print(f"\n[ABORT] Stage 3 Structuring failed: {res_a2.structured_findings}")
+        log_error("Structuring", f"Stage 3 Structuring failed: {res_a2.structured_findings}")
         return
 
     canonical_art_ref = res_a2.output_artifact_reference
@@ -236,24 +228,7 @@ def trace_e2e_sop(sop_filepath: str, auto_approve: bool = False, tenant_id: str 
     title = canonical_data.get("title") or frontmatter.get("title", "Untitled SOP")
     steps = canonical_data.get("steps") or frontmatter.get("steps", [])
 
-    print(f"  • SOP ID Generated:       {sop_id}")
-    print(f"  • SOP Title:              {title}")
-    print(f"  • Target Platform / OS:   {frontmatter.get('platform', 'system')} / {frontmatter.get('target_os', 'Any')}")
-    print(f"  • Execution Steps Built:  {len(steps)} procedural step(s)")
-
-    print(f"\n  [Step-by-Step Execution Plan]:")
-    for s in steps:
-        step_num = s.get("step_number") or s.get("n")
-        desc = s.get("sop_step_description") or s.get("action")
-        stype = s.get("step_type") or s.get("actor")
-        cmd_or_tool = s.get("command") or s.get("input") or f"{s.get('platform')}.{s.get('function')}({s.get('comm_inputs') or s.get('inputs') or {}})"
-        exec_if = s.get("execute_if", "")
-        exec_if_str = f" [Condition: {exec_if}]" if exec_if else ""
-        print(f"    [{step_num}] ({stype.upper() if stype else 'STEP'}){exec_if_str} {desc}")
-        print(f"        Action: {cmd_or_tool}")
-
     # Confidentiality Assessment: A2 -> A3 (assess)
-    print(f"\n  [Performing Confidentiality Assessment (A2 -> A3)]...")
     task_a3_conf = TaskMessage(
         correlation_id=correlation_id,
         tenant_id=tenant_id,
@@ -268,12 +243,23 @@ def trace_e2e_sop(sop_filepath: str, auto_approve: bool = False, tenant_id: str 
     )
     res_a3_conf = bus.execute_task(task_a3_conf)
     conf_assessment_art_ref = res_a3_conf.output_artifact_reference
-    print(f"  • Confidentiality Tier:   {res_a3_conf.structured_findings.get('classification_level', 'L1')} (Score: {res_a3_conf.structured_findings.get('confidentiality_score', 0)})")
+    conf_tier = res_a3_conf.structured_findings.get("classification_level", "L1")
+    conf_score = res_a3_conf.structured_findings.get("confidentiality_score", 0)
+
+    log_stage3_structuring(
+        sop_id=sop_id,
+        title=title,
+        platform=frontmatter.get("platform", "system"),
+        target_os=frontmatter.get("target_os", "windows"),
+        step_count=len(steps),
+        conf_tier=conf_tier,
+        conf_score=conf_score,
+    )
 
     # ---------------------------------------------------------------------------
     # STAGE 4: Agent A4 — Verification & Governance Quality Scoring
     # ---------------------------------------------------------------------------
-    print_stage_header(4, "Agent A4: Verification", "Faithfulness, Quote Tracing & Quality Scoring")
+    log_stage_header(4, "Agent A4: Verification", "Faithfulness, Quote Tracing & Quality Scoring")
     task_a4 = TaskMessage(
         correlation_id=correlation_id,
         tenant_id=tenant_id,
@@ -286,9 +272,9 @@ def trace_e2e_sop(sop_filepath: str, auto_approve: bool = False, tenant_id: str 
         input_artifact_references=[cleaned_art_ref, canonical_art_ref, sec_findings_art_ref],
         idempotency_key=f"{correlation_id}:verify:v1:rev1:loop0",
     )
-    print_protocol_dispatch(task_a4)
+    log_protocol_dispatch(task_a4)
     res_a4 = bus.execute_task(task_a4)
-    print_protocol_result(res_a4)
+    log_protocol_result(res_a4)
 
     q_data = res_a4.structured_findings
     completeness = q_data.get("completeness", 0.0)
@@ -297,21 +283,23 @@ def trace_e2e_sop(sop_filepath: str, auto_approve: bool = False, tenant_id: str 
     q_status = q_data.get("status", "pending")
     blocking_count = q_data.get("blocking_issues_count", 0)
 
-    print(f"  • Completeness (C):       {completeness:.1f}%")
-    print(f"  • Traceability (T):       {traceability:.1f}%")
-    print(f"  • Blocking Issues (B):    {blocking_count}")
-    print(f"  • Quality Formula:        Q = 0.4({completeness:.1f}) + 0.4({traceability:.1f}) + 20 - 5({blocking_count})")
-    print(f"  • Final Governance Score: {q_score:.1f} / 100.0 (Status: {q_status})")
+    log_stage4_quality(
+        completeness=completeness,
+        traceability=traceability,
+        blocking_count=blocking_count,
+        q_score=q_score,
+        q_status=q_status,
+        unresolved_issues=res_a4.unresolved_issues,
+        quotes_verified=q_data.get("verified_quotes"),
+        total_quotes=q_data.get("total_quotes"),
+    )
 
     # ---------------------------------------------------------------------------
     # PROTOCOL FEATURE: Item D — Automated A4 -> A2 Correction Loop (Max 1 Loop)
     # ---------------------------------------------------------------------------
     if (res_a4.status == "needs_review" or blocking_count > 0) and res_a4.unresolved_issues:
-        print("\n" + "~" * 78)
-        print("  AUTOMATED CORRECTION LOOP (PROTOCOL msg/1.0 — Item D)")
-        print("~" * 78)
-        print(f"  Verification flagged {len(res_a4.unresolved_issues)} issue(s). Dispatching bounded A4 -> A2 task...")
-        
+        log_warning("Correction Loop", f"Verification flagged {len(res_a4.unresolved_issues)} issue(s). Dispatching bounded A4 -> A2 task...")
+
         task_corr = TaskMessage(
             correlation_id=correlation_id,
             tenant_id=tenant_id,
@@ -325,14 +313,14 @@ def trace_e2e_sop(sop_filepath: str, auto_approve: bool = False, tenant_id: str 
             requested_operation={"errors": [iss.get("error") for iss in res_a4.unresolved_issues]},
             idempotency_key=f"{correlation_id}:correct:v1:rev1:loop1",
         )
-        print_protocol_dispatch(task_corr)
+        log_protocol_dispatch(task_corr)
         res_a2_corr = bus.execute_task(task_corr)
-        print_protocol_result(res_a2_corr)
+        log_protocol_result(res_a2_corr)
 
         if res_a2_corr.status == "success":
             canonical_art_ref = res_a2_corr.output_artifact_reference
             cleaned_art_ref = res_a2_corr.structured_findings.get("cleaned_artifact_reference", cleaned_art_ref)
-            print("  >>> Correction accepted. Running deterministic re-verification: A2 -> A4...")
+            log_info("Correction Loop", "Correction accepted. Running deterministic re-verification: A2 -> A4...")
 
             task_reverify = TaskMessage(
                 correlation_id=correlation_id,
@@ -347,15 +335,15 @@ def trace_e2e_sop(sop_filepath: str, auto_approve: bool = False, tenant_id: str 
                 idempotency_key=f"{correlation_id}:reverify:v1:rev1:loop1",
             )
             res_a4 = bus.execute_task(task_reverify)
-            print_protocol_result(res_a4)
+            log_protocol_result(res_a4)
             q_data = res_a4.structured_findings
             q_score = q_data.get("quality_score", q_score)
-            print(f"  >>> Post-Correction Governance Score: {q_score:.1f} / 100.0 (Status: {res_a4.status})")
+            log_info("Correction Loop", f"Post-Correction Governance Score: {q_score:.1f} / 100.0 (Status: {res_a4.status})")
 
     # ---------------------------------------------------------------------------
     # STAGE 5: Agent A5 — Review & Staging (Human-in-the-Loop)
     # ---------------------------------------------------------------------------
-    print_stage_header(5, "Agent A5: HITL Review", "Dual-Custody Staging & Review Task Registration")
+    log_stage_header(5, "Agent A5: HITL Review", "Dual-Custody Staging & Review Task Registration")
     task_a5_stage = TaskMessage(
         correlation_id=correlation_id,
         tenant_id=tenant_id,
@@ -368,30 +356,30 @@ def trace_e2e_sop(sop_filepath: str, auto_approve: bool = False, tenant_id: str 
         input_artifact_references=[canonical_art_ref, res_a4.output_artifact_reference, conf_assessment_art_ref],
         idempotency_key=f"{correlation_id}:create_task:v1:rev1:loop0",
     )
-    print_protocol_dispatch(task_a5_stage)
+    log_protocol_dispatch(task_a5_stage)
     res_a5_stage = bus.execute_task(task_a5_stage)
-    print_protocol_result(res_a5_stage)
+    log_protocol_result(res_a5_stage)
 
     rt_data = res_a5_stage.structured_findings
-    print(f"  • Staged Location:        {rt_data.get('draft_file')}")
-    print(f"  • Review Task Created:    {rt_data.get('review_task_id')} (Role: {rt_data.get('assigned_role')})")
-    print(f"  • SLA Due Date:           {rt_data.get('due_date')}")
-    print(f"  • Separation of Duties:   Enforced (Author != Reviewer; Human Approver Required)")
+    log_stage5_review(
+        draft_file=str(rt_data.get("draft_file")),
+        review_task_id=str(rt_data.get("review_task_id")),
+        assigned_role=str(rt_data.get("assigned_role")),
+        due_date=str(rt_data.get("due_date")),
+    )
 
     # Interactive Human Decision Gate
     decision = "approve"
     if not auto_approve:
-        print("\n" + "=" * 78)
-        print("  HUMAN-IN-THE-LOOP (HITL) REVIEW GATE")
-        print("=" * 78)
-        print(f"  The SOP '{title}' [{sop_id}] is staged and awaiting your governance decision.")
+        print()
+        log_warning("HITL Gate", f"The SOP '{title}' [{sop_id}] is staged and awaiting your governance decision.")
         user_input = input("  Enter decision [A]pprove & Publish / [R]eject / [E]xit without publish: ").strip().lower()
         if user_input.startswith("a"):
             decision = "approve"
         elif user_input.startswith("r"):
             decision = "reject"
         else:
-            print("\n[Exited] Draft remains safely staged in _drafts/ awaiting future approval.")
+            log_info("HITL Gate", "Draft remains safely staged in _drafts/ awaiting future approval.")
             return
 
     # Record Decision via Agent A5 Runner
@@ -413,12 +401,12 @@ def trace_e2e_sop(sop_filepath: str, auto_approve: bool = False, tenant_id: str 
         },
         idempotency_key=f"{correlation_id}:record_decision:v1:rev1:loop0",
     )
-    print_protocol_dispatch(task_a5_decision)
+    log_protocol_dispatch(task_a5_decision)
     res_a5_decision = bus.execute_task(task_a5_decision)
-    print_protocol_result(res_a5_decision)
+    log_protocol_result(res_a5_decision)
 
     if decision == "reject" or res_a5_decision.status != "success":
-        print(f"\n[Review Gate] Decision is REJECT. SOP will remain quarantined.")
+        log_warning("Review Gate", "Decision is REJECT. SOP will remain quarantined.")
         return
 
     review_decision_art_ref = res_a5_decision.output_artifact_reference
@@ -426,7 +414,7 @@ def trace_e2e_sop(sop_filepath: str, auto_approve: bool = False, tenant_id: str 
     # ---------------------------------------------------------------------------
     # STAGE 6: Agent A6 — SOP Hub & Downstream Retrieval Indexing
     # ---------------------------------------------------------------------------
-    print_stage_header(6, "Agent A6: Hub & Indexer", "Publication Gates, HMAC Signing & Clearance Indexing")
+    log_stage_header(6, "Agent A6: Hub & Indexer", "Publication Gates, HMAC Signing & Clearance Indexing")
     task_a6 = TaskMessage(
         correlation_id=correlation_id,
         tenant_id=tenant_id,
@@ -439,21 +427,26 @@ def trace_e2e_sop(sop_filepath: str, auto_approve: bool = False, tenant_id: str 
         input_artifact_references=[canonical_art_ref, review_decision_art_ref],
         idempotency_key=f"{correlation_id}:publish:v1:rev1:loop0",
     )
-    print_protocol_dispatch(task_a6)
+    log_protocol_dispatch(task_a6)
     res_a6 = bus.execute_task(task_a6)
-    print_protocol_result(res_a6)
+    log_protocol_result(res_a6)
 
     if res_a6.status != "success":
-        print(f"\n[ABORT] Stage 6 Publication failed: {res_a6.structured_findings}")
+        log_error("Publication", f"Stage 6 Publication failed: {res_a6.structured_findings}")
         return
 
     pub_data = res_a6.structured_findings
     sig = pub_data.get("hmac_signature") or "N/A"
-    print(f"  • Production Playbook:    {pub_data.get('published_okf_path')}")
-    print(f"  • Canonical JSON 1.0:     {pub_data.get('canonical_json_path')}")
-    print(f"  • Cryptographic Stamp:    HMAC-SHA256 ({sig[:12]}...{sig[-8:] if len(sig) > 8 else ''}) [Verified: {pub_data.get('hmac_verified')}]")
-    print(f"  • Retrieval Indexing:     Indexed in Downstream Catalog (Tenant: '{pub_data.get('tenant_id')}', Clearance: '{pub_data.get('clearance_level')}')")
-    print(f"  • Citation Stamp:         {pub_data.get('citation')}")
+    log_stage6_publication(
+        sop_id=sop_id,
+        published_path=str(pub_data.get("published_okf_path")),
+        canonical_path=str(pub_data.get("canonical_json_path")),
+        hmac_sig=sig,
+        verified=bool(pub_data.get("hmac_verified")),
+        tenant_id=str(pub_data.get("tenant_id", tenant_id)),
+        clearance=str(pub_data.get("clearance_level")),
+        citation=str(pub_data.get("citation")),
+    )
 
     # Perform a test verification query
     retrieval_idx = get_retrieval_index()
@@ -464,25 +457,25 @@ def trace_e2e_sop(sop_filepath: str, auto_approve: bool = False, tenant_id: str 
         clearance_level=pub_data.get("clearance_level", "L1"),
         limit=3
     )
-    print(f"  • Downstream Search Test: Queried '{query_word}' -> Found {len(results)} matching SOP(s)")
+    log_info("Downstream Catalog", f"Verification Query '{query_word}' -> Found {len(results)} matching SOP(s)")
 
     # ---------------------------------------------------------------------------
     # OVERALL PIPELINE SUMMARY & OBSERVABILITY
     # ---------------------------------------------------------------------------
     total_elapsed = time.time() - total_start_time
     budget = bus.get_job_budget(correlation_id)
-    all_artifacts = [msg for msg in bus.get_log(limit=100) if msg.get("type") == "result" and msg.get("status") == "success"]
 
-    print_banner("END-TO-END PIPELINE TRACE COMPLETE", "=")
-    print(f"  • Total Pipeline Latency: {total_elapsed:.2f}s")
-    print(f"  • Total Bus Messages:     {len(bus.get_log(limit=100))}")
-    print(f"  • Agent Calls Dispatched: {budget['agent_calls']} / {MAX_AGENT_CALLS_PER_JOB} (Budget limit: 30)")
-    print(f"  • SOP Published ID:       {sop_id}")
-    print(f"  • Playbook File:          {pub_data.get('published_okf_path')}")
-    print(f"  • Canonical Model File:   {pub_data.get('canonical_json_path')}")
-    print(f"  • Final Status:           PUBLISHED & RETRIEVABLE")
-    print(f"  • Downstream API Search:  'curl http://127.0.0.1:8000/api/playbooks/search?query={query_word}'")
-    print("=" * 78 + "\n")
+    log_pipeline_summary(
+        filename=filename,
+        sop_id=sop_id,
+        elapsed=total_elapsed,
+        msg_count=len(bus.get_log(limit=100)),
+        calls=budget["agent_calls"],
+        max_calls=MAX_AGENT_CALLS_PER_JOB,
+        playbook_path=str(pub_data.get("published_okf_path")),
+        canonical_path=str(pub_data.get("canonical_json_path")),
+        status="PUBLISHED & RETRIEVABLE",
+    )
 
 
 def main():
@@ -506,8 +499,7 @@ def main():
     elif args.sample and args.sample in samples:
         sop_file = samples[args.sample]
     else:
-        print_banner("ELONE AGENT — SOP TRACE & OBSERVABILITY EXPLORER (msg/1.0)")
-        print("Select an SOP to trace end-to-end:\n")
+        print("\nSelect an SOP to trace end-to-end:\n")
         print("  1. Windows Kill Hang Application (PDF)       -> [Command Workflow]")
         print("  2. Solandra User Password Reset (DOCX)       -> [API Tool Call Workflow]")
         print("  3. AirRetailer VPN Connection (DOCX)         -> [VPN / Network Workflow]")
@@ -535,7 +527,7 @@ def main():
             sop_file = samples["windows_kill"]
 
     if not os.path.exists(sop_file):
-        print(f"Error: SOP file '{sop_file}' does not exist.")
+        log_error("CLI", f"SOP file '{sop_file}' does not exist.")
         sys.exit(1)
 
     trace_e2e_sop(sop_file, auto_approve=args.auto_approve, tenant_id=args.tenant)

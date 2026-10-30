@@ -1,0 +1,25 @@
+STANDARD OPERATING PROCEDURE: Phishing Incident Host Isolation & Perimeter Domain Block
+Document ID: SOP-SOC-016
+Owner: Nathan Drake, Lead Incident Responder
+Effective Date: 2026-10-28
+Department: Security Operations Center
+Classification: Strictly Confidential
+
+1. Purpose
+Rapid containment of compromised endpoints on subnet 10.100.4.15 that interacted with verified malicious phishing links or credential harvesting landing pages.
+
+2. Preconditions
+- Phishing alert verified by email gateway sandbox analysis.
+- Operator holds SOC Tier 2 Analyst clearance with SSH keys configured on bastion.corp.internal.
+- Target endpoint hostname identified in EDR sensor telemetry.
+
+3. Procedure
+1. Query Falcon sensor API to retrieve target host device identifier using powershell -Command "Get-FalconHost -Filter \"hostname:'endpoint-win-10'\" | Select-Object -ExpandProperty device_id".
+2. Execute immediate network containment on the compromised endpoint using powershell -Command "Invoke-FalconHostAction -Name 'contain' -Id $DEVICE_ID".
+3. Push malicious phishing domain indicator to perimeter firewall blacklist using ssh soc-admin@firewall.corp.internal "configure; set security address-book Malicious_Domains address phishing-threat.com; commit".
+4. Revoke all active enterprise authentication sessions and refresh tokens using powershell -Command "Revoke-AzureADUserAllRefreshToken -ObjectId $TARGET_USER_ID".
+5. Flush edge DNS resolver cache to prevent further resolution of malicious domain using ssh soc-admin@dns-gw.corp.internal "sudo systemctl restart unbound".
+
+4. Escalation Criteria
+- If EDR containment fails due to sensor heartbeat timeout, immediately disable the switch port on switch-core-01.
+- If lateral movement or Mimikatz execution is detected in memory telemetry, trigger Major Incident Severity 1.
