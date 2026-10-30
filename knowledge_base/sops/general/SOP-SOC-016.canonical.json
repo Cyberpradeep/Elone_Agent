@@ -1,0 +1,255 @@
+{
+  "schema_version": "1.0",
+  "sop_id": "SOP-SOC-016",
+  "version": 1,
+  "tenant_id": "tenant-default",
+  "title": "Phishing Incident Host Isolation & Perimeter Domain Block",
+  "title_lines": [
+    1,
+    2
+  ],
+  "metadata_lines": [
+    3,
+    4
+  ],
+  "department": {
+    "status": "missing",
+    "value": "Security",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "owner": {
+    "status": "present",
+    "value": "Nathan Drake, Lead Incident Responder",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "version_label": {
+    "status": "missing",
+    "value": "v1.0",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "review_date": {
+    "status": "present",
+    "value": "2026-10-28",
+    "source_lines": [
+      4,
+      5
+    ]
+  },
+  "source": {
+    "filename": "sop_16_security_soc_phishing.txt",
+    "sha256": "b6fa8c0f077a1494d347bbe5355120498d0bf83f328592cb4fdafdb6fbc65d1e",
+    "size": 1820,
+    "detected_type": "markitdown_parser",
+    "pages": 1,
+    "extracted_lines": 21,
+    "ocr": false
+  },
+  "purpose": {
+    "text": "Rapid containment of compromised endpoints on subnet 10.100.4.15 that interacted with verified malicious phishing links or credential harvesting landing pages.\n2. Preconditions\n- Phishing alert verified by email gateway sandbox analysis.\n- Operator holds SOC Tier 2 Analyst clearance with SSH keys configured on bastion.corp.internal.\n- Target endpoint hostname identified in EDR sensor telemetry.",
+    "source_lines": [
+      8,
+      9
+    ],
+    "quote": "Rapid containment of compromised endpoints on subnet 10.100.4.15 that interacted with verified malic",
+    "verified": true
+  },
+  "scope": {
+    "text": "Applies to security operations and authorized agents.",
+    "source_lines": [
+      5,
+      6
+    ],
+    "quote": "Applies to security operations and authorized agents.",
+    "verified": true
+  },
+  "preconditions": [
+    {
+      "text": "Phishing alert verified by email gateway sandbox analysis.",
+      "source_lines": [
+        10,
+        11
+      ],
+      "quote": "Phishing alert verified by email gateway sandbox analysis.",
+      "verified": true
+    },
+    {
+      "text": "Operator holds SOC Tier 2 Analyst clearance with SSH keys configured on bastion.corp.internal.",
+      "source_lines": [
+        11,
+        12
+      ],
+      "quote": "Operator holds SOC Tier 2 Analyst clearance with SSH keys configured on bastion.corp.internal.",
+      "verified": true
+    },
+    {
+      "text": "Target endpoint hostname identified in EDR sensor telemetry.",
+      "source_lines": [
+        12,
+        13
+      ],
+      "quote": "Target endpoint hostname identified in EDR sensor telemetry.",
+      "verified": true
+    }
+  ],
+  "roles": [
+    {
+      "role": "Operator",
+      "responsibility": "Executes Phishing Incident Host Isolation & Perimeter Domain Block",
+      "source_lines": [
+        1
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "n": 1,
+      "action": "Query Falcon sensor API to retrieve the target host's device identifier.",
+      "input": "powershell -Command \"Get-FalconHost -Filter \\\"hostname:'{{entities.hostname}}'\\\" | Select-Object -ExpandProperty device_id\"",
+      "expected_outcome": "Extract the first line of stdout as variables.device_id. If stdout is empty or contains an error, set variables.device_id = null.",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        14,
+        15
+      ],
+      "quote": "Query Falcon sensor API to retrieve the target host's device identifier.",
+      "verified": true
+    },
+    {
+      "n": 2,
+      "action": "Execute immediate network containment on the compromised endpoint via Falcon.",
+      "input": "powershell -Command \"Invoke-FalconHostAction -Name 'contain' -Id '{{variables.device_id}}'\"",
+      "expected_outcome": "If stdout contains 'Action completed successfully' or similar success message, set variables.host_contained = true, else set variables.host_contained = false.",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        15,
+        16
+      ],
+      "quote": "Execute immediate network containment on the compromised endpoint via Falcon.",
+      "verified": true
+    },
+    {
+      "n": 3,
+      "action": "Push the malicious phishing domain indicator to the perimeter firewall blacklist.",
+      "input": "ssh soc-admin@firewall.corp.internal \"configure; set security address-book Malicious_Domains address {{entities.malicious_domain}}; commit\"",
+      "expected_outcome": "If stdout contains 'commit complete', set variables.domain_blocked = true, else set variables.domain_blocked = false.",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        16,
+        17
+      ],
+      "quote": "Push the malicious phishing domain indicator to the perimeter firewall blacklist.",
+      "verified": true
+    },
+    {
+      "n": 4,
+      "action": "Revoke all active enterprise authentication sessions and refresh tokens for the compromised user.",
+      "input": "powershell -Command \"Revoke-AzureADUserAllRefreshToken -ObjectId '{{entities.target_user_id}}'\"",
+      "expected_outcome": "If exit code is 0, set variables.user_sessions_revoked = true, else set variables.user_sessions_revoked = false.",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        17,
+        18
+      ],
+      "quote": "Revoke all active enterprise authentication sessions and refresh tokens for the compromised user.",
+      "verified": false
+    },
+    {
+      "n": 5,
+      "action": "Flush the edge DNS resolver cache to prevent further resolution of the malicious domain.",
+      "input": "ssh soc-admin@dns-gw.corp.internal \"sudo systemctl restart unbound\"",
+      "expected_outcome": "If exit code is 0, set variables.dns_cache_flushed = true, else set variables.dns_cache_flushed = false.",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        18,
+        19
+      ],
+      "quote": "Flush the edge DNS resolver cache to prevent further resolution of the malicious domain.",
+      "verified": true
+    }
+  ],
+  "exceptions": [
+    {
+      "condition": "If EDR containment fails due to sensor heartbeat timeout, immediately disable the switch port on switch-core-01.",
+      "action": "Escalate to L2 Support",
+      "related_step": 5,
+      "source_lines": [
+        20,
+        21
+      ],
+      "quote": "If EDR containment fails due to sensor heartbeat timeout, immediately disable the switch port on swi",
+      "verified": true
+    },
+    {
+      "condition": "If lateral movement or Mimikatz execution is detected in memory telemetry, trigger Major Incident Severity 1.",
+      "action": "Escalate to L2 Support",
+      "related_step": 5,
+      "source_lines": [
+        21,
+        21
+      ],
+      "quote": "If lateral movement or Mimikatz execution is detected in memory telemetry, trigger Major Incident Se",
+      "verified": true
+    }
+  ],
+  "notes": [],
+  "references": [],
+  "media": [],
+  "issues": [],
+  "classification": {
+    "level": "L1",
+    "score": 45,
+    "evidence_categories": [
+      "baseline_internal_sop",
+      "internal_infrastructure",
+      "explicit_confidentiality_label"
+    ],
+    "rule_level": "L1",
+    "ai_suggested_level": "L1",
+    "rationale": "Deterministic rule classification",
+    "confirmed": false
+  },
+  "quality": {
+    "completeness": 90.5,
+    "traceability": 80.0,
+    "schema_valid": true,
+    "blocking_issues_count": 0,
+    "quality_score": 88.2,
+    "status": "Needs attention"
+  },
+  "transformations": [],
+  "lifecycle": {
+    "state": "structuring",
+    "uploaded_by": "author@corp.com",
+    "created_at": "2026-10-30T09:30:00.578314+00:00",
+    "approvals": []
+  },
+  "provenance": {
+    "producing_agent": "A2_structuring",
+    "provider": "elverve_ai",
+    "generated_at": "2026-10-30T09:30:00.578314+00:00"
+  }
+}

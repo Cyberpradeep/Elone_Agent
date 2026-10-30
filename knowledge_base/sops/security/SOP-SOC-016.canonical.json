@@ -1,0 +1,202 @@
+{
+  "schema_version": "1.0",
+  "sop_id": "SOP-SOC-016",
+  "version": 1,
+  "tenant_id": "tn_northwind",
+  "title": "Phishing Incident Host Isolation & Perimeter Domain Block",
+  "title_lines": [
+    1,
+    2
+  ],
+  "metadata_lines": [
+    3,
+    4
+  ],
+  "department": {
+    "status": "missing",
+    "value": "Security",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "owner": {
+    "status": "missing",
+    "value": "author@corp.com",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "version_label": {
+    "status": "missing",
+    "value": "v1.0",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "review_date": {
+    "status": "missing",
+    "value": "2026-10-30",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "source": {
+    "filename": "sop-soc-016.txt",
+    "sha256": "47b9adea7872c989880bcbf353ef3222917383a726cc0789fff39511ac1314c9",
+    "size": 825,
+    "detected_type": "text/plain",
+    "pages": 1,
+    "extracted_lines": 7,
+    "ocr": false
+  },
+  "purpose": {
+    "text": "Automated playbook for rapid containment of compromised endpoints involved in phishing incidents, including host isolation, perimeter domain blocking, user session revocation, and DNS cache flushing. This playbook orchestrates actions from a Windows PowerShell environment, targeting both Windows endpoints and Linux-based network devices via SSH.",
+    "source_lines": [
+      2,
+      3
+    ],
+    "quote": "Automated playbook for rapid containment of compromised endpoints involved in phishing incidents, in",
+    "verified": true
+  },
+  "scope": {
+    "text": "Applies to security operations and authorized agents.",
+    "source_lines": [
+      2,
+      3
+    ],
+    "quote": "Applies to security operations and authorized agents.",
+    "verified": true
+  },
+  "preconditions": [],
+  "roles": [
+    {
+      "role": "Operator",
+      "responsibility": "Executes Phishing Incident Host Isolation & Perimeter Domain Block",
+      "source_lines": [
+        1
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "n": 1,
+      "action": "Query Falcon sensor API to retrieve the target host's device identifier.",
+      "input": "powershell -Command \"Get-FalconHost -Filter \\\"hostname:'{{entities.hostname}}'\\\" | Select-Object -ExpandProperty device_id\"",
+      "expected_outcome": "Extract the first line of stdout as variables.device_id. If stdout is empty or contains an error, set variables.device_id = null.",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        3,
+        4
+      ],
+      "quote": "Query Falcon sensor API to retrieve the target host's device identifier.",
+      "verified": true
+    },
+    {
+      "n": 2,
+      "action": "Execute immediate network containment on the compromised endpoint via Falcon.",
+      "input": "powershell -Command \"Invoke-FalconHostAction -Name 'contain' -Id '{{variables.device_id}}'\"",
+      "expected_outcome": "If stdout contains 'Action completed successfully' or similar success message, set variables.host_contained = true, else set variables.host_contained = false.",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        4,
+        5
+      ],
+      "quote": "Execute immediate network containment on the compromised endpoint via Falcon.",
+      "verified": true
+    },
+    {
+      "n": 3,
+      "action": "Push the malicious phishing domain indicator to the perimeter firewall blacklist.",
+      "input": "ssh soc-admin@firewall.corp.internal \"configure; set security address-book Malicious_Domains address {{entities.malicious_domain}}; commit\"",
+      "expected_outcome": "If stdout contains 'commit complete', set variables.domain_blocked = true, else set variables.domain_blocked = false.",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        5,
+        6
+      ],
+      "quote": "Push the malicious phishing domain indicator to the perimeter firewall blacklist.",
+      "verified": true
+    },
+    {
+      "n": 4,
+      "action": "Revoke all active enterprise authentication sessions and refresh tokens for the compromised user.",
+      "input": "powershell -Command \"Revoke-AzureADUserAllRefreshToken -ObjectId '{{entities.target_user_id}}'\"",
+      "expected_outcome": "If exit code is 0, set variables.user_sessions_revoked = true, else set variables.user_sessions_revoked = false.",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        6,
+        7
+      ],
+      "quote": "Revoke all active enterprise authentication sessions and refresh tokens for the compromised user.",
+      "verified": true
+    },
+    {
+      "n": 5,
+      "action": "Flush the edge DNS resolver cache to prevent further resolution of the malicious domain.",
+      "input": "ssh soc-admin@dns-gw.corp.internal \"sudo systemctl restart unbound\"",
+      "expected_outcome": "If exit code is 0, set variables.dns_cache_flushed = true, else set variables.dns_cache_flushed = false.",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        7,
+        7
+      ],
+      "quote": "Flush the edge DNS resolver cache to prevent further resolution of the malicious domain.",
+      "verified": true
+    }
+  ],
+  "exceptions": [],
+  "notes": [],
+  "references": [],
+  "media": [],
+  "issues": [],
+  "classification": {
+    "level": "L0",
+    "score": 5,
+    "evidence_categories": [
+      "baseline_internal_sop"
+    ],
+    "rule_level": "L0",
+    "ai_suggested_level": "L0",
+    "rationale": "Deterministic rule classification",
+    "confirmed": false
+  },
+  "quality": {
+    "completeness": 100.0,
+    "traceability": 100.0,
+    "schema_valid": true,
+    "blocking_issues_count": 0,
+    "quality_score": 100.0,
+    "status": "Ready"
+  },
+  "transformations": [],
+  "lifecycle": {
+    "state": "structuring",
+    "uploaded_by": "author@corp.com",
+    "created_at": "2026-10-30T09:30:20.605883+00:00",
+    "approvals": []
+  },
+  "provenance": {
+    "producing_agent": "A2_structuring",
+    "provider": "elverve_ai",
+    "generated_at": "2026-10-30T09:30:20.605883+00:00"
+  }
+}

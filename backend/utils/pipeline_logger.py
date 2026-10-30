@@ -136,10 +136,19 @@ def log_stage2_security(
     redaction_counts: dict,
     ast_count: int,
     ast_threats: Optional[List[Any]] = None,
-    is_quarantined: bool = False
+    is_quarantined: bool = False,
+    secrets_count: Optional[int] = None,
 ) -> None:
+    if secrets_count is None:
+        secrets_count = sum(redaction_counts.get(k, 0) for k in ("passwords", "api_keys", "private_keys")) if isinstance(redaction_counts, dict) else 0
+
+    pii_count = sum(redaction_counts.get(k, 0) for k in ("emails", "phones")) if isinstance(redaction_counts, dict) else 0
+
     if not RICH_AVAILABLE or console is None:
-        print(f"  • DLP Secret Redaction:   {total_redacted} secret token(s) identified & masked")
+        if secrets_count == 0:
+            print(f"  • DLP Secret Gate:        CLEAR (0 live secrets detected; {pii_count} PII masked)")
+        else:
+            print(f"  • DLP Secret Gate:        ALERT: {secrets_count} live secret(s) detected")
         if total_redacted > 0:
             print(f"  • Masked Breakdown:       {redaction_counts}")
         print(f"  • AST Sandbox Safety:     {'CLEAR (No malicious payloads)' if ast_count == 0 else f'ALERT: {ast_count} threats detected'}")
@@ -162,12 +171,16 @@ def log_stage2_security(
                 threat_branch.add(f"[red]• {t}[/red]")
 
     # DLP Secret Redaction Status
-    if total_redacted == 0:
-        tree.add(f"[dim]DLP Secret Gate:[/dim]  [bold green]0 secrets detected[/bold green]")
+    if secrets_count == 0:
+        if pii_count == 0:
+            tree.add(f"[dim]DLP Secret Gate:[/dim]  [bold green]0 secrets detected[/bold green]")
+        else:
+            tree.add(f"[dim]DLP Secret Gate:[/dim]  [bold green]0 live secrets[/bold green] [dim]({pii_count} PII token(s) masked)[/dim]")
     else:
-        tree.add(f"[dim]DLP Secret Gate:[/dim]  [bold yellow]{total_redacted} secret token(s) identified & masked[/bold yellow]")
-        if redaction_counts:
-            tree.add(f"[dim]Masked Breakdown:[/dim] [yellow]{redaction_counts}[/yellow]")
+        tree.add(f"[dim]DLP Secret Gate:[/dim]  [bold red]ALERT: {secrets_count} live secret(s) detected[/bold red]")
+
+    if redaction_counts and any(redaction_counts.values()):
+        tree.add(f"[dim]Masked Breakdown:[/dim] [yellow]{redaction_counts}[/yellow]")
 
     if is_quarantined:
         tree.add(f"[dim]Quarantine Gate:[/dim] [bold red]TERMINAL QUARANTINE (Pipeline Halted — Zero AI Calls)[/bold red]")

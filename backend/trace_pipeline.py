@@ -174,7 +174,8 @@ def trace_e2e_sop(sop_filepath: str, auto_approve: bool = False, tenant_id: str 
 
     sec_findings_art_ref = res_a3.output_artifact_reference
     sec_data = res_a3.structured_findings
-    total_redacted = sec_data.get("total_secrets_detected", 0)
+    total_redacted = sec_data.get("total_redacted_count", sec_data.get("total_secrets_detected", 0))
+    secrets_count = sec_data.get("total_secrets_detected", 0)
     redaction_counts = sec_data.get("redaction_counts", {})
     ast_count = sec_data.get("ast_threats_count", 0)
 
@@ -187,6 +188,7 @@ def trace_e2e_sop(sop_filepath: str, auto_approve: bool = False, tenant_id: str 
         ast_count=ast_count,
         ast_threats=ast_threats,
         is_quarantined=(res_a3.status == "blocked"),
+        secrets_count=secrets_count,
     )
 
     if res_a3.status == "blocked":

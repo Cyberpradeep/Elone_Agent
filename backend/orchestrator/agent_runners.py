@@ -208,14 +208,16 @@ def run_a3_security(task: TaskMessage, bus: Any) -> ResultMessage:
 
         # 1. DLP Scan
         sanitized_text, redaction_counts = redact_sensitive_dlp(raw_text)
-        total_secrets = sum(redaction_counts.values()) if isinstance(redaction_counts, dict) else (redaction_counts or 0)
+        crit_secrets = sum(redaction_counts.get(k, 0) for k in ("passwords", "api_keys", "private_keys")) if isinstance(redaction_counts, dict) else 0
+        total_redacted = sum(redaction_counts.values()) if isinstance(redaction_counts, dict) else (redaction_counts or 0)
 
         # 2. AST Sandbox scan for candidate commands
         sample_cmds = [line.strip() for line in raw_text.splitlines() if line.strip().startswith(("rm ", "del ", "taskkill", "powershell", "systemctl", "curl"))]
         threats = scan_commands_for_ast_threats(sample_cmds) if sample_cmds else []
 
         findings_payload = {
-            "total_secrets_detected": total_secrets,
+            "total_secrets_detected": crit_secrets,
+            "total_redacted_count": total_redacted,
             "redaction_counts": redaction_counts,
             "sanitized_text": sanitized_text,
             "ast_threats": threats,
@@ -230,7 +232,6 @@ def run_a3_security(task: TaskMessage, bus: Any) -> ResultMessage:
         bus.artifact_store.put(findings_art)
 
         # Secret Gate Policy: If live credential detected, terminal quarantine (Section 10)
-        crit_secrets = sum(redaction_counts.get(k, 0) for k in ("passwords", "api_keys", "private_keys"))
         is_blocked = crit_secrets > 0 or task.requested_operation.get("strict_quarantine_on_secret", False)
 
         return ResultMessage(
@@ -241,7 +242,8 @@ def run_a3_security(task: TaskMessage, bus: Any) -> ResultMessage:
             error_code="secret_detected" if is_blocked else None,
             output_artifact_reference=findings_art.artifact_id,
             structured_findings={
-                "total_secrets_detected": total_secrets,
+                "total_secrets_detected": crit_secrets,
+                "total_redacted_count": total_redacted,
                 "redaction_counts": redaction_counts,
                 "ast_threats_count": len(threats),
                 "is_quarantined": is_blocked,
