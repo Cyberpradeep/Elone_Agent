@@ -191,18 +191,18 @@ def check_daily_limit(provider: str = "gemini") -> None:
 
     if isinstance(max_calls, (int, float)) and current_calls >= max_calls:
         err_msg = (
-            f"\n"
-            f"{'=' * 70}\n"
-            f"  [GEMINI MONITOR CIRCUIT BREAKER] DAILY QUOTA REACHED!\n"
-            f"{'=' * 70}\n"
-            f"  Date:            {usage['date']}\n"
-            f"  Total Calls:     {current_calls}/{max_calls} (MAX LIMIT REACHED)\n"
-            f"  Total Cost:      ${usage['total_cost_usd']:.4f} USD (~Rs. {usage['total_cost_inr']:.2f} INR)\n"
-            f"  Status:          BLOCKED to protect your paid API quota.\n"
-            f"  Reset Time:      Tomorrow at 00:00 (Midnight)\n"
-            f"{'=' * 70}\n"
+            f"DAILY QUOTA REACHED! Date: {usage['date']} | Total Calls: {current_calls}/{max_calls} (MAX LIMIT REACHED) | "
+            f"Cost: ${usage['total_cost_usd']:.4f} USD (~Rs. {usage['total_cost_inr']:.2f} INR). Pipeline blocked to protect paid API quota."
         )
-        print(err_msg, flush=True)
+        try:
+            from utils.pipeline_logger import log_error
+            log_error("Circuit Breaker", err_msg)
+        except Exception:
+            try:
+                from backend.utils.pipeline_logger import log_error
+                log_error("Circuit Breaker", err_msg)
+            except Exception:
+                print(f"[Circuit Breaker Error] {err_msg}", flush=True)
         raise DailyQuotaExceededError(
             f"Daily API call limit of {max_calls} reached for {usage['date']}. "
             f"Blocked to prevent additional billing charges."
@@ -307,13 +307,29 @@ def record_call(
     _save_usage_data(all_data)
 
     limit_display = "Unlimited" if unlimited else max_limit
-    print(
-        f"[Gemini Monitor] Call #{day_entry['total_calls']}/{limit_display} | "
-        f"Caller: {caller} | In: {input_tokens} tok, Out: {output_tokens} tok, Img: {image_tokens} tok | "
-        f"Call Cost: ${cost_info['total_cost_usd']:.5f} | Day Total: ${day_entry['total_cost_usd']:.4f} USD (~Rs. {day_entry['total_cost_inr']:.2f} INR) | "
-        f"Remaining: {day_entry['calls_remaining']}",
-        flush=True
-    )
+    try:
+        from utils.pipeline_logger import log_info
+        log_info(
+            "Gemini Monitor",
+            f"Call #{day_entry['total_calls']}/{limit_display} | Caller: {caller} | In: {input_tokens} tok, Out: {output_tokens} tok | "
+            f"Cost: ${cost_info['total_cost_usd']:.5f} (Day: ${day_entry['total_cost_usd']:.4f} USD)"
+        )
+    except Exception:
+        try:
+            from backend.utils.pipeline_logger import log_info
+            log_info(
+                "Gemini Monitor",
+                f"Call #{day_entry['total_calls']}/{limit_display} | Caller: {caller} | In: {input_tokens} tok, Out: {output_tokens} tok | "
+                f"Cost: ${cost_info['total_cost_usd']:.5f} (Day: ${day_entry['total_cost_usd']:.4f} USD)"
+            )
+        except Exception:
+            print(
+                f"[Gemini Monitor] Call #{day_entry['total_calls']}/{limit_display} | "
+                f"Caller: {caller} | In: {input_tokens} tok, Out: {output_tokens} tok, Img: {image_tokens} tok | "
+                f"Call Cost: ${cost_info['total_cost_usd']:.5f} | Day Total: ${day_entry['total_cost_usd']:.4f} USD (~Rs. {day_entry['total_cost_inr']:.2f} INR) | "
+                f"Remaining: {day_entry['calls_remaining']}",
+                flush=True
+            )
 
     return {
         "call_cost": cost_info,
@@ -327,6 +343,18 @@ def print_execution_session_banner(session: Optional[Dict[str, Any]] = None) -> 
         session = _get_active_session()
     if session is None:
         return
+
+    try:
+        from utils.pipeline_logger import log_session_summary
+        log_session_summary(session)
+        return
+    except Exception:
+        try:
+            from backend.utils.pipeline_logger import log_session_summary
+            log_session_summary(session)
+            return
+        except Exception:
+            pass
 
     print("\n" + "=" * 70)
     print("  THIS EXECUTION — LLM CALL SUMMARY")
@@ -358,6 +386,18 @@ def print_execution_session_banner(session: Optional[Dict[str, Any]] = None) -> 
 def print_daily_usage_banner() -> None:
     """Prints a clean, formatted terminal summary of today's usage and costs."""
     usage = get_today_usage()
+    try:
+        from utils.pipeline_logger import log_daily_usage_banner
+        log_daily_usage_banner(usage)
+        return
+    except Exception:
+        try:
+            from backend.utils.pipeline_logger import log_daily_usage_banner
+            log_daily_usage_banner(usage)
+            return
+        except Exception:
+            pass
+
     print("\n" + "=" * 70)
     print("  GEMINI & VISION DAILY USAGE & COST REPORT")
     print("=" * 70)

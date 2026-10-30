@@ -1,0 +1,202 @@
+{
+  "schema_version": "1.0",
+  "sop_id": "SOP-L1-APP-001",
+  "version": 1,
+  "tenant_id": "tn_northwind",
+  "title": "Software Application Unblock Request",
+  "title_lines": [
+    1,
+    2
+  ],
+  "metadata_lines": [
+    3,
+    4
+  ],
+  "department": {
+    "status": "missing",
+    "value": "Software",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "owner": {
+    "status": "missing",
+    "value": "author@corp.com",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "version_label": {
+    "status": "missing",
+    "value": "v1.0",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "review_date": {
+    "status": "missing",
+    "value": "2026-10-29",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "source": {
+    "filename": "sop-l1-app-001.txt",
+    "sha256": "574cef6b4a1dfc2c119a5341a27972698b1b4028aa32690227c4713c24e9bcdd",
+    "size": 525,
+    "detected_type": "text/plain",
+    "pages": 1,
+    "extracted_lines": 7,
+    "ocr": false
+  },
+  "purpose": {
+    "text": "Automated workflow to verify endpoint connectivity, inspect registry for IFEO Debugger blocks, remove the block, and refresh policy.",
+    "source_lines": [
+      2,
+      3
+    ],
+    "quote": "Automated workflow to verify endpoint connectivity, inspect registry for IFEO Debugger blocks, remov",
+    "verified": true
+  },
+  "scope": {
+    "text": "Applies to software operations and authorized agents.",
+    "source_lines": [
+      1,
+      2
+    ],
+    "quote": "Applies to software operations and authorized agents.",
+    "verified": true
+  },
+  "preconditions": [],
+  "roles": [
+    {
+      "role": "Operator",
+      "responsibility": "Executes Software Application Unblock Request",
+      "source_lines": [
+        1
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "n": 1,
+      "action": "Verify endpoint network connectivity before performing remote diagnostics.",
+      "input": "Test-Connection \"{{entities.hostname}}\" -Count 2",
+      "expected_outcome": "If ping replies are received, set variables.endpoint_reachable = true, else set variables.endpoint_reachable = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        3,
+        4
+      ],
+      "quote": "Verify endpoint network connectivity before performing remote diagnostics.",
+      "verified": true
+    },
+    {
+      "n": 2,
+      "action": "Query IFEO registry key to check if application is blocked by a Debugger entry.",
+      "input": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\{{entities.application}}.exe\"",
+      "expected_outcome": "If stdout contains 'Debugger', set variables.ifeo_blocked = true, else set variables.ifeo_blocked = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        4,
+        5
+      ],
+      "quote": "Query IFEO registry key to check if application is blocked by a Debugger entry.",
+      "verified": true
+    },
+    {
+      "n": 3,
+      "action": "Remove IFEO Debugger registry value or full key to unblock execution.",
+      "input": "reg delete \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\{{entities.application}}.exe\" /v Debugger /f",
+      "expected_outcome": "If exit code is 0, set variables.block_removed = true, else set variables.block_removed = false",
+      "warning": "reg delete \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\{{entities.application}}.exe\" /f",
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        5,
+        6
+      ],
+      "quote": "Remove IFEO Debugger registry value or full key to unblock execution.",
+      "verified": true
+    },
+    {
+      "n": 4,
+      "action": "Refresh local Group Policy to apply unblock changes immediately.",
+      "input": "gpupdate /force",
+      "expected_outcome": null,
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        6,
+        7
+      ],
+      "quote": "Refresh local Group Policy to apply unblock changes immediately.",
+      "verified": true
+    },
+    {
+      "n": 5,
+      "action": "Verify IFEO block removal by re-querying the target registry key.",
+      "input": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\{{entities.application}}.exe\"",
+      "expected_outcome": "If stdout contains 'Debugger', set variables.block_verified = false, else set variables.block_verified = true",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        7,
+        7
+      ],
+      "quote": "Verify IFEO block removal by re-querying the target registry key.",
+      "verified": true
+    }
+  ],
+  "exceptions": [],
+  "notes": [],
+  "references": [],
+  "media": [],
+  "issues": [],
+  "classification": {
+    "level": "L0",
+    "score": 5,
+    "evidence_categories": [
+      "baseline_internal_sop"
+    ],
+    "rule_level": "L0",
+    "ai_suggested_level": "L0",
+    "rationale": "Deterministic rule classification",
+    "confirmed": false
+  },
+  "quality": {
+    "completeness": 100.0,
+    "traceability": 100.0,
+    "schema_valid": true,
+    "blocking_issues_count": 0,
+    "quality_score": 100.0,
+    "status": "Ready"
+  },
+  "transformations": [],
+  "lifecycle": {
+    "state": "structuring",
+    "uploaded_by": "author@corp.com",
+    "created_at": "2026-10-29T12:30:41.991215+00:00",
+    "approvals": []
+  },
+  "provenance": {
+    "producing_agent": "A2_structuring",
+    "provider": "elverve_ai",
+    "generated_at": "2026-10-29T12:30:41.991215+00:00"
+  }
+}

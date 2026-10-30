@@ -1,0 +1,154 @@
+{
+  "schema_version": "1.0",
+  "sop_id": "SOP-L1-APP-002",
+  "version": 1,
+  "tenant_id": "tn_northwind",
+  "title": "Check and Terminate a Hung Application \u2013 Windows",
+  "title_lines": [
+    1,
+    2
+  ],
+  "metadata_lines": [
+    3,
+    4
+  ],
+  "department": {
+    "status": "missing",
+    "value": "Software",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "owner": {
+    "status": "missing",
+    "value": "author@corp.com",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "version_label": {
+    "status": "missing",
+    "value": "v1.0",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "review_date": {
+    "status": "missing",
+    "value": "2026-10-29",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "source": {
+    "filename": "sop-l1-app-002.txt",
+    "sha256": "b5b8a02fe2f6ee321f8d9c33bfd1bc8b201da65e0d0189a1fa2da5b7841ad17e",
+    "size": 278,
+    "detected_type": "text/plain",
+    "pages": 1,
+    "extracted_lines": 4,
+    "ocr": false
+  },
+  "purpose": {
+    "text": "Automated workflow to verify if a specific application process is running and forcibly terminate it if confirmed.",
+    "source_lines": [
+      2,
+      3
+    ],
+    "quote": "Automated workflow to verify if a specific application process is running and forcibly terminate it ",
+    "verified": true
+  },
+  "scope": {
+    "text": "Applies to software operations and authorized agents.",
+    "source_lines": [
+      1,
+      2
+    ],
+    "quote": "Applies to software operations and authorized agents.",
+    "verified": true
+  },
+  "preconditions": [],
+  "roles": [
+    {
+      "role": "Operator",
+      "responsibility": "Executes Check and Terminate a Hung Application \u2013 Windows",
+      "source_lines": [
+        1
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "n": 1,
+      "action": "Verify if the target application process is currently running.",
+      "input": "tasklist | findstr \"{{entities.application}}\"",
+      "expected_outcome": "If stdout contains '{{entities.application}}', set variables.process_running = true, else set variables.process_running = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        3,
+        4
+      ],
+      "quote": "Verify if the target application process is currently running.",
+      "verified": true
+    },
+    {
+      "n": 2,
+      "action": "Forcefully terminate the hung application process.",
+      "input": "taskkill /F /IM \"{{entities.application}}.exe\"",
+      "expected_outcome": "If exit code is 0, set variables.process_terminated = true, else set variables.process_terminated = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        4,
+        4
+      ],
+      "quote": "Forcefully terminate the hung application process.",
+      "verified": true
+    }
+  ],
+  "exceptions": [],
+  "notes": [],
+  "references": [],
+  "media": [],
+  "issues": [],
+  "classification": {
+    "level": "L0",
+    "score": 5,
+    "evidence_categories": [
+      "baseline_internal_sop"
+    ],
+    "rule_level": "L0",
+    "ai_suggested_level": "L0",
+    "rationale": "Deterministic rule classification",
+    "confirmed": false
+  },
+  "quality": {
+    "completeness": 100.0,
+    "traceability": 100.0,
+    "schema_valid": true,
+    "blocking_issues_count": 0,
+    "quality_score": 100.0,
+    "status": "Ready"
+  },
+  "transformations": [],
+  "lifecycle": {
+    "state": "structuring",
+    "uploaded_by": "author@corp.com",
+    "created_at": "2026-10-29T12:12:57.963693+00:00",
+    "approvals": []
+  },
+  "provenance": {
+    "producing_agent": "A2_structuring",
+    "provider": "elverve_ai",
+    "generated_at": "2026-10-29T12:12:57.963693+00:00"
+  }
+}

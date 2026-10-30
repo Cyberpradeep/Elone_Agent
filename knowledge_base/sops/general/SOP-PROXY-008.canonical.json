@@ -1,0 +1,187 @@
+{
+  "schema_version": "1.0",
+  "sop_id": "SOP-PROXY-008",
+  "version": 1,
+  "tenant_id": "tenant-default",
+  "title": "Enterprise Proxy Configuration Override",
+  "title_lines": [
+    1,
+    2
+  ],
+  "metadata_lines": [
+    3,
+    4
+  ],
+  "department": {
+    "status": "missing",
+    "value": "Network",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "owner": {
+    "status": "present",
+    "value": "Frank Castle, Systems Engineer",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "version_label": {
+    "status": "missing",
+    "value": "v1.0",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "review_date": {
+    "status": "present",
+    "value": "2026-10-25",
+    "source_lines": [
+      4,
+      5
+    ]
+  },
+  "source": {
+    "filename": "sop_08_multi_subbullets_exceptions.txt",
+    "sha256": "2d55c72fe25ad50a2423b386bd5b75d566a61ce105fe3007cb691d1bc1a7c978",
+    "size": 1038,
+    "detected_type": "markitdown_parser",
+    "pages": 1,
+    "extracted_lines": 18,
+    "ocr": false
+  },
+  "purpose": {
+    "text": "Reconfigures PAC proxy routing for corporate endpoints traveling between remote offices.\n2. Preconditions\n\u2022 Workstation is joined to corp.internal Active Directory domain.\n\u2022 Active VPN tunnel is disconnected before executing PAC file change.\n\u2022 Administrative rights granted via temporary elevation token.",
+    "source_lines": [
+      7,
+      8
+    ],
+    "quote": "Reconfigures PAC proxy routing for corporate endpoints traveling between remote offices.\n2. Precondi",
+    "verified": true
+  },
+  "scope": {
+    "text": "Applies to network operations and authorized agents.",
+    "source_lines": [
+      1,
+      2
+    ],
+    "quote": "Applies to network operations and authorized agents.",
+    "verified": true
+  },
+  "preconditions": [],
+  "roles": [
+    {
+      "role": "Operator",
+      "responsibility": "Executes Enterprise Proxy Configuration Override",
+      "source_lines": [
+        1
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "n": 1,
+      "action": "Verify DNS resolution for the PAC file host to ensure the autoconfig URL is reachable.",
+      "input": "try { $pacHost = ([uri]'{{entities.pac_url}}').Host; Resolve-DnsName -Name $pacHost -ErrorAction Stop; Write-Host 'PAC host resolved successfully.' } catch { Write-Host 'PAC host DNS resolution failed.' }",
+      "expected_outcome": "If stdout contains 'PAC host resolved successfully.', set variables.pac_host_resolved = true, else set variables.pac_host_resolved = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        7,
+        8
+      ],
+      "quote": "Verify DNS resolution for the PAC file host to ensure the autoconfig URL is reachable.",
+      "verified": false
+    },
+    {
+      "n": 2,
+      "action": "Check existing WinHTTP proxy settings to understand the current configuration.",
+      "input": "netsh winhttp show proxy",
+      "expected_outcome": "If stdout contains 'Direct access (no proxy server).', set variables.proxy_not_set = true, else set variables.proxy_not_set = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        13,
+        14
+      ],
+      "quote": "Check existing WinHTTP proxy settings to understand the current configuration.",
+      "verified": false
+    },
+    {
+      "n": 3,
+      "action": "Set the corporate proxy autoconfig URL using the provided PAC file.",
+      "input": "netsh winhttp set proxy autoconfigurl=\"{{entities.pac_url}}\"",
+      "expected_outcome": null,
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        14,
+        15
+      ],
+      "quote": "Set the corporate proxy autoconfig URL using the provided PAC file.",
+      "verified": false
+    },
+    {
+      "n": 4,
+      "action": "Test connectivity to the internal gateway portal to verify the new proxy configuration.",
+      "input": "try { $response = Invoke-WebRequest -Uri '{{entities.portal_url}}' -UseBasicParsing -ErrorAction Stop; Write-Host 'Status Code: ' + $response.StatusCode } catch { Write-Host 'Connection failed or error occurred.' }",
+      "expected_outcome": "If stdout contains 'Status Code: 200', set variables.portal_reachable = true. If stdout contains 'Status Code: 407', set variables.proxy_auth_required = true. Else set variables.portal_reachable = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        15,
+        16
+      ],
+      "quote": "Test connectivity to the internal gateway portal to verify the new proxy configuration.",
+      "verified": false
+    }
+  ],
+  "exceptions": [],
+  "notes": [],
+  "references": [],
+  "media": [],
+  "issues": [],
+  "classification": {
+    "level": "L1",
+    "score": 25,
+    "evidence_categories": [
+      "baseline_internal_sop",
+      "internal_infrastructure"
+    ],
+    "rule_level": "L1",
+    "ai_suggested_level": "L1",
+    "rationale": "Deterministic rule classification",
+    "confirmed": false
+  },
+  "quality": {
+    "completeness": 94.4,
+    "traceability": 0.0,
+    "schema_valid": true,
+    "blocking_issues_count": 0,
+    "quality_score": 57.8,
+    "status": "Failed checks"
+  },
+  "transformations": [],
+  "lifecycle": {
+    "state": "structuring",
+    "uploaded_by": "author@corp.com",
+    "created_at": "2026-10-30T09:07:49.603965+00:00",
+    "approvals": []
+  },
+  "provenance": {
+    "producing_agent": "A2_structuring",
+    "provider": "elverve_ai",
+    "generated_at": "2026-10-30T09:07:49.603965+00:00"
+  }
+}

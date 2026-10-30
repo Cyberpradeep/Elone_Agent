@@ -2,69 +2,72 @@
   "schema_version": "1.0",
   "sop_id": "SOP-L1-WIN-002",
   "version": 1,
-  "tenant_id": "tn_northwind",
+  "tenant_id": "tenant-default",
   "title": "Check and Terminate a Hung Application \u2013 Windows",
   "title_lines": [
-    1,
-    2
+    2,
+    3
   ],
   "metadata_lines": [
-    3,
-    4
+    4,
+    5
   ],
   "department": {
     "status": "present",
     "value": "Software",
     "source_lines": [
-      3
+      4
     ]
   },
   "owner": {
     "status": "present",
-    "value": "author@corp.com",
+    "value": "IT Support",
     "source_lines": [
-      4
+      4,
+      5
     ]
   },
   "version_label": {
     "status": "present",
     "value": "v1.0",
     "source_lines": [
-      4
+      4,
+      5
     ]
   },
   "review_date": {
     "status": "present",
-    "value": "2026-10-27",
+    "value": "31-Jul-2026",
     "source_lines": [
-      4
+      8,
+      9
     ]
   },
   "source": {
-    "filename": "sop-l1-win-002.txt",
-    "sha256": "618cc9599e4601b0d0ead02c9bdf657fb5f448741e4a4802e32b654aa5be4b2d",
-    "size": 277,
-    "detected_type": "text/plain",
+    "filename": "SOP_Kill_Hang_Application_Windows.pdf",
+    "sha256": "dd16499d0e166dc6751aff4d8da6ef5f5458adf3ded1d3af62d2d73c0e669a12",
+    "size": 3041,
+    "detected_type": "ordered_pdf_walk",
     "pages": 1,
-    "extracted_lines": 4,
+    "extracted_lines": 28,
     "ocr": false
   },
   "purpose": {
-    "text": "Automated workflow to verify if a specific application process is running and forcibly terminate it if detected.",
+    "text": "This procedure describes the standard steps to verify that an application is running and to forcibly\nterminate it when it has stopped responding (hung).",
     "source_lines": [
-      1,
-      2
+      12,
+      13
     ],
-    "quote": "Automated workflow to verify if a specific application process is running and forcibly terminate it ",
+    "quote": "This procedure describes the standard steps to verify that an application is running and to forcibly",
     "verified": true
   },
   "scope": {
-    "text": "Applies to software operations and authorized agents.",
+    "text": "Applies to IT support staff and end users troubleshooting unresponsive desktop applications on Windows\nsystems.",
     "source_lines": [
-      2,
-      3
+      15,
+      16
     ],
-    "quote": "software",
+    "quote": "Applies to IT support staff and end users troubleshooting unresponsive desktop applications on Windo",
     "verified": true
   },
   "preconditions": [],
@@ -80,7 +83,7 @@
   "steps": [
     {
       "n": 1,
-      "action": "Verify if the target application process is currently running.",
+      "action": "Verify if the target application process is currently running on the system.",
       "input": "tasklist | findstr \"{{entities.application}}\"",
       "expected_outcome": "If stdout contains '{{entities.application}}', set variables.process_running = true, else set variables.process_running = false",
       "warning": null,
@@ -88,15 +91,15 @@
       "requires_approval": false,
       "risk": "low",
       "source_lines": [
-        2,
-        3
+        12,
+        13
       ],
-      "quote": "Verify if the target application process is currently running.",
-      "verified": true
+      "quote": "Verify if the target application process is currently running on the system.",
+      "verified": false
     },
     {
       "n": 2,
-      "action": "Forcefully terminate the hung application process.",
+      "action": "Force-terminate the hung application process.",
       "input": "taskkill /F /IM \"{{entities.application}}.exe\"",
       "expected_outcome": "If exit code is 0, set variables.process_terminated = true, else set variables.process_terminated = false",
       "warning": null,
@@ -104,15 +107,25 @@
       "requires_approval": false,
       "risk": "low",
       "source_lines": [
-        4,
-        5
+        23,
+        24
       ],
-      "quote": "Forcefully terminate the hung application process.",
-      "verified": true
+      "quote": "Force-terminate the hung application process.",
+      "verified": false
     }
   ],
   "exceptions": [],
-  "notes": [],
+  "notes": [
+    {
+      "text": "The /F flag forces immediate termination and skips cleanup, so any unsaved data in the application may\nbe lost.",
+      "source_lines": [
+        26,
+        27
+      ],
+      "quote": "The /F flag forces immediate termination and skips cleanup, so any unsaved data in the application m",
+      "verified": true
+    }
+  ],
   "references": [],
   "media": [],
   "issues": [],
@@ -129,22 +142,22 @@
   },
   "quality": {
     "completeness": 100.0,
-    "traceability": 100.0,
+    "traceability": 0.0,
     "schema_valid": true,
     "blocking_issues_count": 0,
-    "quality_score": 100.0,
-    "status": "Ready"
+    "quality_score": 60.0,
+    "status": "Failed checks"
   },
   "transformations": [],
   "lifecycle": {
     "state": "structuring",
     "uploaded_by": "author@corp.com",
-    "created_at": "2026-10-27T11:04:50.580589+00:00",
+    "created_at": "2026-10-29T09:33:20.594266+00:00",
     "approvals": []
   },
   "provenance": {
     "producing_agent": "A2_structuring",
     "provider": "elverve_ai",
-    "generated_at": "2026-10-27T11:04:50.580589+00:00"
+    "generated_at": "2026-10-29T09:33:20.594266+00:00"
   }
 }

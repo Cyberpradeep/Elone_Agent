@@ -1,0 +1,25 @@
+STANDARD OPERATING PROCEDURE: Print Spooler Queue Purge and Reset
+Document ID: SOP-IT-004
+Owner: Dana Scully, Systems Specialist
+Effective Date: 2026-10-22
+Department: IT Support
+
+1. Purpose
+This procedure describes clearing stuck print jobs from the Windows print spooler subsystem.
+
+2. Scope
+Applies to Windows 10 and Windows 11 enterprise endpoints encountering print queue freezes.
+
+3. Preconditions
+- Local administrative rights on the target workstation.
+- User has saved unsaved documents.
+
+4. Procedure
+1. Stop the Windows Print Spooler service using net stop spooler.
+2. Delete all stuck temporary print buffer files from C:\Windows\System32\spool\PRINTERS.
+3. Start the Windows Print Spooler service using net start spooler.
+4. Verify the spooler service status is running using sc query spooler.
+
+5. Escalation Criteria
+If the spooler crashes immediately upon restart, escalate to Desktop Architecture.
+

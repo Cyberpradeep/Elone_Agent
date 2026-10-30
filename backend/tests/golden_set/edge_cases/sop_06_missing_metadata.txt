@@ -1,0 +1,14 @@
+Temporary Directory Cleanup Procedure
+
+1. Purpose
+Cleans out stale files older than seven days from system scratch directories.
+
+2. Scope
+Applies to shared staging servers.
+
+3. Procedure
+1. Identify target temporary folder path at /var/tmp/scratch.
+2. Search and list stale files older than seven days using find /var/tmp/scratch -type f -mtime +7.
+3. Remove stale temporary files using find /var/tmp/scratch -type f -mtime +7 -delete.
+4. Verify remaining disk usage using df -h /var/tmp.
+

@@ -1,0 +1,25 @@
+STANDARD OPERATING PROCEDURE: Exchange Online Mailbox Litigation Hold Release
+Document ID: SOP-EXCH-013
+Owner: Sarah Connor, Senior Messaging Specialist
+Effective Date: 2026-10-25
+Department: IT Service Desk
+Classification: Internal Only
+
+1. Purpose
+This procedure defines the verified release of an expired legal litigation hold on an Exchange Online employee mailbox.
+
+2. Scope
+Applies to Microsoft 365 Exchange Online compliance and eDiscovery administrators.
+
+3. Preconditions
+- Legal department signed authorization ticket attached to change request.
+- Operator holds Exchange Compliance Administrator RBAC role.
+
+4. Procedure
+1. Connect to Exchange Online PowerShell using Connect-ExchangeOnline.
+2. Verify current litigation hold status using Get-Mailbox -Identity user@corp.internal | Select-Object LitigationHoldEnabled.
+3. Remove the litigation hold flag using Set-Mailbox -Identity user@corp.internal -LitigationHoldEnabled $false.
+4. Confirm changes propagated across tenant directory using Get-Mailbox -Identity user@corp.internal.
+
+5. Escalation Criteria
+If the mailbox is subject to an active retention policy locking modifications, escalate to Legal Compliance.

@@ -19,8 +19,12 @@ Supports Providers:
 """
 
 import os
+import warnings
 from functools import lru_cache
 from dotenv import load_dotenv
+
+warnings.filterwarnings("ignore", message=".*automatic function calling.*")
+warnings.filterwarnings("ignore", category=UserWarning, module=".*google.*")
 
 _ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv(os.path.join(_ROOT_DIR, ".env"))
@@ -36,8 +40,8 @@ load_dotenv()
 _PLANNING_PROVIDER = os.environ.get("PLANNING_PROVIDER", "groq").lower()
 _PLANNING_MODEL = os.environ.get("PLANNING_MODEL", "qwen/qwen3.8-27b")
 
-_VALIDATION_PROVIDER = os.environ.get("VALIDATION_PROVIDER", "zai").lower()
-_VALIDATION_MODEL = os.environ.get("VALIDATION_MODEL", "glm-4.7-flash")
+_VALIDATION_PROVIDER = os.environ.get("VALIDATION_PROVIDER", "groq").lower()
+_VALIDATION_MODEL = os.environ.get("VALIDATION_MODEL", "qwen/qwen3.8-27b")
 
 _GROQ_MODEL = os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b")
 
@@ -46,17 +50,14 @@ ROLE_PROVIDER_MAP = {
         "provider": _PLANNING_PROVIDER,
         "model": _PLANNING_MODEL,
         "fallbacks": [
-            {"provider": "zai", "model": "glm-4.7-flash"},
-            {"provider": "zai", "model": "glm-4.5-flash"},
-            {"provider": "groq", "model": _GROQ_MODEL},
+            {"provider": "gemini", "model": "gemini-2.5-flash"},
         ],
     },
     "planning_validation": {
         "provider": _VALIDATION_PROVIDER,
         "model": _VALIDATION_MODEL,
         "fallbacks": [
-            {"provider": "zai", "model": "glm-4.5-flash"},
-            {"provider": "groq", "model": _GROQ_MODEL},
+            {"provider": "gemini", "model": "gemini-2.5-flash"},
         ],
     },
     "vlm_image_analysis": {
@@ -132,25 +133,40 @@ def _build_openrouter_client(model: str, temperature: float = 0.2):
 
 def _build_groq_client(model: str, temperature: float = 0.2):
     """
-    Builds a LangChain chat model client for Groq.
+    Builds a LangChain chat model client for Groq with multi-key fallback rotation.
     Models include: llama-3.3-70b-versatile, llama-3.1-8b-instant, qwen-2.5-32b, etc.
-    Uses langchain_groq if installed, or falls back to standard OpenAI-compatible ChatOpenAI.
+    Rotates automatically across GROQ_API_KEY, GROQ_API_KEY_FALLBACK, GROQ_API_KEY_EXECUTION_RESULT.
     """
-    api_key = os.environ.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY_SUMMARIZATION")
-    if not api_key:
+    raw_keys = [
+        os.environ.get("GROQ_API_KEY"),
+        os.environ.get("GROQ_API_KEY_FALLBACK"),
+        os.environ.get("GROQ_API_KEY_EXECUTION_RESULT"),
+        os.environ.get("GROQ_API_KEY_SUMMARIZATION"),
+    ]
+    seen = set()
+    keys = []
+    for k in raw_keys:
+        if k and k not in seen:
+            seen.add(k)
+            keys.append(k)
+
+    if not keys:
         raise RuntimeError("GROQ_API_KEY not set in environment (.env)")
-    try:
-        # pyrefly: ignore [missing-import]
-        from langchain_groq import ChatGroq
-        return ChatGroq(model_name=model, groq_api_key=api_key, temperature=temperature)
-    except ImportError:
-        from langchain_openai import ChatOpenAI
-        return ChatOpenAI(
+
+    from langchain_openai import ChatOpenAI
+    clients = [
+        ChatOpenAI(
             model=model,
-            api_key=api_key,
+            api_key=k,
             base_url="https://api.groq.com/openai/v1",
             temperature=temperature,
+            max_tokens=8192,
         )
+        for k in keys
+    ]
+    if len(clients) > 1:
+        return clients[0].with_fallbacks(clients[1:])
+    return clients[0]
 
 
 def _build_zai_glm_client(model: str = "glm-4.7-flash", temperature: float = 0.2):
@@ -185,6 +201,7 @@ def _build_zai_glm_client(model: str = "glm-4.7-flash", temperature: float = 0.2
         api_key=api_key,
         base_url=base_url,
         temperature=temperature,
+        max_tokens=8192,
     )
 
     # If requested model is glm-4.7-flash, attach automatic fallback to glm-4.5-flash
@@ -194,6 +211,7 @@ def _build_zai_glm_client(model: str = "glm-4.7-flash", temperature: float = 0.2
             api_key=api_key,
             base_url=base_url,
             temperature=temperature,
+            max_tokens=8192,
         )
         return primary_client.with_fallbacks([fallback_client])
 
@@ -245,13 +263,21 @@ _BUILDERS = {
 
 def print_active_models():
     """Prints a formatted summary of all agent roles and their assigned LLMs."""
-    print("\n" + "=" * 65)
-    print("  ACTIVE AGENT LLM CONFIGURATION")
-    print("=" * 65)
-    for role, conf in ROLE_PROVIDER_MAP.items():
-        fb_str = f" | Fallbacks: {[f['provider'] + '/' + f['model'] for f in conf.get('fallbacks', [])]}" if "fallbacks" in conf else ""
-        print(f"  • {role:22s} -> Provider: {conf['provider']:10s} | Model: {conf['model']}{fb_str}")
-    print("=" * 65 + "\n", flush=True)
+    try:
+        from utils.pipeline_logger import log_active_models
+        log_active_models(ROLE_PROVIDER_MAP)
+    except Exception:
+        try:
+            from backend.utils.pipeline_logger import log_active_models
+            log_active_models(ROLE_PROVIDER_MAP)
+        except Exception:
+            print("\n" + "=" * 65)
+            print("  ACTIVE AGENT LLM CONFIGURATION")
+            print("=" * 65)
+            for role, conf in ROLE_PROVIDER_MAP.items():
+                fb_str = f" | Fallbacks: {[f['provider'] + '/' + f['model'] for f in conf.get('fallbacks', [])]}" if "fallbacks" in conf else ""
+                print(f"  • {role:22s} -> Provider: {conf['provider']:10s} | Model: {conf['model']}{fb_str}")
+            print("=" * 65 + "\n", flush=True)
 
 
 @lru_cache(maxsize=None)
@@ -266,7 +292,15 @@ def get_llm(role: str, temperature: float = 0.2):
     config = ROLE_PROVIDER_MAP[role]
     builder = _BUILDERS[config["provider"]]
 
-    print(f"[LLM Initializer] Role: '{role}' -> Active: {config['provider'].upper()} ({config['model']}, temp={temperature})", flush=True)
+    try:
+        from utils.pipeline_logger import log_info
+        log_info("LLM Initializer", f"Role: '{role}' -> Active: {config['provider'].upper()} ({config['model']}, temp={temperature})")
+    except Exception:
+        try:
+            from backend.utils.pipeline_logger import log_info
+            log_info("LLM Initializer", f"Role: '{role}' -> Active: {config['provider'].upper()} ({config['model']}, temp={temperature})")
+        except Exception:
+            print(f"[LLM Initializer] Role: '{role}' -> Active: {config['provider'].upper()} ({config['model']}, temp={temperature})", flush=True)
 
     primary_llm = builder(config["model"], temperature=temperature)
 

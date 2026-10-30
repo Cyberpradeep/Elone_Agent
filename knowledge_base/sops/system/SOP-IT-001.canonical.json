@@ -1,0 +1,170 @@
+{
+  "schema_version": "1.0",
+  "sop_id": "SOP-IT-001",
+  "version": 1,
+  "tenant_id": "tn_northwind",
+  "title": "Active Directory User Password Reset",
+  "title_lines": [
+    1,
+    2
+  ],
+  "metadata_lines": [
+    3,
+    4
+  ],
+  "department": {
+    "status": "missing",
+    "value": "System",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "owner": {
+    "status": "missing",
+    "value": "author@corp.com",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "version_label": {
+    "status": "missing",
+    "value": "v1.0",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "review_date": {
+    "status": "missing",
+    "value": "2026-10-30",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "source": {
+    "filename": "sop-it-001.txt",
+    "sha256": "8bd94737ab0483f7e74b73c307b518b21dc46595d34ddb1b41d8e27b6f304b0b",
+    "size": 397,
+    "detected_type": "text/plain",
+    "pages": 1,
+    "extracted_lines": 5,
+    "ocr": false
+  },
+  "purpose": {
+    "text": "Automated workflow to locate an Active Directory user, reset their password, and enforce a password change at next logon.",
+    "source_lines": [
+      2,
+      3
+    ],
+    "quote": "Automated workflow to locate an Active Directory user, reset their password, and enforce a password ",
+    "verified": true
+  },
+  "scope": {
+    "text": "Applies to system operations and authorized agents.",
+    "source_lines": [
+      2,
+      3
+    ],
+    "quote": "Applies to system operations and authorized agents.",
+    "verified": true
+  },
+  "preconditions": [],
+  "roles": [
+    {
+      "role": "Operator",
+      "responsibility": "Executes Active Directory User Password Reset",
+      "source_lines": [
+        1
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "n": 1,
+      "action": "Locate the user account in Active Directory to verify existence and retrieve object details.",
+      "input": "Get-ADUser -Identity \"{{entities.username}}\" -Properties *",
+      "expected_outcome": "If command succeeds and returns user object, set variables.user_found = true, else set variables.user_found = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        3,
+        4
+      ],
+      "quote": "Locate the user account in Active Directory to verify existence and retrieve object details.",
+      "verified": true
+    },
+    {
+      "n": 2,
+      "action": "Reset the target account password to the specified temporary complex credentials.",
+      "input": "$securePass = ConvertTo-SecureString '{{entities.temporary_password}}' -AsPlainText -Force; Set-ADAccountPassword -Identity \"{{entities.username}}\" -Reset -NewPassword $securePass",
+      "expected_outcome": "If exit code is 0, set variables.password_reset = true, else set variables.password_reset = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        4,
+        5
+      ],
+      "quote": "Reset the target account password to the specified temporary complex credentials.",
+      "verified": true
+    },
+    {
+      "n": 3,
+      "action": "Flag the user account to require password change at next logon.",
+      "input": "Set-ADUser -Identity \"{{entities.username}}\" -ChangePasswordAtLogon $true",
+      "expected_outcome": "If exit code is 0, set variables.change_flagged = true, else set variables.change_flagged = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        5,
+        5
+      ],
+      "quote": "Flag the user account to require password change at next logon.",
+      "verified": true
+    }
+  ],
+  "exceptions": [],
+  "notes": [],
+  "references": [],
+  "media": [],
+  "issues": [],
+  "classification": {
+    "level": "L0",
+    "score": 5,
+    "evidence_categories": [
+      "baseline_internal_sop"
+    ],
+    "rule_level": "L0",
+    "ai_suggested_level": "L0",
+    "rationale": "Deterministic rule classification",
+    "confirmed": false
+  },
+  "quality": {
+    "completeness": 100.0,
+    "traceability": 100.0,
+    "schema_valid": true,
+    "blocking_issues_count": 0,
+    "quality_score": 100.0,
+    "status": "Ready"
+  },
+  "transformations": [],
+  "lifecycle": {
+    "state": "structuring",
+    "uploaded_by": "author@corp.com",
+    "created_at": "2026-10-30T07:07:15.019709+00:00",
+    "approvals": []
+  },
+  "provenance": {
+    "producing_agent": "A2_structuring",
+    "provider": "elverve_ai",
+    "generated_at": "2026-10-30T07:07:15.019709+00:00"
+  }
+}

@@ -1,0 +1,25 @@
+STANDARD OPERATING PROCEDURE: Production Web Application Service Restart
+Document ID: SOP-OPS-002
+Owner: Bob Miller, SRE Lead
+Effective Date: 2026-10-18
+Department: Infrastructure Engineering
+
+1. Purpose
+This procedure documents the routine safe restart of unresponsive web application backend service daemons.
+
+2. Scope
+Applies to Linux production application clusters running the nginx-frontend and app-backend services.
+
+3. Preconditions
+- Operator has verified no database schema migration is actively executing.
+- SSH key authentication to production jump host is active.
+
+4. Procedure
+1. Check current service operational health status using systemctl status app-backend.service.
+2. Gracefully drain active HTTP worker connections before terminating service.
+3. Restart the backend service daemon using sudo systemctl restart app-backend.service.
+4. Verify HTTP health check endpoint responds with HTTP 200 OK using curl -s -f http://127.0.0.1:8080/health.
+
+5. Escalation Criteria
+If the service fails to respond within 60 seconds of restart, escalate to Senior On-Call SRE.
+

