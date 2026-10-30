@@ -218,12 +218,14 @@ def redact_sensitive_dlp(text: str) -> Tuple[str, Dict[str, int]]:
 
     sanitized = CONTEXTUAL_SECRET_PATTERNS[0].sub(_redact_contextual_key, sanitized)
 
-    # 3. Email Addresses (Exclude documentation template domains)
+    # 3. Email Addresses (Exclude documentation template domains & internal hostnames)
     def _redact_email(match):
         full_email = match.group(0)
         domain = full_email.split("@")[-1].lower()
-        # Keep documentation placeholders intact
+        # Keep documentation placeholders and internal host targets intact
         if domain in DOCUMENTATION_TEMPLATE_DOMAINS or full_email.startswith(("user@", "test@", "admin@example")):
+            return full_email
+        if domain.endswith((".internal", ".corp", ".local", ".lan")):
             return full_email
         stats["emails"] += 1
         return "[DLP_REDACTED_EMAIL]"
