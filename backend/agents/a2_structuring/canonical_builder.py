@@ -18,6 +18,7 @@ import frontmatter
 from typing import Dict, Any, Optional, List, Tuple
 
 from utils.security import sanitize_slug, compute_playbook_hmac
+from agents.a2_structuring.text_cleaner import clean_and_normalize_text
 from agents.a3_security.confidentiality_engine import compute_confidentiality_score
 from agents.a4_verification.quality_engine import compute_quality_score
 from agents.a4_verification.quote_tracer import verify_canonical_quotes, compute_source_line_coverage
@@ -116,6 +117,7 @@ def build_canonical_sop_from_draft(
     tenant_id: str = "tn_northwind",
     uploaded_by: str = "author@corp.com",
     source_metadata: Optional[Dict[str, Any]] = None,
+    transformations: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Constructs a Canonical SOP JSON Schema 1.0 dictionary from a draft OKF playbook (Section 16)."""
     frontmatter_dict = draft.get("frontmatter", draft)
@@ -123,6 +125,9 @@ def build_canonical_sop_from_draft(
     title = frontmatter_dict.get("title") or "Automated Standard Operating Procedure"
     category = frontmatter_dict.get("category") or "general"
     description = frontmatter_dict.get("description") or ""
+
+    if transformations is None and raw_text:
+        _, transformations = clean_and_normalize_text(raw_text)
 
     if not raw_text and description:
         raw_text = f"{title}\n{description}\n" + "\n".join(
@@ -194,6 +199,34 @@ def build_canonical_sop_from_draft(
             "verified": True,
         })
 
+    # Preconditions extraction (from raw_text or llm_meta)
+    canonical_preconditions = []
+    prec_matches = re.findall(r'(?:Preconditions|Prerequisites)\s*[:\n]+\s*([\s\S]*?)(?=\n\s*(?:[1-9]\.|\bProcess\b|\bDetailed\b|\bProcedure\b)|\Z)', raw_text, re.IGNORECASE)
+    raw_prec_block = max(prec_matches, key=len, default="").strip() if prec_matches else (llm_meta.get("preconditions") or "")
+    if raw_prec_block:
+        for pline in [l.strip().lstrip('•-–* ').strip() for l in str(raw_prec_block).splitlines() if l.strip() and not l.strip().startswith('•')][:8]:
+            if len(pline) > 3:
+                p_lines = _find_matching_line_range(pline, source_lines)
+                canonical_preconditions.append({"text": pline, "source_lines": p_lines, "quote": pline[:100], "verified": True})
+
+    # Escalation / Exceptions extraction (from raw_text or llm_meta)
+    canonical_exceptions = []
+    esc_matches = re.findall(r'(?:Escalation\s+Criteria|Exceptions)\s*[:\n]+\s*([\s\S]*?)(?=\n\s*(?:[1-9]\.|\bDocument\s+Control\b|\bRevision\b)|\Z)', raw_text, re.IGNORECASE)
+    raw_esc_block = max(esc_matches, key=len, default="").strip() if esc_matches else (llm_meta.get("exceptions") or "")
+    if raw_esc_block:
+        for eline in [l.strip().lstrip('•-–* ').strip() for l in str(raw_esc_block).splitlines() if l.strip() and not l.strip().startswith('•')][:8]:
+            if len(eline) > 3:
+                e_lines = _find_matching_line_range(eline, source_lines)
+                rel_step = len(canonical_steps) if canonical_steps else 1
+                canonical_exceptions.append({
+                    "condition": eline,
+                    "action": "Escalate to L2 Support",
+                    "related_step": rel_step,
+                    "source_lines": e_lines,
+                    "quote": eline[:100],
+                    "verified": True,
+                })
+
     coverage_meta = [
         title,
         category,
@@ -207,6 +240,10 @@ def build_canonical_sop_from_draft(
     ]
     if isinstance(frontmatter_dict.get("trigger_words"), list):
         coverage_meta.extend(frontmatter_dict.get("trigger_words"))
+    for p in canonical_preconditions:
+        coverage_meta.append(p["text"])
+    for e in canonical_exceptions:
+        coverage_meta.append(e["condition"])
 
     total_non_blank, mapped_count, _ = compute_source_line_coverage(
         raw_lines=source_lines,
@@ -274,12 +311,12 @@ def build_canonical_sop_from_draft(
             "quote": scope_text[:100],
             "verified": True,
         },
-        "preconditions": [],
+        "preconditions": canonical_preconditions,
         "roles": [
             {"role": "Operator", "responsibility": f"Executes {title}", "source_lines": [1]}
         ],
         "steps": canonical_steps,
-        "exceptions": [],
+        "exceptions": canonical_exceptions,
         "notes": canonical_notes,
         "references": [],
         "media": [],
@@ -301,7 +338,7 @@ def build_canonical_sop_from_draft(
             "quality_score": quality_res["quality_score"],
             "status": quality_res["status"],
         },
-        "transformations": [],
+        "transformations": transformations or [],
         "lifecycle": {
             "state": "structuring",
             "uploaded_by": uploaded_by,

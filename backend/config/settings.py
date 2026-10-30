@@ -21,6 +21,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+try:
+    from utils.pipeline_logger import log_warning, log_error
+except ImportError:
+    try:
+        from backend.utils.pipeline_logger import log_warning, log_error
+    except ImportError:
+        def log_warning(tag, msg): print(f"[{tag} Warning] {msg}")
+        def log_error(tag, msg): print(f"[{tag} Error] {msg}")
+
 CONFIG_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE_PATH = os.path.join(CONFIG_DIR, "pipeline_config.json")
 SETTINGS_JSON_PATH = os.path.join(CONFIG_DIR, "settings.json")
@@ -105,7 +114,7 @@ class PipelineSettings:
                     loaded_file = True
                     break
                 except Exception as e:
-                    print(f"[Config Warning] Could not parse '{cpath}': {e}. Trying fallback.")
+                    log_warning("Config", f"Could not parse '{cpath}': {e}. Trying fallback.")
 
         # Overlay Environment Variable Overrides (Highest Precedence)
         if os.environ.get("MAX_FILE_SIZE_MB"):
@@ -172,7 +181,7 @@ class PipelineSettings:
                 with open(p, "w", encoding="utf-8") as f:
                     json.dump(self._cached_config, f, indent=2)
             except Exception as e:
-                print(f"[Config Error] Failed to write config to '{p}': {e}")
+                log_error("Config", f"Failed to write config to '{p}': {e}")
 
         return self._cached_config
 

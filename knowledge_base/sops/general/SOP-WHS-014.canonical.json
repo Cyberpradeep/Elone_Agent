@@ -1,0 +1,255 @@
+{
+  "schema_version": "1.0",
+  "sop_id": "SOP-WHS-014",
+  "version": 1,
+  "tenant_id": "tenant-default",
+  "title": "Warehouse Barcode Scanner Terminal Soft Reset & Staging Recovery",
+  "title_lines": [
+    1,
+    2
+  ],
+  "metadata_lines": [
+    3,
+    4
+  ],
+  "department": {
+    "status": "missing",
+    "value": "Hardware",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "owner": {
+    "status": "present",
+    "value": "Mike Ross, Logistics Systems Lead",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "version_label": {
+    "status": "missing",
+    "value": "v1.0",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "review_date": {
+    "status": "present",
+    "value": "2026-10-26",
+    "source_lines": [
+      4,
+      5
+    ]
+  },
+  "source": {
+    "filename": "sop_14_warehouse_barcode_scanner.txt",
+    "sha256": "7e80c2070d64fa23bcc7aa9f3def3a68034b41d39b3e7a53a9d15ac0e40cf0af",
+    "size": 1611,
+    "detected_type": "markitdown_parser",
+    "pages": 1,
+    "extracted_lines": 21,
+    "ocr": false
+  },
+  "purpose": {
+    "text": "Provides warehouse fulfillment IT technicians with terminal commands to recover frozen Zebra TC52 mobile barcode scanners connected to the depot diagnostic dock.\n2. Preconditions\n- Scanner is docked into USB staging cradle connected to the warehouse terminal workstation whs-depot-01.corp.internal.\n- Device battery indicates >= 20% charge.\n- Technician holds authorized access to ADB staging utilities.",
+    "source_lines": [
+      8,
+      9
+    ],
+    "quote": "Provides warehouse fulfillment IT technicians with terminal commands to recover frozen Zebra TC52 mo",
+    "verified": true
+  },
+  "scope": {
+    "text": "Applies to hardware operations and authorized agents.",
+    "source_lines": [
+      21,
+      21
+    ],
+    "quote": "Applies to hardware operations and authorized agents.",
+    "verified": true
+  },
+  "preconditions": [
+    {
+      "text": "Scanner is docked into USB staging cradle connected to the warehouse terminal workstation whs-depot-01.corp.internal.",
+      "source_lines": [
+        10,
+        11
+      ],
+      "quote": "Scanner is docked into USB staging cradle connected to the warehouse terminal workstation whs-depot-",
+      "verified": true
+    },
+    {
+      "text": "Device battery indicates >= 20% charge.",
+      "source_lines": [
+        11,
+        12
+      ],
+      "quote": "Device battery indicates >= 20% charge.",
+      "verified": true
+    },
+    {
+      "text": "Technician holds authorized access to ADB staging utilities.",
+      "source_lines": [
+        12,
+        13
+      ],
+      "quote": "Technician holds authorized access to ADB staging utilities.",
+      "verified": true
+    }
+  ],
+  "roles": [
+    {
+      "role": "Operator",
+      "responsibility": "Executes Warehouse Barcode Scanner Terminal Soft Reset & Staging Recovery",
+      "source_lines": [
+        1
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "n": 1,
+      "action": "Verify ADB connectivity and device state before executing recovery commands.",
+      "input": "adb get-state",
+      "expected_outcome": "If stdout contains 'device', set variables.device_online = true, else set variables.device_online = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        14,
+        15
+      ],
+      "quote": "Verify ADB connectivity and device state before executing recovery commands.",
+      "verified": false
+    },
+    {
+      "n": 2,
+      "action": "Purge memory cache for the warehouse fulfillment scan application.",
+      "input": "adb shell pm clear \"{{entities.application_package}}\"",
+      "expected_outcome": "If stdout contains 'Success', set variables.cache_cleared = true, else set variables.cache_cleared = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        15,
+        16
+      ],
+      "quote": "Purge memory cache for the warehouse fulfillment scan application.",
+      "verified": true
+    },
+    {
+      "n": 3,
+      "action": "Broadcast StageNow automated staging intent profile to apply configuration.",
+      "input": "adb shell am broadcast -a com.symbol.stagenow.action.EXECUTE -e script_file \"{{entities.staging_script_path}}\"",
+      "expected_outcome": "If stdout contains 'Broadcast completed', set variables.profile_broadcast = true, else set variables.profile_broadcast = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        16,
+        17
+      ],
+      "quote": "Broadcast StageNow automated staging intent profile to apply configuration.",
+      "verified": true
+    },
+    {
+      "n": 4,
+      "action": "Query device diagnostic logcat to confirm successful profile application.",
+      "input": "adb logcat -d -s StageNow | Select-String -Pattern 'Configuration\\s+applied\\s+successfully'",
+      "expected_outcome": "If stdout is not empty, set variables.profile_applied = true, else set variables.profile_applied = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        17,
+        18
+      ],
+      "quote": "Query device diagnostic logcat to confirm successful profile application.",
+      "verified": true
+    },
+    {
+      "n": 5,
+      "action": "Soft reboot the mobile computer scanner to apply persistent runtime settings.",
+      "input": "adb reboot",
+      "expected_outcome": null,
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        18,
+        19
+      ],
+      "quote": "Soft reboot the mobile computer scanner to apply persistent runtime settings.",
+      "verified": true
+    }
+  ],
+  "exceptions": [
+    {
+      "condition": "If adb get-state returns unauthorized or device offline, re-seat device in USB dock or replace staging cable.",
+      "action": "Escalate to L2 Support",
+      "related_step": 5,
+      "source_lines": [
+        20,
+        21
+      ],
+      "quote": "If adb get-state returns unauthorized or device offline, re-seat device in USB dock or replace stagi",
+      "verified": true
+    },
+    {
+      "condition": "If scan engine hardware fails to calibrate after reboot, mark scanner hardware defective and route to vendor RMA.",
+      "action": "Escalate to L2 Support",
+      "related_step": 5,
+      "source_lines": [
+        21,
+        21
+      ],
+      "quote": "If scan engine hardware fails to calibrate after reboot, mark scanner hardware defective and route t",
+      "verified": true
+    }
+  ],
+  "notes": [],
+  "references": [],
+  "media": [],
+  "issues": [],
+  "classification": {
+    "level": "L1",
+    "score": 30,
+    "evidence_categories": [
+      "baseline_internal_sop",
+      "internal_infrastructure",
+      "explicit_confidentiality_label"
+    ],
+    "rule_level": "L1",
+    "ai_suggested_level": "L1",
+    "rationale": "Deterministic rule classification",
+    "confirmed": false
+  },
+  "quality": {
+    "completeness": 95.2,
+    "traceability": 80.0,
+    "schema_valid": true,
+    "blocking_issues_count": 0,
+    "quality_score": 90.1,
+    "status": "Needs attention"
+  },
+  "transformations": [],
+  "lifecycle": {
+    "state": "structuring",
+    "uploaded_by": "author@corp.com",
+    "created_at": "2026-10-30T06:24:59.327728+00:00",
+    "approvals": []
+  },
+  "provenance": {
+    "producing_agent": "A2_structuring",
+    "provider": "elverve_ai",
+    "generated_at": "2026-10-30T06:24:59.327728+00:00"
+  }
+}

@@ -45,7 +45,7 @@ def extract_images_from_pdf(pdf_path: str) -> List[Tuple[int, int, bytes, str]]:
         try:
             import fitz
         except ImportError:
-            print("[VLM Inspector Warning] PyMuPDF is not installed. PDF image extraction skipped.")
+            log_warning("VLM Inspector", "PyMuPDF is not installed. PDF image extraction skipped.")
             return []
 
     results = []
@@ -62,7 +62,7 @@ def extract_images_from_pdf(pdf_path: str) -> List[Tuple[int, int, bytes, str]]:
                 results.append((page_number + 1, image_index, image_bytes, mime_type))
         doc.close()
     except Exception as e:
-        print(f"[VLM Inspector Warning] Error extracting images from PDF '{pdf_path}': {e}")
+        log_warning("VLM Inspector", f"Error extracting images from PDF '{pdf_path}': {e}")
     return results
 
 
@@ -72,7 +72,7 @@ def extract_images_from_docx(docx_path: str) -> List[Tuple[bytes, str]]:
         from docx import Document
         from docx.oxml.ns import qn
     except ImportError:
-        print("[VLM Inspector Warning] python-docx is not installed. DOCX image extraction skipped.")
+        log_warning("VLM Inspector", "python-docx is not installed. DOCX image extraction skipped.")
         return []
 
     results = []
@@ -87,7 +87,7 @@ def extract_images_from_docx(docx_path: str) -> List[Tuple[bytes, str]]:
             image_part = doc.part.related_parts[embed_id]
             results.append((image_part.blob, image_part.content_type))
     except Exception as e:
-        print(f"[VLM Inspector Warning] Error extracting images from DOCX '{docx_path}': {e}")
+        log_warning("VLM Inspector", f"Error extracting images from DOCX '{docx_path}': {e}")
     return results
 
 
@@ -144,7 +144,7 @@ def analyze_image_bytes(image_bytes: bytes, mime_type: str) -> str:
     """Analyzes image bytes using VLM via LangChain with rate-limit retry backoff."""
     is_valid, sec_err, sanitized_bytes, actual_mime = validate_and_sanitize_image_bytes(image_bytes, mime_type)
     if not is_valid:
-        print(f"[VLM Security Shield] Image rejected: {sec_err}")
+        log_error("VLM Security Shield", f"Image rejected: {sec_err}")
         return f"[IMAGE EXCLUDED FOR SECURITY: {sec_err}]"
     image_bytes = sanitized_bytes
     mime_type = actual_mime
@@ -190,7 +190,7 @@ def analyze_image_bytes(image_bytes: bytes, mime_type: str) -> str:
                     image_tokens=img_tok
                 )
             except Exception as mon_err:
-                print(f"[Gemini Monitor Warning] Failed to log VLM call: {mon_err}")
+                log_warning("Gemini Monitor", f"Failed to log VLM call: {mon_err}")
 
             raw_content = res.content if hasattr(res, "content") else str(res)
             if isinstance(raw_content, list):
@@ -206,10 +206,10 @@ def analyze_image_bytes(image_bytes: bytes, mime_type: str) -> str:
             last_error = e
             err_str = str(e)
             if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower():
-                print(f"[VLM Rate Limit Warning] VLM API quota reached. Retrying in 2s (Attempt {attempt}/{max_retries})...")
+                log_warning("VLM Rate Limit", f"VLM API quota reached. Retrying in 2s (Attempt {attempt}/{max_retries})...")
                 time.sleep(2)
             else:
-                print(f"[VLM Inspector Error] Failed to analyze image with VLM: {e}")
+                log_error("VLM Inspector", f"Failed to analyze image with VLM: {e}")
                 return f"VLM Analysis FAILED (non-retryable error): {err_str}"
 
     return f"VLM Analysis FAILED (quota/rate-limit exhausted after {max_retries} attempts): {last_error}"
@@ -219,7 +219,7 @@ def analyze_and_save_image(image_bytes: bytes, mime_type: str, label: str, sop_s
     """Runs VLM analysis on a single image and saves report under knowledge_base/logs/images/<sop_slug>/."""
     is_valid, sec_err, sanitized_bytes, actual_mime = validate_and_sanitize_image_bytes(image_bytes, mime_type)
     if not is_valid:
-        print(f"[VLM Security Shield] Image {index} ('{label}') rejected: {sec_err}")
+        log_error("VLM Security Shield", f"Image {index} ('{label}') rejected: {sec_err}")
         return f"[IMAGE EXCLUDED FOR SECURITY: {sec_err}]", {
             "image_path": "",
             "file_path": "",
@@ -300,10 +300,10 @@ def process_sop_images(filepath: str, sop_slug: str) -> Dict[str, Any]:
 
     max_imgs = get_max_images_per_sop()
     if len(extracted_items) > max_imgs:
-        print(f"[VLM Inspector Security] Document contains {len(extracted_items)} image(s). Capping VLM analysis to first {max_imgs} image(s) as configured.")
+        log_warning("VLM Inspector Security", f"Document contains {len(extracted_items)} image(s). Capping VLM analysis to first {max_imgs} image(s) as configured.")
         extracted_items = extracted_items[:max_imgs]
 
-    print(f"[VLM Inspector] Found {len(extracted_items)} image(s) in '{os.path.basename(filepath)}'. Running VLM analysis...")
+    log_info("VLM Inspector", f"Found {len(extracted_items)} image(s) in '{os.path.basename(filepath)}'. Running VLM analysis...")
     reports = []
     image_refs = []
 

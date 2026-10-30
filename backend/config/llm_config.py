@@ -19,8 +19,12 @@ Supports Providers:
 """
 
 import os
+import warnings
 from functools import lru_cache
 from dotenv import load_dotenv
+
+warnings.filterwarnings("ignore", message=".*automatic function calling.*")
+warnings.filterwarnings("ignore", category=UserWarning, module=".*google.*")
 
 _ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv(os.path.join(_ROOT_DIR, ".env"))
@@ -259,13 +263,21 @@ _BUILDERS = {
 
 def print_active_models():
     """Prints a formatted summary of all agent roles and their assigned LLMs."""
-    print("\n" + "=" * 65)
-    print("  ACTIVE AGENT LLM CONFIGURATION")
-    print("=" * 65)
-    for role, conf in ROLE_PROVIDER_MAP.items():
-        fb_str = f" | Fallbacks: {[f['provider'] + '/' + f['model'] for f in conf.get('fallbacks', [])]}" if "fallbacks" in conf else ""
-        print(f"  • {role:22s} -> Provider: {conf['provider']:10s} | Model: {conf['model']}{fb_str}")
-    print("=" * 65 + "\n", flush=True)
+    try:
+        from utils.pipeline_logger import log_active_models
+        log_active_models(ROLE_PROVIDER_MAP)
+    except Exception:
+        try:
+            from backend.utils.pipeline_logger import log_active_models
+            log_active_models(ROLE_PROVIDER_MAP)
+        except Exception:
+            print("\n" + "=" * 65)
+            print("  ACTIVE AGENT LLM CONFIGURATION")
+            print("=" * 65)
+            for role, conf in ROLE_PROVIDER_MAP.items():
+                fb_str = f" | Fallbacks: {[f['provider'] + '/' + f['model'] for f in conf.get('fallbacks', [])]}" if "fallbacks" in conf else ""
+                print(f"  • {role:22s} -> Provider: {conf['provider']:10s} | Model: {conf['model']}{fb_str}")
+            print("=" * 65 + "\n", flush=True)
 
 
 @lru_cache(maxsize=None)
@@ -280,7 +292,15 @@ def get_llm(role: str, temperature: float = 0.2):
     config = ROLE_PROVIDER_MAP[role]
     builder = _BUILDERS[config["provider"]]
 
-    print(f"[LLM Initializer] Role: '{role}' -> Active: {config['provider'].upper()} ({config['model']}, temp={temperature})", flush=True)
+    try:
+        from utils.pipeline_logger import log_info
+        log_info("LLM Initializer", f"Role: '{role}' -> Active: {config['provider'].upper()} ({config['model']}, temp={temperature})")
+    except Exception:
+        try:
+            from backend.utils.pipeline_logger import log_info
+            log_info("LLM Initializer", f"Role: '{role}' -> Active: {config['provider'].upper()} ({config['model']}, temp={temperature})")
+        except Exception:
+            print(f"[LLM Initializer] Role: '{role}' -> Active: {config['provider'].upper()} ({config['model']}, temp={temperature})", flush=True)
 
     primary_llm = builder(config["model"], temperature=temperature)
 

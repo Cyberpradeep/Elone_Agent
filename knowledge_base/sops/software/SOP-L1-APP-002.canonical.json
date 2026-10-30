@@ -143,12 +143,12 @@
   "lifecycle": {
     "state": "structuring",
     "uploaded_by": "author@corp.com",
-    "created_at": "2026-10-29T10:17:50.845588+00:00",
+    "created_at": "2026-10-29T12:12:57.963693+00:00",
     "approvals": []
   },
   "provenance": {
     "producing_agent": "A2_structuring",
     "provider": "elverve_ai",
-    "generated_at": "2026-10-29T10:17:50.845588+00:00"
+    "generated_at": "2026-10-29T12:12:57.963693+00:00"
   }
 }

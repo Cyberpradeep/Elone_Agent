@@ -1,0 +1,186 @@
+{
+  "schema_version": "1.0",
+  "sop_id": "SOP-L1-SYS-002",
+  "version": 1,
+  "tenant_id": "tn_northwind",
+  "title": "Temporary Directory Cleanup Procedure",
+  "title_lines": [
+    1,
+    2
+  ],
+  "metadata_lines": [
+    3,
+    4
+  ],
+  "department": {
+    "status": "missing",
+    "value": "System",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "owner": {
+    "status": "missing",
+    "value": "author@corp.com",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "version_label": {
+    "status": "missing",
+    "value": "v1.0",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "review_date": {
+    "status": "missing",
+    "value": "2026-10-30",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "source": {
+    "filename": "sop-l1-sys-002.txt",
+    "sha256": "03dd30a2f4f47165396530baf98a6bfaee6a519358db6711ddda5ca00c34ce91",
+    "size": 432,
+    "detected_type": "text/plain",
+    "pages": 1,
+    "extracted_lines": 6,
+    "ocr": false
+  },
+  "purpose": {
+    "text": "Automated workflow to identify, list, and remove stale files older than seven days from the system scratch directory, followed by disk usage verification.",
+    "source_lines": [
+      2,
+      3
+    ],
+    "quote": "Automated workflow to identify, list, and remove stale files older than seven days from the system s",
+    "verified": true
+  },
+  "scope": {
+    "text": "Applies to system operations and authorized agents.",
+    "source_lines": [
+      2,
+      3
+    ],
+    "quote": "Applies to system operations and authorized agents.",
+    "verified": true
+  },
+  "preconditions": [],
+  "roles": [
+    {
+      "role": "Operator",
+      "responsibility": "Executes Temporary Directory Cleanup Procedure",
+      "source_lines": [
+        1
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "n": 1,
+      "action": "Verify the target temporary folder path exists.",
+      "input": "Test-Path -Path '{{entities.scratch_path}}'",
+      "expected_outcome": "If stdout is 'True', set variables.path_exists = true, else set variables.path_exists = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        3,
+        4
+      ],
+      "quote": "Verify the target temporary folder path exists.",
+      "verified": true
+    },
+    {
+      "n": 2,
+      "action": "List stale files older than seven days in the scratch directory.",
+      "input": "Get-ChildItem -Path '{{entities.scratch_path}}' -File | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-7) } | Select-Object Name, LastWriteTime, Length",
+      "expected_outcome": "If stdout is not empty, set variables.stale_files_found = true, else set variables.stale_files_found = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        2,
+        3
+      ],
+      "quote": "List stale files older than seven days in the scratch directory.",
+      "verified": true
+    },
+    {
+      "n": 3,
+      "action": "Remove stale temporary files older than seven days.",
+      "input": "Get-ChildItem -Path '{{entities.scratch_path}}' -File | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-7) } | Remove-Item -Force",
+      "expected_outcome": "If exit code is 0, set variables.cleanup_completed = true, else set variables.cleanup_completed = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        5,
+        6
+      ],
+      "quote": "Remove stale temporary files older than seven days.",
+      "verified": true
+    },
+    {
+      "n": 4,
+      "action": "Verify remaining disk usage on the drive containing the scratch directory.",
+      "input": "Get-PSDrive -Name (Get-Item '{{entities.scratch_path}}').PSDrive.Name | Select-Object Name, Used, Free",
+      "expected_outcome": null,
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        6,
+        6
+      ],
+      "quote": "Verify remaining disk usage on the drive containing the scratch directory.",
+      "verified": true
+    }
+  ],
+  "exceptions": [],
+  "notes": [],
+  "references": [],
+  "media": [],
+  "issues": [],
+  "classification": {
+    "level": "L0",
+    "score": 5,
+    "evidence_categories": [
+      "baseline_internal_sop"
+    ],
+    "rule_level": "L0",
+    "ai_suggested_level": "L0",
+    "rationale": "Deterministic rule classification",
+    "confirmed": false
+  },
+  "quality": {
+    "completeness": 100.0,
+    "traceability": 100.0,
+    "schema_valid": true,
+    "blocking_issues_count": 0,
+    "quality_score": 100.0,
+    "status": "Ready"
+  },
+  "transformations": [],
+  "lifecycle": {
+    "state": "structuring",
+    "uploaded_by": "author@corp.com",
+    "created_at": "2026-10-30T06:53:40.487222+00:00",
+    "approvals": []
+  },
+  "provenance": {
+    "producing_agent": "A2_structuring",
+    "provider": "elverve_ai",
+    "generated_at": "2026-10-30T06:53:40.487222+00:00"
+  }
+}

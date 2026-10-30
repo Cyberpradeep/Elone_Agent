@@ -1,0 +1,255 @@
+{
+  "schema_version": "1.0",
+  "sop_id": "SOP-IAM-015",
+  "version": 1,
+  "tenant_id": "tenant-default",
+  "title": "Identity Provider MFA Factor De-enrollment via Admin API CLI",
+  "title_lines": [
+    1,
+    2
+  ],
+  "metadata_lines": [
+    3,
+    4
+  ],
+  "department": {
+    "status": "missing",
+    "value": "Identity",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "owner": {
+    "status": "present",
+    "value": "Priya Sharma, Identity & Access Manager",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "version_label": {
+    "status": "missing",
+    "value": "v1.0",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "review_date": {
+    "status": "present",
+    "value": "2026-10-27",
+    "source_lines": [
+      4,
+      5
+    ]
+  },
+  "source": {
+    "filename": "sop_15_iam_okta_mfa_reset.txt",
+    "sha256": "eab64d2a42ad25afe9c7de2be947ecf0654e0e4c0bb2dada68822c3825ff888c",
+    "size": 2011,
+    "detected_type": "markitdown_parser",
+    "pages": 1,
+    "extracted_lines": 21,
+    "ocr": false
+  },
+  "purpose": {
+    "text": "Defines safe authentication factor reset using the Okta Identity Cloud REST CLI when an employee loses or replaces their registered mobile authenticator device for portal.corp.internal.\n2. Preconditions\n- Employee out-of-band verification completed with HR ticket confirmation.\n- Operator holds Helpdesk Administrator role with valid temporary session token in $OKTA_API_TOKEN.\n- Target tenant gateway portal.corp.internal is reachable.",
+    "source_lines": [
+      8,
+      9
+    ],
+    "quote": "Defines safe authentication factor reset using the Okta Identity Cloud REST CLI when an employee los",
+    "verified": true
+  },
+  "scope": {
+    "text": "Applies to identity operations and authorized agents.",
+    "source_lines": [
+      1,
+      2
+    ],
+    "quote": "Applies to identity operations and authorized agents.",
+    "verified": true
+  },
+  "preconditions": [
+    {
+      "text": "Employee out-of-band verification completed with HR ticket confirmation.",
+      "source_lines": [
+        10,
+        11
+      ],
+      "quote": "Employee out-of-band verification completed with HR ticket confirmation.",
+      "verified": true
+    },
+    {
+      "text": "Operator holds Helpdesk Administrator role with valid temporary session token in $OKTA_API_TOKEN.",
+      "source_lines": [
+        11,
+        12
+      ],
+      "quote": "Operator holds Helpdesk Administrator role with valid temporary session token in $OKTA_API_TOKEN.",
+      "verified": true
+    },
+    {
+      "text": "Target tenant gateway portal.corp.internal is reachable.",
+      "source_lines": [
+        12,
+        13
+      ],
+      "quote": "Target tenant gateway portal.corp.internal is reachable.",
+      "verified": true
+    }
+  ],
+  "roles": [
+    {
+      "role": "Operator",
+      "responsibility": "Executes Identity Provider MFA Factor De-enrollment via Admin API CLI",
+      "source_lines": [
+        1
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "n": 1,
+      "action": "Query directory user endpoint to obtain target employee unique identifier.",
+      "input": "$headers = @{ 'Authorization' = \"SSWS $env:OKTA_API_TOKEN\" }; $response = Invoke-RestMethod -Uri \"https://portal.corp.internal/api/v1/users?q={{entities.username}}\" -Headers $headers -Method Get; $response[0].id",
+      "expected_outcome": "If command succeeds and returns a non-empty string, set variables.user_id = <stdout>, else set variables.user_id = null and variables.api_error = true",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        14,
+        15
+      ],
+      "quote": "Query directory user endpoint to obtain target employee unique identifier.",
+      "verified": true
+    },
+    {
+      "n": 2,
+      "action": "List all currently registered authentication factors for target user.",
+      "input": "$headers = @{ 'Authorization' = \"SSWS $env:OKTA_API_TOKEN\" }; Invoke-RestMethod -Uri \"https://portal.corp.internal/api/v1/users/{{variables.user_id}}/factors\" -Headers $headers -Method Get | ConvertTo-Json",
+      "expected_outcome": "If stdout contains JSON array, set variables.factors_list = <stdout>, else set variables.factors_list = null",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        15,
+        16
+      ],
+      "quote": "List all currently registered authentication factors for target user.",
+      "verified": true
+    },
+    {
+      "n": 3,
+      "action": "Delete the specific compromised or lost mobile device factor.",
+      "input": "$headers = @{ 'Authorization' = \"SSWS $env:OKTA_API_TOKEN\" }; Invoke-RestMethod -Uri \"https://portal.corp.internal/api/v1/users/{{variables.user_id}}/factors/{{entities.factor_id}}\" -Headers $headers -Method Delete",
+      "expected_outcome": "If exit code is 0 or no exception thrown, set variables.factor_deleted = true, else set variables.factor_deleted = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        16,
+        17
+      ],
+      "quote": "Delete the specific compromised or lost mobile device factor.",
+      "verified": true
+    },
+    {
+      "n": 4,
+      "action": "Revoke all active user web and API bearer sessions immediately.",
+      "input": "$headers = @{ 'Authorization' = \"SSWS $env:OKTA_API_TOKEN\" }; Invoke-RestMethod -Uri \"https://portal.corp.internal/api/v1/users/{{variables.user_id}}/lifecycle/clear_sessions\" -Headers $headers -Method Post",
+      "expected_outcome": "If exit code is 0 or no exception thrown, set variables.sessions_cleared = true, else set variables.sessions_cleared = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        17,
+        18
+      ],
+      "quote": "Revoke all active user web and API bearer sessions immediately.",
+      "verified": true
+    },
+    {
+      "n": 5,
+      "action": "Issue a temporary 24-hour factor re-enrollment activation token.",
+      "input": "$headers = @{ 'Authorization' = \"SSWS $env:OKTA_API_TOKEN\" }; Invoke-RestMethod -Uri \"https://portal.corp.internal/api/v1/users/{{variables.user_id}}/lifecycle/reset_factors\" -Headers $headers -Method Post",
+      "expected_outcome": "If exit code is 0 or no exception thrown, set variables.factors_reset = true, else set variables.factors_reset = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        18,
+        19
+      ],
+      "quote": "Issue a temporary 24-hour factor re-enrollment activation token.",
+      "verified": true
+    }
+  ],
+  "exceptions": [
+    {
+      "condition": "If HTTP 403 Forbidden is returned, verify administrator RBAC permissions and session token expiration.",
+      "action": "Escalate to L2 Support",
+      "related_step": 5,
+      "source_lines": [
+        20,
+        21
+      ],
+      "quote": "If HTTP 403 Forbidden is returned, verify administrator RBAC permissions and session token expiratio",
+      "verified": true
+    },
+    {
+      "condition": "If user account shows anomalous authentication attempts from external IP addresses, lock account and escalate to SOC.",
+      "action": "Escalate to L2 Support",
+      "related_step": 5,
+      "source_lines": [
+        21,
+        21
+      ],
+      "quote": "If user account shows anomalous authentication attempts from external IP addresses, lock account and",
+      "verified": true
+    }
+  ],
+  "notes": [],
+  "references": [],
+  "media": [],
+  "issues": [],
+  "classification": {
+    "level": "L1",
+    "score": 35,
+    "evidence_categories": [
+      "baseline_internal_sop",
+      "internal_infrastructure",
+      "explicit_confidentiality_label"
+    ],
+    "rule_level": "L1",
+    "ai_suggested_level": "L1",
+    "rationale": "Deterministic rule classification",
+    "confirmed": false
+  },
+  "quality": {
+    "completeness": 90.5,
+    "traceability": 100.0,
+    "schema_valid": true,
+    "blocking_issues_count": 0,
+    "quality_score": 96.2,
+    "status": "Ready"
+  },
+  "transformations": [],
+  "lifecycle": {
+    "state": "structuring",
+    "uploaded_by": "author@corp.com",
+    "created_at": "2026-10-30T06:33:08.296647+00:00",
+    "approvals": []
+  },
+  "provenance": {
+    "producing_agent": "A2_structuring",
+    "provider": "elverve_ai",
+    "generated_at": "2026-10-30T06:33:08.296647+00:00"
+  }
+}

@@ -1,0 +1,201 @@
+{
+  "schema_version": "1.0",
+  "sop_id": "SOP-IT-001",
+  "version": 1,
+  "tenant_id": "tenant-default",
+  "title": "Active Directory User Password Reset",
+  "title_lines": [
+    1,
+    2
+  ],
+  "metadata_lines": [
+    3,
+    4
+  ],
+  "department": {
+    "status": "missing",
+    "value": "System",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "owner": {
+    "status": "present",
+    "value": "Alice Walker, IT Support Lead",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "version_label": {
+    "status": "missing",
+    "value": "v1.0",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "review_date": {
+    "status": "present",
+    "value": "2026-10-15",
+    "source_lines": [
+      4,
+      5
+    ]
+  },
+  "source": {
+    "filename": "sop_01_password_reset.txt",
+    "sha256": "20ab1c7e3bdf907c1cde842c3689bb113b75a2c7f98b8367828bcc5fd22553a2",
+    "size": 1139,
+    "detected_type": "markitdown_parser",
+    "pages": 1,
+    "extracted_lines": 20,
+    "ocr": false
+  },
+  "purpose": {
+    "text": "This procedure defines the authorized process for resetting domain user passwords upon validated identity verification.",
+    "source_lines": [
+      7,
+      8
+    ],
+    "quote": "This procedure defines the authorized process for resetting domain user passwords upon validated ide",
+    "verified": true
+  },
+  "scope": {
+    "text": "Applies to all Level 1 Service Desk technicians handling employee credential resets.\n3. Preconditions\n- Requester identity has been verified via callback or employee badge ID.\n- Operator possesses active Service Desk administrative privileges.",
+    "source_lines": [
+      9,
+      10
+    ],
+    "quote": "Applies to all Level 1 Service Desk technicians handling employee credential resets.\n3. Precondition",
+    "verified": true
+  },
+  "preconditions": [
+    {
+      "text": "Requester identity has been verified via callback or employee badge ID.",
+      "source_lines": [
+        11,
+        12
+      ],
+      "quote": "Requester identity has been verified via callback or employee badge ID.",
+      "verified": true
+    },
+    {
+      "text": "Operator possesses active Service Desk administrative privileges.",
+      "source_lines": [
+        12,
+        13
+      ],
+      "quote": "Operator possesses active Service Desk administrative privileges.",
+      "verified": true
+    }
+  ],
+  "roles": [
+    {
+      "role": "Operator",
+      "responsibility": "Executes Active Directory User Password Reset",
+      "source_lines": [
+        1
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "n": 1,
+      "action": "Locate the user account in Active Directory to verify existence and retrieve object details.",
+      "input": "Get-ADUser -Identity \"{{entities.username}}\" -Properties *",
+      "expected_outcome": "If command succeeds and returns user object, set variables.user_found = true, else set variables.user_found = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        15,
+        16
+      ],
+      "quote": "Locate the user account in Active Directory to verify existence and retrieve object details.",
+      "verified": false
+    },
+    {
+      "n": 2,
+      "action": "Reset the target account password to the specified temporary complex credentials.",
+      "input": "$securePass = ConvertTo-SecureString '{{entities.temporary_password}}' -AsPlainText -Force; Set-ADAccountPassword -Identity \"{{entities.username}}\" -Reset -NewPassword $securePass",
+      "expected_outcome": "If exit code is 0, set variables.password_reset = true, else set variables.password_reset = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        16,
+        17
+      ],
+      "quote": "Reset the target account password to the specified temporary complex credentials.",
+      "verified": true
+    },
+    {
+      "n": 3,
+      "action": "Flag the user account to require password change at next logon.",
+      "input": "Set-ADUser -Identity \"{{entities.username}}\" -ChangePasswordAtLogon $true",
+      "expected_outcome": "If exit code is 0, set variables.change_flagged = true, else set variables.change_flagged = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        17,
+        18
+      ],
+      "quote": "Flag the user account to require password change at next logon.",
+      "verified": true
+    }
+  ],
+  "exceptions": [
+    {
+      "condition": "If the user account is locked due to security hold, escalate immediately to Security Operations.",
+      "action": "Escalate to L2 Support",
+      "related_step": 3,
+      "source_lines": [
+        20,
+        20
+      ],
+      "quote": "If the user account is locked due to security hold, escalate immediately to Security Operations.",
+      "verified": true
+    }
+  ],
+  "notes": [],
+  "references": [],
+  "media": [],
+  "issues": [],
+  "classification": {
+    "level": "L0",
+    "score": 5,
+    "evidence_categories": [
+      "baseline_internal_sop"
+    ],
+    "rule_level": "L0",
+    "ai_suggested_level": "L0",
+    "rationale": "Deterministic rule classification",
+    "confirmed": false
+  },
+  "quality": {
+    "completeness": 95.0,
+    "traceability": 66.7,
+    "schema_valid": true,
+    "blocking_issues_count": 0,
+    "quality_score": 84.7,
+    "status": "Needs attention"
+  },
+  "transformations": [],
+  "lifecycle": {
+    "state": "structuring",
+    "uploaded_by": "author@corp.com",
+    "created_at": "2026-10-30T07:07:14.051539+00:00",
+    "approvals": []
+  },
+  "provenance": {
+    "producing_agent": "A2_structuring",
+    "provider": "elverve_ai",
+    "generated_at": "2026-10-30T07:07:14.051601+00:00"
+  }
+}

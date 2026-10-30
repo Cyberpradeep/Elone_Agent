@@ -1,0 +1,202 @@
+{
+  "schema_version": "1.0",
+  "sop_id": "SOP-AUDIO-007",
+  "version": 1,
+  "tenant_id": "tn_northwind",
+  "title": "Workstation Audio Subsystem & Realtek Driver Reset",
+  "title_lines": [
+    1,
+    2
+  ],
+  "metadata_lines": [
+    3,
+    4
+  ],
+  "department": {
+    "status": "missing",
+    "value": "System",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "owner": {
+    "status": "missing",
+    "value": "author@corp.com",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "version_label": {
+    "status": "missing",
+    "value": "v1.0",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "review_date": {
+    "status": "missing",
+    "value": "2026-10-30",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "source": {
+    "filename": "sop-audio-007.txt",
+    "sha256": "43913066d5978406d1d64d49f5d5c4f63adf89e3626dbe1dedf45573a5763489",
+    "size": 489,
+    "detected_type": "text/plain",
+    "pages": 1,
+    "extracted_lines": 7,
+    "ocr": false
+  },
+  "purpose": {
+    "text": "Automated workflow to diagnose and reset the Windows Audio subsystem and Realtek driver stack without a full reboot.",
+    "source_lines": [
+      2,
+      3
+    ],
+    "quote": "Automated workflow to diagnose and reset the Windows Audio subsystem and Realtek driver stack withou",
+    "verified": true
+  },
+  "scope": {
+    "text": "Applies to system operations and authorized agents.",
+    "source_lines": [
+      2,
+      3
+    ],
+    "quote": "Applies to system operations and authorized agents.",
+    "verified": true
+  },
+  "preconditions": [],
+  "roles": [
+    {
+      "role": "Operator",
+      "responsibility": "Executes Workstation Audio Subsystem & Realtek Driver Reset",
+      "source_lines": [
+        1
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "n": 1,
+      "action": "Query active audio device hardware instance ID to verify audio endpoint presence.",
+      "input": "Get-PnpDevice -Class 'AudioEndpoint' -Status 'OK'",
+      "expected_outcome": "If stdout contains 'AudioEndpoint', set variables.audio_endpoint_present = true, else set variables.audio_endpoint_present = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        3,
+        4
+      ],
+      "quote": "Query active audio device hardware instance ID to verify audio endpoint presence.",
+      "verified": true
+    },
+    {
+      "n": 2,
+      "action": "Forcefully stop Windows Audio engine and Audio Endpoint Builder services.",
+      "input": "Stop-Service -Name 'AudioSrv', 'AudioEndpointBuilder' -Force",
+      "expected_outcome": "If exit code is 0, set variables.services_stopped = true, else set variables.services_stopped = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        4,
+        5
+      ],
+      "quote": "Forcefully stop Windows Audio engine and Audio Endpoint Builder services.",
+      "verified": true
+    },
+    {
+      "n": 3,
+      "action": "Restart the core Realtek High Definition Audio driver stack.",
+      "input": "pnputil /restart-device (Get-PnpDevice -FriendlyName '*Realtek*' | Select-Object -ExpandProperty InstanceId)",
+      "expected_outcome": "If exit code is 0, set variables.driver_restarted = true, else set variables.driver_restarted = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        5,
+        6
+      ],
+      "quote": "Restart the core Realtek High Definition Audio driver stack.",
+      "verified": true
+    },
+    {
+      "n": 4,
+      "action": "Start the Windows Audio service daemon.",
+      "input": "Start-Service -Name 'AudioSrv', 'AudioEndpointBuilder'",
+      "expected_outcome": "If exit code is 0, set variables.services_started = true, else set variables.services_started = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        6,
+        7
+      ],
+      "quote": "Start the Windows Audio service daemon.",
+      "verified": true
+    },
+    {
+      "n": 5,
+      "action": "Verify audio subsystem operational status responds with Running.",
+      "input": "Get-Service -Name 'AudioSrv' | Select-Object Status, Name",
+      "expected_outcome": "If stdout contains 'Running', set variables.audio_service_running = true, else set variables.audio_service_running = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        7,
+        7
+      ],
+      "quote": "Verify audio subsystem operational status responds with Running.",
+      "verified": true
+    }
+  ],
+  "exceptions": [],
+  "notes": [],
+  "references": [],
+  "media": [],
+  "issues": [],
+  "classification": {
+    "level": "L0",
+    "score": 5,
+    "evidence_categories": [
+      "baseline_internal_sop"
+    ],
+    "rule_level": "L0",
+    "ai_suggested_level": "L0",
+    "rationale": "Deterministic rule classification",
+    "confirmed": false
+  },
+  "quality": {
+    "completeness": 100.0,
+    "traceability": 100.0,
+    "schema_valid": true,
+    "blocking_issues_count": 0,
+    "quality_score": 100.0,
+    "status": "Ready"
+  },
+  "transformations": [],
+  "lifecycle": {
+    "state": "structuring",
+    "uploaded_by": "author@corp.com",
+    "created_at": "2026-10-30T06:55:50.037915+00:00",
+    "approvals": []
+  },
+  "provenance": {
+    "producing_agent": "A2_structuring",
+    "provider": "elverve_ai",
+    "generated_at": "2026-10-30T06:55:50.037915+00:00"
+  }
+}

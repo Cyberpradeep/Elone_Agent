@@ -1,0 +1,218 @@
+{
+  "schema_version": "1.0",
+  "sop_id": "SOP-L1-APP-003",
+  "version": 1,
+  "tenant_id": "tn_northwind",
+  "title": "Software Application Cache and Credential Vault Reset",
+  "title_lines": [
+    1,
+    2
+  ],
+  "metadata_lines": [
+    3,
+    4
+  ],
+  "department": {
+    "status": "missing",
+    "value": "Software",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "owner": {
+    "status": "missing",
+    "value": "author@corp.com",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "version_label": {
+    "status": "missing",
+    "value": "v1.0",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "review_date": {
+    "status": "missing",
+    "value": "2026-10-29",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "source": {
+    "filename": "sop-l1-app-003.txt",
+    "sha256": "085ebeb3cb8ea4d939a9e30a820827a870199178aa415cab41c5dbfa81227ec4",
+    "size": 690,
+    "detected_type": "text/plain",
+    "pages": 1,
+    "extracted_lines": 8,
+    "ocr": false
+  },
+  "purpose": {
+    "text": "Automated workflow to diagnose and resolve application launch hangs, corrupted local cache locks, and frozen credential states on Windows endpoints by terminating processes, clearing cache, and restarting services.",
+    "source_lines": [
+      2,
+      3
+    ],
+    "quote": "Automated workflow to diagnose and resolve application launch hangs, corrupted local cache locks, an",
+    "verified": true
+  },
+  "scope": {
+    "text": "Applies to software operations and authorized agents.",
+    "source_lines": [
+      1,
+      2
+    ],
+    "quote": "Applies to software operations and authorized agents.",
+    "verified": true
+  },
+  "preconditions": [],
+  "roles": [
+    {
+      "role": "Operator",
+      "responsibility": "Executes Software Application Cache and Credential Vault Reset",
+      "source_lines": [
+        1
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "n": 1,
+      "action": "Verify endpoint network connectivity before performing remote diagnostics.",
+      "input": "Test-Connection \"{{entities.hostname}}\" -Count 2",
+      "expected_outcome": "If ping replies are received, set variables.endpoint_reachable = true, else set variables.endpoint_reachable = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        3,
+        4
+      ],
+      "quote": "Verify endpoint network connectivity before performing remote diagnostics.",
+      "verified": true
+    },
+    {
+      "n": 2,
+      "action": "Inspect target application process status to determine if it is running or hung.",
+      "input": "Get-Process -Name '{{entities.application}}' -ErrorAction SilentlyContinue",
+      "expected_outcome": "If stdout contains process information, set variables.process_running = true, else set variables.process_running = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        4,
+        5
+      ],
+      "quote": "Inspect target application process status to determine if it is running or hung.",
+      "verified": true
+    },
+    {
+      "n": 3,
+      "action": "Forcibly terminate hanging application process to release file locks.",
+      "input": "Stop-Process -Name '{{entities.application}}' -Force",
+      "expected_outcome": "If exit code is 0, set variables.process_terminated = true, else set variables.process_terminated = false",
+      "warning": "taskkill /F /IM '{{entities.application}}.exe'",
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        5,
+        6
+      ],
+      "quote": "Forcibly terminate hanging application process to release file locks.",
+      "verified": true
+    },
+    {
+      "n": 4,
+      "action": "Clear corrupted application cache and temp store from local user directory.",
+      "input": "Remove-Item -Path 'C:\\Users\\{{entities.username}}\\AppData\\Local\\{{entities.application}}\\Cache\\*' -Recurse -Force",
+      "expected_outcome": "If exit code is 0, set variables.cache_cleared = true, else set variables.cache_cleared = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        6,
+        7
+      ],
+      "quote": "Clear corrupted application cache and temp store from local user directory.",
+      "verified": true
+    },
+    {
+      "n": 5,
+      "action": "Restart application background service to re-initialize configuration.",
+      "input": "Restart-Service -Name '{{entities.application}}_Service' -Force",
+      "expected_outcome": "If exit code is 0, set variables.service_restarted = true, else set variables.service_restarted = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        7,
+        8
+      ],
+      "quote": "Restart application background service to re-initialize configuration.",
+      "verified": true
+    },
+    {
+      "n": 6,
+      "action": "Verify service operational status after restart.",
+      "input": "Get-Service -Name '{{entities.application}}_Service'",
+      "expected_outcome": "If stdout contains 'Running', set variables.service_operational = true, else set variables.service_operational = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        8,
+        8
+      ],
+      "quote": "Verify service operational status after restart.",
+      "verified": true
+    }
+  ],
+  "exceptions": [],
+  "notes": [],
+  "references": [],
+  "media": [],
+  "issues": [],
+  "classification": {
+    "level": "L0",
+    "score": 5,
+    "evidence_categories": [
+      "baseline_internal_sop"
+    ],
+    "rule_level": "L0",
+    "ai_suggested_level": "L0",
+    "rationale": "Deterministic rule classification",
+    "confirmed": false
+  },
+  "quality": {
+    "completeness": 100.0,
+    "traceability": 100.0,
+    "schema_valid": true,
+    "blocking_issues_count": 0,
+    "quality_score": 100.0,
+    "status": "Ready"
+  },
+  "transformations": [],
+  "lifecycle": {
+    "state": "structuring",
+    "uploaded_by": "author@corp.com",
+    "created_at": "2026-10-29T12:44:53.066256+00:00",
+    "approvals": []
+  },
+  "provenance": {
+    "producing_agent": "A2_structuring",
+    "provider": "elverve_ai",
+    "generated_at": "2026-10-29T12:44:53.066256+00:00"
+  }
+}

@@ -1,0 +1,202 @@
+{
+  "schema_version": "1.0",
+  "sop_id": "SOP-WHS-014",
+  "version": 1,
+  "tenant_id": "tn_northwind",
+  "title": "Warehouse Barcode Scanner Terminal Soft Reset & Staging Recovery",
+  "title_lines": [
+    1,
+    2
+  ],
+  "metadata_lines": [
+    3,
+    4
+  ],
+  "department": {
+    "status": "missing",
+    "value": "Hardware",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "owner": {
+    "status": "missing",
+    "value": "author@corp.com",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "version_label": {
+    "status": "missing",
+    "value": "v1.0",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "review_date": {
+    "status": "missing",
+    "value": "2026-10-30",
+    "source_lines": [
+      3,
+      4
+    ]
+  },
+  "source": {
+    "filename": "sop-whs-014.txt",
+    "sha256": "0b7bf4de600376d5f8caff160b0c2d293d1628391c6f9a957ec69c2b84dda3de",
+    "size": 585,
+    "detected_type": "text/plain",
+    "pages": 1,
+    "extracted_lines": 7,
+    "ocr": false
+  },
+  "purpose": {
+    "text": "Automated workflow to verify ADB connectivity, clear application cache, apply staging profile, verify configuration, and reboot Zebra TC52 scanners.",
+    "source_lines": [
+      2,
+      3
+    ],
+    "quote": "Automated workflow to verify ADB connectivity, clear application cache, apply staging profile, verif",
+    "verified": true
+  },
+  "scope": {
+    "text": "Applies to hardware operations and authorized agents.",
+    "source_lines": [
+      2,
+      3
+    ],
+    "quote": "Applies to hardware operations and authorized agents.",
+    "verified": true
+  },
+  "preconditions": [],
+  "roles": [
+    {
+      "role": "Operator",
+      "responsibility": "Executes Warehouse Barcode Scanner Terminal Soft Reset & Staging Recovery",
+      "source_lines": [
+        1
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "n": 1,
+      "action": "Verify ADB connectivity and device state before executing recovery commands.",
+      "input": "adb get-state",
+      "expected_outcome": "If stdout contains 'device', set variables.device_online = true, else set variables.device_online = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        3,
+        4
+      ],
+      "quote": "Verify ADB connectivity and device state before executing recovery commands.",
+      "verified": true
+    },
+    {
+      "n": 2,
+      "action": "Purge memory cache for the warehouse fulfillment scan application.",
+      "input": "adb shell pm clear \"{{entities.application_package}}\"",
+      "expected_outcome": "If stdout contains 'Success', set variables.cache_cleared = true, else set variables.cache_cleared = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        4,
+        5
+      ],
+      "quote": "Purge memory cache for the warehouse fulfillment scan application.",
+      "verified": true
+    },
+    {
+      "n": 3,
+      "action": "Broadcast StageNow automated staging intent profile to apply configuration.",
+      "input": "adb shell am broadcast -a com.symbol.stagenow.action.EXECUTE -e script_file \"{{entities.staging_script_path}}\"",
+      "expected_outcome": "If stdout contains 'Broadcast completed', set variables.profile_broadcast = true, else set variables.profile_broadcast = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        5,
+        6
+      ],
+      "quote": "Broadcast StageNow automated staging intent profile to apply configuration.",
+      "verified": true
+    },
+    {
+      "n": 4,
+      "action": "Query device diagnostic logcat to confirm successful profile application.",
+      "input": "adb logcat -d -s StageNow | Select-String -Pattern 'Configuration\\s+applied\\s+successfully'",
+      "expected_outcome": "If stdout is not empty, set variables.profile_applied = true, else set variables.profile_applied = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        6,
+        7
+      ],
+      "quote": "Query device diagnostic logcat to confirm successful profile application.",
+      "verified": true
+    },
+    {
+      "n": 5,
+      "action": "Soft reboot the mobile computer scanner to apply persistent runtime settings.",
+      "input": "adb reboot",
+      "expected_outcome": null,
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        7,
+        7
+      ],
+      "quote": "Soft reboot the mobile computer scanner to apply persistent runtime settings.",
+      "verified": true
+    }
+  ],
+  "exceptions": [],
+  "notes": [],
+  "references": [],
+  "media": [],
+  "issues": [],
+  "classification": {
+    "level": "L0",
+    "score": 5,
+    "evidence_categories": [
+      "baseline_internal_sop"
+    ],
+    "rule_level": "L0",
+    "ai_suggested_level": "L0",
+    "rationale": "Deterministic rule classification",
+    "confirmed": false
+  },
+  "quality": {
+    "completeness": 100.0,
+    "traceability": 100.0,
+    "schema_valid": true,
+    "blocking_issues_count": 0,
+    "quality_score": 100.0,
+    "status": "Ready"
+  },
+  "transformations": [],
+  "lifecycle": {
+    "state": "structuring",
+    "uploaded_by": "author@corp.com",
+    "created_at": "2026-10-30T06:25:40.204758+00:00",
+    "approvals": []
+  },
+  "provenance": {
+    "producing_agent": "A2_structuring",
+    "provider": "elverve_ai",
+    "generated_at": "2026-10-30T06:25:40.204758+00:00"
+  }
+}

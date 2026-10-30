@@ -1,0 +1,335 @@
+{
+  "schema_version": "1.0",
+  "sop_id": "SOP-L1-APP-003",
+  "version": 1,
+  "tenant_id": "tenant-default",
+  "title": "Software Application Cache and Credential Vault Reset",
+  "title_lines": [
+    87,
+    88
+  ],
+  "metadata_lines": [
+    89,
+    90
+  ],
+  "department": {
+    "status": "missing",
+    "value": "Software",
+    "source_lines": [
+      89,
+      90
+    ]
+  },
+  "owner": {
+    "status": "present",
+    "value": "Marcus Vance <[DLP_REDACTED_EMAIL]>",
+    "source_lines": [
+      8,
+      9
+    ]
+  },
+  "version_label": {
+    "status": "missing",
+    "value": "v1.0",
+    "source_lines": [
+      89,
+      90
+    ]
+  },
+  "review_date": {
+    "status": "present",
+    "value": "01-Nov-2026 (Review Date: 31-Dec-2026 | Version: 1.0)",
+    "source_lines": [
+      12,
+      13
+    ]
+  },
+  "source": {
+    "filename": "sop_software_application_cache_reset.docx",
+    "sha256": "e0e4bdbd4f067ef5e5fd0b3954c17f825be18fd14383c0dc5d931808ce01c313",
+    "size": 40698,
+    "detected_type": "ordered_docx_walk",
+    "pages": 2,
+    "extracted_lines": 101,
+    "ocr": false
+  },
+  "purpose": {
+    "text": "Automated workflow to diagnose and resolve application launch hangs, corrupted local cache locks, and frozen credential states on Windows endpoints by terminating processes, clearing cache, and restarting services.",
+    "source_lines": [
+      29,
+      30
+    ],
+    "quote": "Automated workflow to diagnose and resolve application launch hangs, corrupted local cache locks, an",
+    "verified": true
+  },
+  "scope": {
+    "text": "Applies to software operations and authorized agents.",
+    "source_lines": [
+      29,
+      30
+    ],
+    "quote": "Applies to software operations and authorized agents.",
+    "verified": true
+  },
+  "preconditions": [
+    {
+      "text": "Ticket is assigned to an authorized L1 Service Desk Engineer or autonomous support agent.",
+      "source_lines": [
+        31,
+        32
+      ],
+      "quote": "Ticket is assigned to an authorized L1 Service Desk Engineer or autonomous support agent.",
+      "verified": true
+    },
+    {
+      "text": "Remote PowerShell or WinRM access is enabled on the target Windows endpoint.",
+      "source_lines": [
+        32,
+        33
+      ],
+      "quote": "Remote PowerShell or WinRM access is enabled on the target Windows endpoint.",
+      "verified": true
+    },
+    {
+      "text": "Target client device is online and reachable on the corporate network or VPN.",
+      "source_lines": [
+        33,
+        34
+      ],
+      "quote": "Target client device is online and reachable on the corporate network or VPN.",
+      "verified": true
+    },
+    {
+      "text": "Local administrative privileges are available for command execution.",
+      "source_lines": [
+        34,
+        35
+      ],
+      "quote": "Local administrative privileges are available for command execution.",
+      "verified": true
+    },
+    {
+      "text": "The application in question is an approved corporate software package.",
+      "source_lines": [
+        35,
+        36
+      ],
+      "quote": "The application in question is an approved corporate software package.",
+      "verified": true
+    }
+  ],
+  "roles": [
+    {
+      "role": "Operator",
+      "responsibility": "Executes Software Application Cache and Credential Vault Reset",
+      "source_lines": [
+        1
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "n": 1,
+      "action": "Verify endpoint network connectivity before performing remote diagnostics.",
+      "input": "Test-Connection \"{{entities.hostname}}\" -Count 2",
+      "expected_outcome": "If ping replies are received, set variables.endpoint_reachable = true, else set variables.endpoint_reachable = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        39,
+        40
+      ],
+      "quote": "Verify endpoint network connectivity before performing remote diagnostics.",
+      "verified": false
+    },
+    {
+      "n": 2,
+      "action": "Inspect target application process status to determine if it is running or hung.",
+      "input": "Get-Process -Name '{{entities.application}}' -ErrorAction SilentlyContinue",
+      "expected_outcome": "If stdout contains process information, set variables.process_running = true, else set variables.process_running = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        19,
+        20
+      ],
+      "quote": "Inspect target application process status to determine if it is running or hung.",
+      "verified": false
+    },
+    {
+      "n": 3,
+      "action": "Forcibly terminate hanging application process to release file locks.",
+      "input": "Stop-Process -Name '{{entities.application}}' -Force",
+      "expected_outcome": "If exit code is 0, set variables.process_terminated = true, else set variables.process_terminated = false",
+      "warning": "taskkill /F /IM '{{entities.application}}.exe'",
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        49,
+        50
+      ],
+      "quote": "Forcibly terminate hanging application process to release file locks.",
+      "verified": true
+    },
+    {
+      "n": 4,
+      "action": "Clear corrupted application cache and temp store from local user directory.",
+      "input": "Remove-Item -Path 'C:\\Users\\{{entities.username}}\\AppData\\Local\\{{entities.application}}\\Cache\\*' -Recurse -Force",
+      "expected_outcome": "If exit code is 0, set variables.cache_cleared = true, else set variables.cache_cleared = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        21,
+        22
+      ],
+      "quote": "Clear corrupted application cache and temp store from local user directory.",
+      "verified": false
+    },
+    {
+      "n": 5,
+      "action": "Restart application background service to re-initialize configuration.",
+      "input": "Restart-Service -Name '{{entities.application}}_Service' -Force",
+      "expected_outcome": "If exit code is 0, set variables.service_restarted = true, else set variables.service_restarted = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        59,
+        60
+      ],
+      "quote": "Restart application background service to re-initialize configuration.",
+      "verified": true
+    },
+    {
+      "n": 6,
+      "action": "Verify service operational status after restart.",
+      "input": "Get-Service -Name '{{entities.application}}_Service'",
+      "expected_outcome": "If stdout contains 'Running', set variables.service_operational = true, else set variables.service_operational = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        23,
+        24
+      ],
+      "quote": "Verify service operational status after restart.",
+      "verified": false
+    }
+  ],
+  "exceptions": [
+    {
+      "condition": "Escalate to Tier 2 Application Engineering or Desktop Systems if:",
+      "action": "Escalate to L2 Support",
+      "source_lines": [
+        76,
+        77
+      ],
+      "quote": "Escalate to Tier 2 Application Engineering or Desktop Systems if:",
+      "verified": true
+    },
+    {
+      "condition": "Target client device is completely unreachable after network and VPN verification.",
+      "action": "Escalate to L2 Support",
+      "source_lines": [
+        77,
+        78
+      ],
+      "quote": "Target client device is completely unreachable after network and VPN verification.",
+      "verified": true
+    },
+    {
+      "condition": "Access is denied when terminating process threads or deleting cache files (permission error).",
+      "action": "Escalate to L2 Support",
+      "source_lines": [
+        78,
+        79
+      ],
+      "quote": "Access is denied when terminating process threads or deleting cache files (permission error).",
+      "verified": true
+    },
+    {
+      "condition": "The background application service fails to start or crashes repeatedly upon start.",
+      "action": "Escalate to L2 Support",
+      "source_lines": [
+        79,
+        80
+      ],
+      "quote": "The background application service fails to start or crashes repeatedly upon start.",
+      "verified": true
+    },
+    {
+      "condition": "Application continues to crash or display corruption errors after cache reset.",
+      "action": "Escalate to L2 Support",
+      "source_lines": [
+        80,
+        81
+      ],
+      "quote": "Application continues to crash or display corruption errors after cache reset.",
+      "verified": true
+    },
+    {
+      "condition": "Application event log records database corruption or missing DLL dependencies.",
+      "action": "Escalate to L2 Support",
+      "source_lines": [
+        81,
+        82
+      ],
+      "quote": "Application event log records database corruption or missing DLL dependencies.",
+      "verified": true
+    },
+    {
+      "condition": "User profile is corrupted requiring full local profile rebuild.",
+      "action": "Escalate to L2 Support",
+      "source_lines": [
+        82,
+        83
+      ],
+      "quote": "User profile is corrupted requiring full local profile rebuild.",
+      "verified": true
+    }
+  ],
+  "notes": [],
+  "references": [],
+  "media": [],
+  "issues": [],
+  "classification": {
+    "level": "L0",
+    "score": 5,
+    "evidence_categories": [
+      "baseline_internal_sop"
+    ],
+    "rule_level": "L0",
+    "ai_suggested_level": "L0",
+    "rationale": "Deterministic rule classification",
+    "confirmed": false
+  },
+  "quality": {
+    "completeness": 91.1,
+    "traceability": 33.3,
+    "schema_valid": true,
+    "blocking_issues_count": 0,
+    "quality_score": 69.8,
+    "status": "Failed checks"
+  },
+  "transformations": [],
+  "lifecycle": {
+    "state": "structuring",
+    "uploaded_by": "author@corp.com",
+    "created_at": "2026-10-29T12:44:49.280438+00:00",
+    "approvals": []
+  },
+  "provenance": {
+    "producing_agent": "A2_structuring",
+    "provider": "elverve_ai",
+    "generated_at": "2026-10-29T12:44:49.280438+00:00"
+  }
+}

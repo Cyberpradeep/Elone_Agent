@@ -1,0 +1,322 @@
+{
+  "schema_version": "1.0",
+  "sop_id": "SOP-L1-APP-001",
+  "version": 1,
+  "tenant_id": "tenant-default",
+  "title": "Software Application Unblock Request",
+  "title_lines": [
+    2,
+    3
+  ],
+  "metadata_lines": [
+    4,
+    5
+  ],
+  "department": {
+    "status": "missing",
+    "value": "Software",
+    "source_lines": [
+      4,
+      5
+    ]
+  },
+  "owner": {
+    "status": "missing",
+    "value": "author@corp.com",
+    "source_lines": [
+      4,
+      5
+    ]
+  },
+  "version_label": {
+    "status": "missing",
+    "value": "v1.0",
+    "source_lines": [
+      4,
+      5
+    ]
+  },
+  "review_date": {
+    "status": "missing",
+    "value": "2026-10-29",
+    "source_lines": [
+      4,
+      5
+    ]
+  },
+  "source": {
+    "filename": "sop_software_application_unblock_request_ifeo.pdf",
+    "sha256": "126687e4c671eef105cb48498944e8f473a920d55c8fd76648b9be4a5f69e6a6",
+    "size": 13391,
+    "detected_type": "ordered_pdf_walk",
+    "pages": 6,
+    "extracted_lines": 203,
+    "ocr": false
+  },
+  "purpose": {
+    "text": "Automated workflow to verify endpoint connectivity, inspect registry for IFEO Debugger blocks, remove the block, and refresh policy.",
+    "source_lines": [
+      55,
+      56
+    ],
+    "quote": "Automated workflow to verify endpoint connectivity, inspect registry for IFEO Debugger blocks, remov",
+    "verified": true
+  },
+  "scope": {
+    "text": "Applies to software operations and authorized agents.",
+    "source_lines": [
+      2,
+      3
+    ],
+    "quote": "Applies to software operations and authorized agents.",
+    "verified": true
+  },
+  "preconditions": [
+    {
+      "text": "Ticket assigned to L1 Engineer.",
+      "source_lines": [
+        58,
+        59
+      ],
+      "quote": "Ticket assigned to L1 Engineer.",
+      "verified": true
+    },
+    {
+      "text": "Remote administrative access to the endpoint.",
+      "source_lines": [
+        60,
+        61
+      ],
+      "quote": "Remote administrative access to the endpoint.",
+      "verified": true
+    },
+    {
+      "text": "User device is online.",
+      "source_lines": [
+        62,
+        63
+      ],
+      "quote": "User device is online.",
+      "verified": true
+    },
+    {
+      "text": "Administrative privileges available.",
+      "source_lines": [
+        64,
+        65
+      ],
+      "quote": "Administrative privileges available.",
+      "verified": true
+    }
+  ],
+  "roles": [
+    {
+      "role": "Operator",
+      "responsibility": "Executes Software Application Unblock Request",
+      "source_lines": [
+        1
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "n": 1,
+      "action": "Verify endpoint network connectivity before performing remote diagnostics.",
+      "input": "Test-Connection \"{{entities.hostname}}\" -Count 2",
+      "expected_outcome": "If ping replies are received, set variables.endpoint_reachable = true, else set variables.endpoint_reachable = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        37,
+        38
+      ],
+      "quote": "Verify endpoint network connectivity before performing remote diagnostics.",
+      "verified": false
+    },
+    {
+      "n": 2,
+      "action": "Query IFEO registry key to check if application is blocked by a Debugger entry.",
+      "input": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\{{entities.application}}.exe\"",
+      "expected_outcome": "If stdout contains 'Debugger', set variables.ifeo_blocked = true, else set variables.ifeo_blocked = false",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        76,
+        77
+      ],
+      "quote": "Query IFEO registry key to check if application is blocked by a Debugger entry.",
+      "verified": false
+    },
+    {
+      "n": 3,
+      "action": "Remove IFEO Debugger registry value or full key to unblock execution.",
+      "input": "reg delete \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\{{entities.application}}.exe\" /v Debugger /f",
+      "expected_outcome": "If exit code is 0, set variables.block_removed = true, else set variables.block_removed = false",
+      "warning": "reg delete \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\{{entities.application}}.exe\" /f",
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        55,
+        56
+      ],
+      "quote": "Remove IFEO Debugger registry value or full key to unblock execution.",
+      "verified": false
+    },
+    {
+      "n": 4,
+      "action": "Refresh local Group Policy to apply unblock changes immediately.",
+      "input": "gpupdate /force",
+      "expected_outcome": null,
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        40,
+        41
+      ],
+      "quote": "Refresh local Group Policy to apply unblock changes immediately.",
+      "verified": false
+    },
+    {
+      "n": 5,
+      "action": "Verify IFEO block removal by re-querying the target registry key.",
+      "input": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\{{entities.application}}.exe\"",
+      "expected_outcome": "If stdout contains 'Debugger', set variables.block_verified = false, else set variables.block_verified = true",
+      "warning": null,
+      "actor": "agent",
+      "requires_approval": false,
+      "risk": "low",
+      "source_lines": [
+        41,
+        42
+      ],
+      "quote": "Verify IFEO block removal by re-querying the target registry key.",
+      "verified": false
+    }
+  ],
+  "exceptions": [
+    {
+      "condition": "Escalate to L2 if:",
+      "action": "Escalate to L2 Support",
+      "source_lines": [
+        84,
+        85
+      ],
+      "quote": "Escalate to L2 if:",
+      "verified": true
+    },
+    {
+      "condition": "IFEO key not present.",
+      "action": "Escalate to L2 Support",
+      "source_lines": [
+        172,
+        173
+      ],
+      "quote": "IFEO key not present.",
+      "verified": true
+    },
+    {
+      "condition": "Application blocked by WDAC.",
+      "action": "Escalate to L2 Support",
+      "source_lines": [
+        110,
+        111
+      ],
+      "quote": "Application blocked by WDAC.",
+      "verified": true
+    },
+    {
+      "condition": "Application blocked by AppLocker.",
+      "action": "Escalate to L2 Support",
+      "source_lines": [
+        110,
+        111
+      ],
+      "quote": "Application blocked by AppLocker.",
+      "verified": true
+    },
+    {
+      "condition": "Endpoint protection policy prevents execution.",
+      "action": "Escalate to L2 Support",
+      "source_lines": [
+        178,
+        179
+      ],
+      "quote": "Endpoint protection policy prevents execution.",
+      "verified": true
+    },
+    {
+      "condition": "Registry modification fails.",
+      "action": "Escalate to L2 Support",
+      "source_lines": [
+        180,
+        181
+      ],
+      "quote": "Registry modification fails.",
+      "verified": true
+    },
+    {
+      "condition": "User lacks required permissions.",
+      "action": "Escalate to L2 Support",
+      "source_lines": [
+        182,
+        183
+      ],
+      "quote": "User lacks required permissions.",
+      "verified": true
+    },
+    {
+      "condition": "Application still fails after remediation.",
+      "action": "Escalate to L2 Support",
+      "source_lines": [
+        184,
+        185
+      ],
+      "quote": "Application still fails after remediation.",
+      "verified": true
+    }
+  ],
+  "notes": [],
+  "references": [],
+  "media": [],
+  "issues": [],
+  "classification": {
+    "level": "L1",
+    "score": 30,
+    "evidence_categories": [
+      "baseline_internal_sop",
+      "internal_infrastructure",
+      "explicit_confidentiality_label"
+    ],
+    "rule_level": "L1",
+    "ai_suggested_level": "L1",
+    "rationale": "Deterministic rule classification",
+    "confirmed": false
+  },
+  "quality": {
+    "completeness": 90.1,
+    "traceability": 0.0,
+    "schema_valid": true,
+    "blocking_issues_count": 0,
+    "quality_score": 56.0,
+    "status": "Failed checks"
+  },
+  "transformations": [],
+  "lifecycle": {
+    "state": "structuring",
+    "uploaded_by": "author@corp.com",
+    "created_at": "2026-10-29T12:30:03.114552+00:00",
+    "approvals": []
+  },
+  "provenance": {
+    "producing_agent": "A2_structuring",
+    "provider": "elverve_ai",
+    "generated_at": "2026-10-29T12:30:03.114552+00:00"
+  }
+}

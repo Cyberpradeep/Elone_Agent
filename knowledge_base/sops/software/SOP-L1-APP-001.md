@@ -6,13 +6,14 @@ platform: system
 category: software
 target_os: windows
 description: Automated workflow to verify endpoint connectivity, inspect registry
-  for IFEO Debugger blocks, remove the block, refresh policy, and verify removal.
+  for IFEO Debugger blocks, remove the block, and refresh policy.
 confidence_score: 0.98
 confidence_level: High
 confidence_reason: All steps mapped to deterministic Windows PowerShell commands with
-  exact variable linkage and fallback delete handling. Human interaction steps omitted.
+  exact variable linkage and fallback delete handling.
 is_executable: true
 unexecutable_reason: null
+automation_status: fully_automated
 required_entities:
 - hostname
 - application
@@ -22,7 +23,6 @@ trigger_words:
 - application
 - debugger
 - registry
-- block
 steps:
 - step_number: 1
   sop_step_description: Verify endpoint network connectivity before performing remote
@@ -31,7 +31,7 @@ steps:
   platform: null
   function_name: null
   comm_inputs: null
-  command: Test-Connection {{entities.hostname}} -Count 2
+  command: Test-Connection "{{entities.hostname}}" -Count 2
   fallback_command: null
   fallback_sop_id: null
   parse_instruction: If ping replies are received, set variables.endpoint_reachable
@@ -101,17 +101,55 @@ steps:
   execute_if: variables.ifeo_blocked == true
   timeout_seconds: 30
   shell: powershell
+source_action_coverage:
+- source_action: Verify connectivity to <ComputerName> via Test-Connection
+  coverage: command_covered
+  step_number: 1
+  tool: null
+  condition: null
+  reason: Deterministic Test-Connection command.
+- source_action: Query registry at HKLM for Debugger property
+  coverage: command_covered
+  step_number: 2
+  tool: null
+  condition: null
+  reason: Query registry for Debugger property.
+- source_action: If Debugger is present, delete it
+  coverage: command_covered
+  step_number: 3
+  tool: null
+  condition: null
+  reason: Delete registry entry if present.
+- source_action: Run gpupdate /force
+  coverage: command_covered
+  step_number: 4
+  tool: null
+  condition: null
+  reason: Group Policy refresh command.
+- source_action: Verify removal by querying registry again
+  coverage: command_covered
+  step_number: 5
+  tool: null
+  condition: null
+  reason: Post-verification query command.
+- source_action: Ask user to test opening the app
+  coverage: manual_ui_omitted
+  step_number: null
+  tool: null
+  condition: null
+  reason: Human verification step omitted from automated execution.
+document_metadata: {}
 integrity_version: v2
-integrity_hmac_sha256: c07a11e714fa5d78ad7f7f04dc1b8cf11bd688ad8f4ebf360cea05889797b5e4
+integrity_hmac_sha256: d30f17582200dfa7ee1d0217c804957c0f64908d36aa630b11bb91e3067024b7
 ---
 
 # Software Application Unblock Request Playbook
 
 ## Overview
-Automated workflow to verify endpoint connectivity, inspect registry for IFEO Debugger blocks, remove the block, refresh policy, and verify removal.
+Automated workflow to verify endpoint connectivity, inspect registry for IFEO Debugger blocks, remove the block, and refresh policy.
 
 ## Execution Steps
-- **Step 1**: Verify endpoint network connectivity before performing remote diagnostics. (`Test-Connection {{entities.hostname}} -Count 2`)
+- **Step 1**: Verify endpoint network connectivity before performing remote diagnostics. (`Test-Connection "{{entities.hostname}}" -Count 2`)
 - **Step 2**: Query IFEO registry key to check if application is blocked by a Debugger entry. (`reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\{{entities.application}}.exe"`)
 - **Step 3**: Remove IFEO Debugger registry value or full key to unblock execution. (`reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\{{entities.application}}.exe" /v Debugger /f`) [Fallback: `reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\{{entities.application}}.exe" /f`]
 - **Step 4**: Refresh local Group Policy to apply unblock changes immediately. (`gpupdate /force`)

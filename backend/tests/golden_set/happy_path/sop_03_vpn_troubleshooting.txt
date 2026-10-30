@@ -1,0 +1,26 @@
+STANDARD OPERATING PROCEDURE: Remote Access VPN Connection Remediation
+Document ID: SOP-NET-003
+Owner: Carlos Diaz, Network Engineer
+Effective Date: 2026-10-20
+Department: Network Operations
+
+1. Purpose
+This procedure guides technicians through resolving employee GlobalProtect VPN tunnel connection failures.
+
+2. Scope
+Applies to corporate workstations experiencing certificate or virtual adapter connection errors.
+
+3. Preconditions
+- Employee has confirmed working public internet connectivity.
+- Technician has access to corporate network firewall gateway logs.
+
+4. Procedure
+1. Check the local workstation network interface status using ipconfig /all.
+2. Terminate hung VPN background service processes using taskkill /F /IM PanGPA.exe.
+3. Flush local DNS cache resolver entries using ipconfig /flushdns.
+4. Restart the Palo Alto GlobalProtect service daemon using net start PanGPS.
+5. Prompt employee to re-authenticate with multi-factor authentication token.
+
+5. Escalation Criteria
+If the gateway denies authentication due to expired client certificate, escalate to PKI Engineering.
+

@@ -35,6 +35,10 @@ from agents.a1_ingestion.document_extractor import extract_ordered_sop_content
 from agents.a1_ingestion.vlm_extractor import analyze_and_save_image
 from agents.a2_structuring.triage_router import run_triage_router, ENTITY_KEY_MAP
 from agents.a2_structuring.okf_builder import write_okf_playbook
+try:
+    from utils.pipeline_logger import log_execution_plan, log_info, log_warning, log_error
+except ImportError:
+    from backend.utils.pipeline_logger import log_execution_plan, log_info, log_warning, log_error
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 KB_DIR = os.getenv("ELONE_KB_DIR")
@@ -81,7 +85,7 @@ def _log_converter_input(raw_filepath: str, sop_slug: str, enriched_sop_text: st
     with open(log_path, "w", encoding="utf-8") as f:
         f.write("\n".join(header_lines))
 
-    print(f"[JIT OKF Converter Agent] Saved converter input audit log ({len(enriched_sop_text)} chars) to: {log_path}")
+    log_info("JIT Converter", f"Saved converter input audit log ({len(enriched_sop_text)} chars) to: {os.path.basename(log_path)}")
     return log_path
 
 
@@ -91,7 +95,7 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None, 
     faithfulness-validation notes, so a reviewer can accept or correct the plan.
     Supports feedback_override from Agent A4 correction loops (Section 7).
     """
-    print(f"\n[JIT OKF Converter Agent Node] Document-order-preserving parsing: {os.path.basename(raw_filepath)}...")
+    log_info("JIT Converter", f"Document-order-preserving parsing: {os.path.basename(raw_filepath)}...")
 
     raw_filename_base = os.path.splitext(os.path.basename(raw_filepath))[0]
     sop_slug = re.sub(r"[^A-Za-z0-9]+", "-", raw_filename_base).strip("-").upper()[:20]
@@ -112,7 +116,7 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None, 
             image_index += 1
             max_sop_images = get_max_images_per_sop()
             if image_index > max_sop_images:
-                print(f"[JIT Converter Security] Document contains more than {max_sop_images} images. Skipping image {image_index}.")
+                log_warning("JIT Converter Security", f"Document contains more than {max_sop_images} images. Skipping image {image_index}.")
                 continue
             label = seg.get("label", f"Image {image_index}")
             report_text, image_ref = analyze_and_save_image(seg["bytes"], seg["mime_type"], label, sop_slug, image_index)
@@ -134,64 +138,67 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None, 
     _log_converter_input(raw_filepath, sop_slug, enriched_sop_text)
 
     # -------------------------------------------------------------------------
-    # STAGE 1: Triage Router
+    # STAGE 1: Triage Router (Preserved in triage_router.py; toggleable via ELONE_ENABLE_TRIAGE=1)
     # -------------------------------------------------------------------------
-    triage_res = run_triage_router(enriched_sop_text, sop_slug, override_sop_id)
-    if not triage_res.get("is_executable", True) or triage_res.get("classification") == "unactionable":
-        unexec_reason = triage_res.get("unexecutable_reason") or "Purely informational document with no actionable automated commands."
-        print(f"[JIT Converter] Stage 1 Early Exit: Document identified as unactionable: {unexec_reason}")
-        frontmatter_dict = {
-            "sop_id": f"SOP-{sop_slug}-001",
-            "title": sop_slug.replace("-", " ").title(),
-            "platform": "system",
-            "category": "system",
-            "target_os": "windows",
-            "description": unexec_reason,
-            "confidence_score": 0.0,
-            "confidence_level": "Low",
-            "confidence_reason": unexec_reason,
-            "is_executable": False,
-            "unexecutable_reason": unexec_reason,
-            "required_entities": [],
-            "trigger_words": [],
-            "steps": [],
-        }
-        return {
-            "sop_id": f"SOP-{sop_slug}-001",
-            "frontmatter": frontmatter_dict,
-            "steps": [],
-            "confidence_score": 0.0,
-            "confidence_level": "Low",
-            "confidence_reason": unexec_reason,
-            "is_executable": False,
-            "unexecutable_reason": unexec_reason,
-            "is_valid": True,
-            "validation_errors": [],
-            "knowledge_base_ref": knowledge_base_ref,
-        }
+    enable_triage = os.getenv("ELONE_ENABLE_TRIAGE", "0").lower() in ("1", "true", "yes")
+    triage_res = {}
+    if enable_triage:
+        triage_res = run_triage_router(enriched_sop_text, sop_slug, override_sop_id)
+        if not triage_res.get("is_executable", True) or triage_res.get("classification") == "unactionable":
+            unexec_reason = triage_res.get("unexecutable_reason") or "Purely informational document with no actionable automated commands."
+            log_info("JIT Converter", f"Stage 1 Early Exit: Document identified as unactionable: {unexec_reason}")
+            frontmatter_dict = {
+                "sop_id": f"SOP-{sop_slug}-001",
+                "title": sop_slug.replace("-", " ").title(),
+                "platform": "system",
+                "category": "system",
+                "target_os": "windows",
+                "description": unexec_reason,
+                "confidence_score": 0.0,
+                "confidence_level": "Low",
+                "confidence_reason": unexec_reason,
+                "is_executable": False,
+                "unexecutable_reason": unexec_reason,
+                "required_entities": [],
+                "trigger_words": [],
+                "steps": [],
+            }
+            return {
+                "sop_id": f"SOP-{sop_slug}-001",
+                "frontmatter": frontmatter_dict,
+                "steps": [],
+                "confidence_score": 0.0,
+                "confidence_level": "Low",
+                "confidence_reason": unexec_reason,
+                "is_executable": False,
+                "unexecutable_reason": unexec_reason,
+                "is_valid": True,
+                "validation_errors": [],
+                "knowledge_base_ref": knowledge_base_ref,
+            }
 
     # -------------------------------------------------------------------------
     # STAGE 2: Specialized Converter Selection
     # -------------------------------------------------------------------------
-    if get_execution_mode() == "command_only":
+    if not enable_triage or get_execution_mode() == "command_only":
         classification = "command"
         base_template = COMMAND_COT_PROMPT
         use_tools = False
-        print(f"[Stage 2: Converter Dispatch] Execution Mode: 'command_only' enforced (Selected 'COMMAND_COT_PROMPT' | 0 tools bound | Pure Shell/PowerShell focus)")
+        log_info("Converter Dispatch", "Command-First Execution Mode (Selected 'COMMAND_COT_PROMPT' | 0 tools bound | Pure Shell/PowerShell focus)")
     else:
         classification = triage_res.get("classification", "command")
         if classification == "command":
             base_template = COMMAND_COT_PROMPT
             use_tools = False
-            print(f"[Stage 2: Converter Dispatch] Selected 'COMMAND_COT_PROMPT' (0 tools bound | Pure PowerShell focus)")
+            log_info("Converter Dispatch", "Selected 'COMMAND_COT_PROMPT' (0 tools bound | Pure PowerShell focus)")
         elif classification == "tool_call":
             base_template = TOOL_COT_PROMPT
             use_tools = True
-            print(f"[Stage 2: Converter Dispatch] Selected 'TOOL_COT_PROMPT' (Dynamic Tool Calling enabled)")
+            log_info("Converter Dispatch", "Selected 'TOOL_COT_PROMPT' (Dynamic Tool Calling enabled)")
         else:
             base_template = HYBRID_COT_PROMPT
             use_tools = True
-            print(f"[Stage 2: Converter Dispatch] Selected 'HYBRID_COT_PROMPT' (Cross-Paradigm Bridge)")
+            log_info("Converter Dispatch", "Selected 'HYBRID_COT_PROMPT' (Cross-Paradigm Bridge)")
 
     max_retries = 3
     feedback_history = list(feedback_override) if feedback_override else []
@@ -209,7 +216,7 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None, 
 
         prompt = base_template.replace("{raw_sop_text}", retry_sop_text)
         if attempt > 1:
-            print(f"\n[JIT Converter Auto-Retry] Attempt {attempt}/{max_retries} with feedback injection...")
+            log_warning("Converter Retry", f"Attempt {attempt}/{max_retries} with feedback injection...")
 
         tool_map = {t.name: t for t in DYNAMIC_CATALOG_TOOLS}
         llm_with_tools = llm.bind_tools(DYNAMIC_CATALOG_TOOLS) if use_tools else llm
@@ -332,7 +339,7 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None, 
 
         if data is None:
             err_msg = f"Scenario 1 Error (Attempt {attempt}): JSON Parsing Failed: {json_err_msg or 'Invalid JSON syntax'}"
-            print(f"[JIT Converter Warning] {err_msg}")
+            log_warning("Converter", err_msg)
             feedback_history.append(f"- {err_msg}. MANDATE: Enforce valid JSON output format without truncation.")
             continue
 
@@ -404,11 +411,14 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None, 
             data = validated_model.model_dump()
         except Exception as pydantic_err:
             err_msg = f"Scenario 2 Error (Attempt {attempt}): Pydantic Schema Violation: {pydantic_err}"
-            print(f"[JIT Converter Warning] {err_msg}")
+            log_warning("Converter", err_msg)
             feedback_history.append(f"- {err_msg}")
             continue
 
         steps = data.get("steps", [])
+
+        # Stage 2: Execution Planning Output & CoT Reasoning Log
+        log_execution_plan(data)
 
         # Harmonize and align source_action_coverage with actual steps
         coverage_items = data.get("source_action_coverage")
@@ -459,11 +469,13 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None, 
             if any("placeholder step" in str(e).lower() for e in (validation_errors or [])):
                 raise ValueError(f"Ingestion blocked: Playbook failed validation: {validation_errors}")
             err_msg = f"Scenario 3/4 Validation Error (Attempt {attempt}): {validation_errors}"
-            print(f"[JIT Converter Warning] Plan validation failed: {validation_errors}")
+            log_warning("Converter Audit", f"Attempt {attempt}/{max_retries} flagged validation errors:")
+            for err in (validation_errors or []):
+                log_warning("Validation", str(err))
             feedback_history.append(f"- {err_msg}")
             continue
 
-        print(f"[JIT Converter Auto-Retry] Conversion succeeded on Attempt {attempt}/{max_retries}!")
+        log_info("Converter", f"Conversion succeeded on Attempt {attempt}/{max_retries}!")
         break
 
     if not last_data or not last_is_valid:
