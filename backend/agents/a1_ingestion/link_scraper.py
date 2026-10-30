@@ -8,6 +8,11 @@ from markitdown import MarkItDown
 
 # pyrefly: ignore [missing-import]
 from utils.security import is_safe_external_url, MAX_SCRAPE_OUTPUT_CHARS
+try:
+    from utils.pipeline_logger import log_info, log_warning, log_error
+except ImportError:
+    from backend.utils.pipeline_logger import log_info, log_warning, log_error
+
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KB_DIR = os.getenv("ELONE_KB_DIR", os.path.join(BASE_DIR, "knowledge_base"))
@@ -66,7 +71,7 @@ def fetch_and_convert_url(url: str, timeout_seconds: int = 10) -> Tuple[bool, st
     is_safe, ssrf_err = is_safe_external_url(url)
     if not is_safe:
         err_msg = f"SSRF Protection Blocked URL: {ssrf_err}"
-        print(f"[LinkScraper SSRF Shield] {err_msg}")
+        log_error("LinkScraper SSRF Shield", err_msg)
         return False, err_msg, rel_cache_path
 
     # Check cache first
@@ -74,10 +79,10 @@ def fetch_and_convert_url(url: str, timeout_seconds: int = 10) -> Tuple[bool, st
         try:
             with open(cache_path, "r", encoding="utf-8") as f:
                 content = f.read()
-                print(f"[LinkScraper Cache] Loaded cached web content for URL: {url}")
+                log_info("LinkScraper Cache", f"Loaded cached web content for URL: {url}")
                 return True, content[:MAX_SCRAPE_OUTPUT_CHARS], rel_cache_path
         except Exception as e:
-            print(f"[LinkScraper Warning] Failed reading cache for {url}: {e}")
+            log_warning("LinkScraper", f"Failed reading cache for {url}: {e}")
 
     # Fetch fresh content via HTTP
     headers = {
@@ -91,7 +96,7 @@ def fetch_and_convert_url(url: str, timeout_seconds: int = 10) -> Tuple[bool, st
 
     try:
         for hop in range(MAX_REDIRECT_HOPS + 1):
-            print(f"[LinkScraper] Fetching URL (hop {hop}): {current_url} ...")
+            log_info("LinkScraper", f"Fetching URL (hop {hop}): {current_url} ...")
             resp = requests.get(
                 current_url,
                 headers=headers,
@@ -124,7 +129,7 @@ def fetch_and_convert_url(url: str, timeout_seconds: int = 10) -> Tuple[bool, st
                 is_safe_hop, hop_err = is_safe_external_url(next_url)
                 if not is_safe_hop:
                     err_msg = f"SSRF Protection Blocked redirect to '{next_url}': {hop_err}"
-                    print(f"[LinkScraper SSRF Shield] {err_msg}")
+                    log_error("LinkScraper SSRF Shield", err_msg)
                     return False, err_msg, rel_cache_path
 
                 visited_urls.add(next_url)
@@ -148,7 +153,7 @@ def fetch_and_convert_url(url: str, timeout_seconds: int = 10) -> Tuple[bool, st
             result = md.convert_stream(stream, file_extension=".html")
             md_text = result.text_content if result and result.text_content else ""
         except Exception as conv_err:
-            print(f"[LinkScraper Warning] MarkItDown stream conversion failed: {conv_err}")
+            log_warning("LinkScraper", f"MarkItDown stream conversion failed: {conv_err}")
             md_text = ""
 
         # Fallback to BeautifulSoup clean text extraction if MarkItDown output is empty or HTML
@@ -168,10 +173,10 @@ def fetch_and_convert_url(url: str, timeout_seconds: int = 10) -> Tuple[bool, st
         with open(cache_path, "w", encoding="utf-8") as f:
             f.write(cache_entry)
 
-        print(f"[LinkScraper] Successfully scraped {len(md_text)} chars from {url}")
+        log_info("LinkScraper", f"Successfully scraped {len(md_text)} chars from {url}")
         return True, md_text, rel_cache_path
 
     except Exception as err:
         err_msg = f"Failed to fetch linked URL '{url}': {err}"
-        print(f"[LinkScraper Warning] {err_msg}")
+        log_warning("LinkScraper", err_msg)
         return False, err_msg, rel_cache_path

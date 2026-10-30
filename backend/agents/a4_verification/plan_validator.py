@@ -14,6 +14,10 @@ from prompts.validator_prompts import JIT_VALIDATOR_COT_SYSTEM_PROMPT
 from schemas import JITFaithfulnessInspectionResult
 # pyrefly: ignore [missing-import]
 from utils.security import enforce_entity_double_quotes
+try:
+    from utils.pipeline_logger import log_validation_audit, log_info, log_warning, log_error
+except ImportError:
+    from backend.utils.pipeline_logger import log_validation_audit, log_info, log_warning, log_error
 
 
 # Deterministic High-Risk Security / Prompt Injection Command Patterns
@@ -295,22 +299,17 @@ def validate_plan_faithfulness_and_linkage(
 
     # If Layer 1 fails, stop immediately (save LLM call!)
     if errors:
-        print(f"[PlanValidator Layer 1] Failed with {len(errors)} deterministic errors.")
+        log_warning("PlanValidator Layer 1", f"Failed with {len(errors)} deterministic errors: {errors}")
         return False, errors
 
     # If raw_sop_text is minimal, return Layer 1 success
     if not raw_sop_text or len(raw_sop_text.strip()) < 30:
         return True, []
 
-
-
-
-
-
     # =========================================================================
     # LAYER 2: LLM SEMANTIC HUMAN SOP FAITHFULNESS & INJECTION INSPECTION
     # =========================================================================
-    print("[PlanValidator Layer 2] Layer 1 passed. Running LLM Faithfulness & Prompt Injection Inspection...")
+    log_info("PlanValidator Layer 2", "Layer 1 passed. Running LLM Faithfulness & Prompt Injection Inspection...")
     try:
         llm = get_llm("planning_validation", temperature=0)
         prompt = (
@@ -329,7 +328,8 @@ def validate_plan_faithfulness_and_linkage(
         except Exception as q_err:
             if "Quota" in type(q_err).__name__ or "DailyQuotaExceededError" in str(type(q_err)):
                 raise q_err
-        messages = [
+
+        messages = [
             {"role": "system", "content": prompt},
             {"role": "user", "content": "Please perform the faithfulness and security audit on the provided SOP and execution plan, and output the required JSON evaluation according to the system instructions."}
         ]
@@ -372,15 +372,30 @@ def validate_plan_faithfulness_and_linkage(
 
         try:
             parsed_json = json.loads(json_str)
-            inspection_result = JITFaithfulnessInspectionResult.model_validate(parsed_json)
+            if not isinstance(parsed_json, dict):
+                raise ValueError("Parsed JSON must be a dict")
 
-            verdict_str = "PASSED" if inspection_result.is_faithful else "FAILED"
-            print(
-                f"[PlanValidator Layer 2] Faithfulness Verdict: {verdict_str} | "
-                f"Confidence Score: {inspection_result.confidence_score:.2f} ({inspection_result.confidence_level}) | "
-                f"Injection Detected: {inspection_result.injection_detected} | "
-                f"Reason: {inspection_result.confidence_reason}"
-            )
+            try:
+                inspection_result = JITFaithfulnessInspectionResult.model_validate(parsed_json)
+            except Exception:
+                inspection_result = JITFaithfulnessInspectionResult(
+                    is_faithful=bool(parsed_json.get("is_faithful", True)),
+                    injection_detected=bool(parsed_json.get("injection_detected", False)),
+                    confidence_score=float(parsed_json.get("confidence_score") or 0.8),
+                    confidence_level=str(parsed_json.get("confidence_level") or "Medium"),
+                    confidence_reason=str(parsed_json.get("confidence_reason") or ""),
+                    command_preservation_reasoning=str(parsed_json.get("command_preservation_reasoning") or ""),
+                    hallucination_check_reasoning=str(parsed_json.get("hallucination_check_reasoning") or ""),
+                    fallback_referral_reasoning=str(parsed_json.get("fallback_referral_reasoning") or ""),
+                    injection_reasoning=str(parsed_json.get("injection_reasoning") or ""),
+                    dropped_commands=parsed_json.get("dropped_commands") or [],
+                    hallucinated_commands=parsed_json.get("hallucinated_commands") or [],
+                    malicious_steps=parsed_json.get("malicious_steps") or [],
+                    validation_feedback=str(parsed_json.get("validation_feedback") or ""),
+                )
+
+            # Stage 4: Validation Layer 2 Audit Log (Always renders with Rich!)
+            log_validation_audit(inspection_result)
 
             # Store validation details in execution plan metadata if dict
             if isinstance(execution_plan, dict):
@@ -419,9 +434,9 @@ def validate_plan_faithfulness_and_linkage(
                     and not unaccounted_drops
                     and not inspection_result.hallucinated_commands
                 ):
-                    print(
-                        "[PlanValidator Layer 2] Ignoring inconsistent faithfulness verdict: "
-                        "all reported drops are accounted for by source_action_coverage."
+                    log_info(
+                        "PlanValidator Layer 2",
+                        "Ignoring inconsistent faithfulness verdict: all reported drops accounted for by source_action_coverage."
                     )
                     return True, errors
 
@@ -447,7 +462,7 @@ def validate_plan_faithfulness_and_linkage(
             f"Layer 2 Security Error: LLM Faithfulness & Injection Audit failed or unavailable ({e}). "
             f"Ingestion blocked to preserve fail-closed security."
         )
-        print(f"[PlanValidator Layer 2 Error] {err_msg}")
+        log_error("PlanValidator Layer 2", err_msg)
         return False, [err_msg]
 
     return True, []

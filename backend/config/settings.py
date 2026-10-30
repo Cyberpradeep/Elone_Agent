@@ -21,6 +21,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+try:
+    from utils.pipeline_logger import log_warning, log_error
+except ImportError:
+    try:
+        from backend.utils.pipeline_logger import log_warning, log_error
+    except ImportError:
+        def log_warning(tag, msg): print(f"[{tag} Warning] {msg}")
+        def log_error(tag, msg): print(f"[{tag} Error] {msg}")
+
 CONFIG_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE_PATH = os.path.join(CONFIG_DIR, "pipeline_config.json")
 SETTINGS_JSON_PATH = os.path.join(CONFIG_DIR, "settings.json")
@@ -69,6 +78,7 @@ _DEFAULT_CONFIG: Dict[str, Any] = {
         "unlimited_daily_calls": True,
         "sop_scan_interval_minutes": 10,
     },
+    "execution_mode": "command_only",
 }
 
 
@@ -104,7 +114,7 @@ class PipelineSettings:
                     loaded_file = True
                     break
                 except Exception as e:
-                    print(f"[Config Warning] Could not parse '{cpath}': {e}. Trying fallback.")
+                    log_warning("Config", f"Could not parse '{cpath}': {e}. Trying fallback.")
 
         # Overlay Environment Variable Overrides (Highest Precedence)
         if os.environ.get("MAX_FILE_SIZE_MB"):
@@ -148,6 +158,9 @@ class PipelineSettings:
             except ValueError:
                 pass
 
+        if os.environ.get("EXECUTION_MODE"):
+            cfg["execution_mode"] = os.environ["EXECUTION_MODE"].strip().lower()
+
         self._cached_config = cfg
         return self._cached_config
 
@@ -168,7 +181,7 @@ class PipelineSettings:
                 with open(p, "w", encoding="utf-8") as f:
                     json.dump(self._cached_config, f, indent=2)
             except Exception as e:
-                print(f"[Config Error] Failed to write config to '{p}': {e}")
+                log_error("Config", f"Failed to write config to '{p}': {e}")
 
         return self._cached_config
 
@@ -239,6 +252,10 @@ class PipelineSettings:
     def min_passing_score(self) -> float:
         return float(self._cached_config.get("governance", {}).get("min_passing_score", 80.0))
 
+    @property
+    def execution_mode(self) -> str:
+        return str(self._cached_config.get("execution_mode", "command_only")).strip().lower()
+
 
 # Global singleton instance
 settings = PipelineSettings()
@@ -246,6 +263,9 @@ settings = PipelineSettings()
 # Exported helper accessor functions for clean, decoupled consumption
 def get_settings() -> PipelineSettings:
     return settings
+
+def get_execution_mode() -> str:
+    return settings.execution_mode
 
 def is_unlimited_daily_calls() -> bool:
     return settings.is_unlimited_daily_calls

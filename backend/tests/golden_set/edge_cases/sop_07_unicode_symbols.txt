@@ -1,0 +1,25 @@
+STANDARD OPERATING PROCEDURE: Workstation Audio Subsystem & Realtek Driver Reset 🎧
+Document ID: SOP-AUDIO-007
+Owner: “Elena Rostova”, Media Infrastructure Lead 🎶
+Effective Date: 2026-10-24
+Department: Endpoint Audio/Visual 🎛️
+Classification: Internal Only
+
+1. Purpose & Incident Symptoms
+When digital playback engines produce crackling sound, distortion, or complete silence → reset the low-level audio driver stack via PowerShell without requiring a full machine reboot.
+
+2. Mandatory Prerequisites & Constraints
+• Elevated Administrator PowerShell session (Run as Administrator) ⚡
+• Ensure no critical VOIP calls are actively streaming on device
+• Audio endpoint hardware is physically plugged in (check 3.5mm jack / USB DAC)
+
+3. Remediation Procedure
+1. Query active audio device hardware instance ID using Get-PnpDevice -Class "AudioEndpoint" -Status "OK".
+2. Forcefully restart the Windows Audio engine and Audio Endpoint Builder using Stop-Service -Name "AudioSrv", "AudioEndpointBuilder" -Force.
+3. Restart the core Realtek High Definition Audio driver stack using pnputil /restart-device (Get-PnpDevice -FriendlyName "*Realtek*" | Select-Object -ExpandProperty InstanceId).
+4. Start the Windows Audio service daemon using Start-Service -Name "AudioSrv", "AudioEndpointBuilder".
+5. Verify audio subsystem operational status responds with Running using Get-Service -Name "AudioSrv" | Select-Object Status, Name.
+
+4. Escalation Criteria
+• If pnputil exits with status 0x00000001 (reboot required), notify user and schedule workstation restart.
+• If AudioSrv fails to start due to dependency failure (e.g. RPC service down), escalate to Core OS Engineering.

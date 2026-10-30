@@ -118,6 +118,18 @@ class ArtifactAccessDeniedError(AgentProtocolError):
 # 3. Artifact Data Model
 # ---------------------------------------------------------------------------
 
+def _json_serialize_fallback(obj: Any) -> Any:
+    if isinstance(obj, bytes):
+        return f"<bytes: {len(obj)}>"
+    if isinstance(obj, (datetime.date, datetime.datetime)):
+        return obj.isoformat()
+    if hasattr(obj, "model_dump"):
+        return obj.model_dump()
+    if hasattr(obj, "dict"):
+        return obj.dict()
+    return str(obj)
+
+
 class Artifact(BaseModel):
     """Tenant-isolated, citable data artifact passed by reference (Section 6 & Appendix A)."""
     model_config = ConfigDict(extra="ignore")
@@ -132,7 +144,7 @@ class Artifact(BaseModel):
 
     @classmethod
     def create(cls, tenant_id: str, artifact_type: str, created_by: str, data: Any) -> "Artifact":
-        raw = json.dumps(data, sort_keys=True) if isinstance(data, (dict, list)) else str(data)
+        raw = json.dumps(data, sort_keys=True, default=_json_serialize_fallback) if isinstance(data, (dict, list)) else str(data)
         sha256 = hashlib.sha256(raw.encode("utf-8")).hexdigest()
         artifact_id = f"art-{uuid.uuid4().hex[:8]}"
         return cls(

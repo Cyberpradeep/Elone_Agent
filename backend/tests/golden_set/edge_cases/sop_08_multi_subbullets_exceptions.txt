@@ -1,0 +1,23 @@
+STANDARD OPERATING PROCEDURE: Enterprise Proxy Configuration Override
+Document ID: SOP-PROXY-008
+Owner: Frank Castle, Systems Engineer
+Effective Date: 2026-10-25
+Department: Core Infrastructure
+
+1. Purpose
+Reconfigures PAC proxy routing for corporate endpoints traveling between remote offices.
+
+2. Preconditions
+• Workstation is joined to corp.internal Active Directory domain.
+• Active VPN tunnel is disconnected before executing PAC file change.
+• Administrative rights granted via temporary elevation token.
+
+3. Procedure
+1. Check existing WinHTTP proxy settings using netsh winhttp show proxy.
+2. Set corporate proxy autoconfig URL using netsh winhttp set proxy autoconfigurl=http://pac.corp.internal/wpad.dat.
+3. Test connectivity to internal gateway portal using Invoke-WebRequest -Uri https://portal.corp.internal.
+
+4. Escalation Criteria
+• If proxy returns HTTP 407 Proxy Authentication Required, escalate immediately to Perimeter Security.
+• If WPAD autoconfig DNS record does not resolve, escalate to Core DNS Team.
+

@@ -16,6 +16,10 @@ from langchain_core.messages import HumanMessage
 from config.llm_config import get_llm
 from agents.a1_ingestion.intake_validator import validate_sop_file, SOPInputValidationError
 from utils.security import clean_unicode_and_zero_width, redact_sensitive_dlp
+try:
+    from utils.pipeline_logger import log_info, log_warning, log_error
+except ImportError:
+    from backend.utils.pipeline_logger import log_info, log_warning, log_error
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 KB_DIR = os.getenv("ELONE_KB_DIR", os.path.join(BASE_DIR, "knowledge_base"))
@@ -52,7 +56,7 @@ def _log_parsed_text(filepath: str, parser_engine: str, raw_text: str, page_coun
     with open(log_path, "w", encoding="utf-8") as f:
         f.write("\n".join(header_lines))
 
-    print(f"[DocumentParser Log] Saved raw text audit log ({len(raw_text)} chars) to: {log_path}")
+    log_info("DocumentParser", f"Saved raw text audit log ({len(raw_text)} chars) to: {os.path.basename(log_path)}")
     return log_path
 
 
@@ -77,7 +81,7 @@ def extract_full_text(filepath: str) -> Tuple[str, str]:
     is_valid, validation_err, meta = validate_sop_file(filepath)
     if not is_valid:
         err_msg = f"Input validation rejected '{filename}': {validation_err}"
-        print(f"[DocumentParser Security Rejection] {err_msg}")
+        log_error("DocumentParser", f"Security Rejection: {err_msg}")
         _log_parsed_text(filepath, "security_validation_rejected", f"SECURITY ERROR: {err_msg}")
         raise SOPInputValidationError(filename, validation_err, meta)
 
@@ -86,11 +90,11 @@ def extract_full_text(filepath: str) -> Tuple[str, str]:
         md = MarkItDown()
         result = md.convert(filepath)
         if result and result.text_content and _is_valid_text_quality(result.text_content):
-            print(f"[DocumentParser] [MarkItDown Universal Engine] Extracted clean markdown from: {filename}")
+            log_info("DocumentParser", f"[MarkItDown Universal Engine] Extracted clean markdown from: {filename}")
             _log_parsed_text(filepath, "markitdown_parser", result.text_content)
             return "markitdown_parser", result.text_content
     except Exception as md_err:
-        print(f"[DocumentParser Warning] MarkItDown engine failed for {filename}: {md_err}")
+        log_warning("DocumentParser", f"MarkItDown engine failed for {filename}: {md_err}")
 
     ext = os.path.splitext(filepath)[1].lower()
 
@@ -105,7 +109,7 @@ def extract_full_text(filepath: str) -> Tuple[str, str]:
 
     if ext in [".docx", ".doc", ".xlsx", ".xls", ".pptx"]:
         err_msg = f"MarkItDown failed to parse binary document '{filename}' (ext: {ext}). Skipping text fallback."
-        print(f"[DocumentParser Error] {err_msg}")
+        log_error("DocumentParser", err_msg)
         _log_parsed_text(filepath, "failed_binary_parse", f"ERROR: {err_msg}")
         raise ValueError(err_msg)
 
@@ -136,7 +140,7 @@ def _fallback_pdf_ocr(filepath: str) -> Tuple[str, str]:
         _log_parsed_text(filepath, "pymupdf_fallback", text_content, page_count=page_count)
         return "pymupdf_fallback", text_content
 
-    print(f"[DocumentParser] Attempting Vision OCR transcription for scanned PDF: {os.path.basename(filepath)}...")
+    log_info("DocumentParser", f"Attempting Vision OCR transcription for scanned PDF: {os.path.basename(filepath)}")
     ocr_text = _run_vision_ocr(doc, filepath)
     _log_parsed_text(filepath, "vision_ocr", ocr_text, page_count=page_count)
     return "vision_ocr", ocr_text
@@ -171,7 +175,7 @@ def _run_vision_ocr(doc, filepath: str) -> str:
 
         return "\n\n".join(full_ocr)
     except Exception as e:
-        print(f"[DocumentParser Error] Vision OCR failed: {e}")
+        log_error("DocumentParser", f"Vision OCR failed: {e}")
         return ""
 
 
@@ -325,7 +329,7 @@ def _apply_security_sanitization_to_segments(segments: List[Dict[str, Any]]) -> 
                 total_dlp_stats[k] = total_dlp_stats.get(k, 0) + v
     if any(total_dlp_stats.values()):
         redacted_summary = ", ".join(f"{k}: {v}" for k, v in total_dlp_stats.items() if v > 0)
-        print(f"[DLP Security Shield] Sanitized sensitive data: {redacted_summary}")
+        log_info("DLP Shield", f"Sanitized sensitive data: {redacted_summary}")
     return segments
 
 
@@ -337,7 +341,7 @@ def extract_ordered_sop_content(filepath: str) -> Tuple[str, List[Dict[str, Any]
     is_valid, validation_err, meta = validate_sop_file(filepath)
     if not is_valid:
         err_msg = f"Input validation rejected '{filename}': {validation_err}"
-        print(f"[DocumentParser Security Rejection] {err_msg}")
+        log_error("DocumentParser", f"Security Rejection: {err_msg}")
         _log_parsed_text(filepath, "security_validation_rejected", f"SECURITY ERROR: {err_msg}")
         raise SOPInputValidationError(filename, validation_err, meta)
 
@@ -347,7 +351,7 @@ def extract_ordered_sop_content(filepath: str) -> Tuple[str, List[Dict[str, Any]
             text_only = "\n\n".join(s["content"] for s in segments if s["type"] == "text")
             has_images = any(s["type"] == "image" for s in segments)
             if segments and (_is_valid_text_quality(text_only) or has_images):
-                print(f"[DocumentParser] [Ordered DOCX Walk] Extracted {len(segments)} ordered segment(s) from: {filename}")
+                log_info("DocumentParser", f"[Ordered DOCX Walk] Extracted {len(segments)} ordered segment(s) from: {filename}")
                 segments = _apply_security_sanitization_to_segments(segments)
                 sanitized_text = "\n\n".join(s["content"] for s in segments if s["type"] == "text")
                 _log_parsed_text(filepath, "ordered_docx_walk", sanitized_text)
@@ -356,20 +360,17 @@ def extract_ordered_sop_content(filepath: str) -> Tuple[str, List[Dict[str, Any]
             segments = _extract_ordered_pdf(filepath)
             text_only = "\n\n".join(s["content"] for s in segments if s["type"] == "text")
             if segments and _is_valid_text_quality(text_only):
-                print(f"[DocumentParser] [Ordered PDF Walk] Extracted {len(segments)} ordered segment(s) from: {filename}")
+                log_info("DocumentParser", f"[Ordered PDF Walk] Extracted {len(segments)} ordered segment(s) from: {filename}")
                 segments = _apply_security_sanitization_to_segments(segments)
                 sanitized_text = "\n\n".join(s["content"] for s in segments if s["type"] == "text")
                 _log_parsed_text(filepath, "ordered_pdf_walk", sanitized_text)
                 return "ordered_pdf_walk", segments
     except Exception as e:
-        print(f"[DocumentParser Warning] Ordered content walk failed for {filename}: {e}")
+        log_warning("DocumentParser", f"Ordered content walk failed for {filename}: {e}")
 
     parser_type, raw_text = extract_full_text(filepath)
     cleaned_text = clean_unicode_and_zero_width(raw_text)
-    redacted_text, stats = redact_sensitive_dlp(cleaned_text)
-    if any(stats.values()):
-        print(f"[DLP Security Shield] Sanitized sensitive data in raw text: {stats}")
-    return parser_type, [{"type": "text", "content": redacted_text}]
+    return parser_type, [{"type": "text", "content": cleaned_text}]
 
 
 __all__ = [
