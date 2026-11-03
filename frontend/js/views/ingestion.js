@@ -19,13 +19,19 @@ let filter = 'all';
 
 function statusOf(f) {
   if (f.status === 'success') return pill('PROCESSED', 'success');
+
+  if (f.status === 'awaiting_review') return pill('AWAITING REVIEW', 'warning');
   if (f.status === 'failed') return pill('FAILED', 'danger');
+  if (f.status === 'unactionable') return pill('UNACTIONABLE', 'muted');
+
   return pill('NOT PROCESSED', 'neutral');
 }
 
 function filterFiles(files) {
   return files.filter(f => {
-    if (filter === 'ready') return f.gate1_passed && f.status !== 'success';
+
+    if (filter === 'ready') return f.gate1_passed && f.status !== 'success' && f.status !== 'awaiting_review';
+
     if (filter === 'rejected') return !f.gate1_passed;
     if (filter === 'processed') return f.status === 'success';
     return true;
@@ -52,12 +58,20 @@ function filesTable(files) {
                 ${f.gate1_error ? `<div class="cell-sub text-danger">${esc(f.gate1_error)}</div>` : ''}
               </td>
               <td>${statusOf(f)}${f.processed_at ? `<div class="cell-sub">${fmt.date(f.processed_at)}</div>` : ''}</td>
-              <td>${f.sop_id ? `<span class="id-cell">${esc(f.sop_id)}</span>` : '<span class="muted">—</span>'}</td>
+
+              <td>${f.sop_id ? `<a href="#/playbooks" class="id-cell" title="View in Playbooks">${esc(f.sop_id)}</a>` : '<span class="muted">—</span>'}</td>
               <td class="nowrap"><div class="mono tiny">${fmt.date(f.modified)}</div><div class="cell-sub">${fmt.rel(f.modified)}</div></td>
               <td>
                 <div class="row-actions">
-                  <button class="btn btn-sm btn-primary" data-action="ingest-file" data-file="${esc(f.filename)}" ${f.gate1_passed ? '' : 'disabled title="Fails Gate 1 checks"'}>${icon('play')}Ingest</button>
-                  <button class="btn btn-sm btn-outline" data-action="dry-run" data-file="${esc(f.filename)}" ${f.gate1_passed ? '' : 'disabled'} title="Preview the plan without saving anything">Dry run</button>
+                  ${f.status === 'success'
+                    ? `<a class="btn btn-sm btn-secondary" href="#/playbooks" title="View published playbook in OKF Hub">${icon('book')}Playbook</a>
+                       <button class="btn btn-sm btn-outline" data-action="dry-run" data-file="${esc(f.filename)}" title="Preview the plan without saving anything">Dry run</button>`
+                    : f.status === 'awaiting_review'
+                    ? `<a class="btn btn-sm btn-secondary" href="#/review" title="Open review queue">${icon('review')}Review</a>
+                       <button class="btn btn-sm btn-outline" data-action="dry-run" data-file="${esc(f.filename)}" title="Preview the plan without saving anything">Dry run</button>`
+                    : `<button class="btn btn-sm btn-primary" data-action="ingest-file" data-file="${esc(f.filename)}" ${f.gate1_passed ? '' : 'disabled title="Fails Gate 1 checks"'}>${icon('play')}Ingest</button>
+                       <button class="btn btn-sm btn-outline" data-action="dry-run" data-file="${esc(f.filename)}" ${f.gate1_passed ? '' : 'disabled'} title="Preview the plan without saving anything">Dry run</button>`}
+
                 </div>
               </td>
             </tr>`).join('')}

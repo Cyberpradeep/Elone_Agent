@@ -90,22 +90,33 @@ def _log_converter_input(raw_filepath: str, sop_slug: str, enriched_sop_text: st
     return log_path
 
 
-def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None, feedback_override: Optional[Any] = None) -> Dict[str, Any]:
+def plan_okf_from_raw(
+    raw_filepath: str,
+    override_sop_id: Optional[str] = None,
+    feedback_override: Optional[Any] = None,
+    pre_extracted_text: Optional[str] = None,
+) -> Dict[str, Any]:
     """Phase 1 (read-only): parse the raw SOP and draft the OKF playbook.
     Touches nothing on disk -- returns the proposed frontmatter plus the
     faithfulness-validation notes, so a reviewer can accept or correct the plan.
     Supports feedback_override from Agent A4 correction loops (Section 7).
+    Reuses pre_extracted_text when provided to eliminate redundant VLM OCR calls.
     """
     log_info("JIT Converter", f"Document-order-preserving parsing: {os.path.basename(raw_filepath)}...")
 
     raw_filename_base = os.path.splitext(os.path.basename(raw_filepath))[0]
     sop_slug = re.sub(r"[^A-Za-z0-9]+", "-", raw_filename_base).strip("-").upper()[:20]
 
-    parser_type, segments = extract_ordered_sop_content(raw_filepath)
-
-    raw_text = "\n\n".join(s["content"] for s in segments if s["type"] == "text")
-    if not raw_text or len(raw_text.strip()) < 10:
-        raise ValueError(f"Could not extract text from raw file: {raw_filepath}")
+    parser_type = "pre_extracted"
+    if pre_extracted_text and len(pre_extracted_text.strip()) >= 10:
+        raw_text = pre_extracted_text
+        segments = [{"type": "text", "content": pre_extracted_text}]
+        log_info("JIT Converter", f"Reusing pre-extracted artifact text ({len(raw_text)} chars). Skipping redundant VLM OCR / re-extraction.")
+    else:
+        parser_type, segments = extract_ordered_sop_content(raw_filepath)
+        raw_text = "\n\n".join(s["content"] for s in segments if s["type"] == "text")
+        if not raw_text or len(raw_text.strip()) < 10:
+            raise ValueError(f"Could not extract text from raw file: {raw_filepath}")
 
     knowledge_base_ref = []
     enriched_parts = []
@@ -315,9 +326,15 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None, 
         data = None
         json_err_msg = ""
         try:
-            data = json.loads(clean_json)
+            data = json.loads(clean_json, strict=False)
         except Exception as e1:
             json_err_msg = str(e1)
+            try:
+                from utils.security import sanitize_json_text
+                repaired_json = sanitize_json_text(clean_json)
+                data = json.loads(repaired_json, strict=False)
+            except Exception:
+                pass
 
         if data is None:
             try:
@@ -358,7 +375,7 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None, 
                 for s in raw_steps:
                     if not isinstance(s, dict):
                         continue
-                    st = str(s.get("step_type", "")).lower().strip()
+                    st = str(s.get("step_type") or s.get("type") or s.get("action_type") or "").lower().strip()
                     if st in {"manual_ui_omitted", "omitted", "ui_omitted", "manual"}:
                         action_desc = s.get("sop_step_description") or s.get("name") or "Manual UI action"
                         coverage_list.append({
@@ -370,13 +387,40 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None, 
                         clean_steps.append(s)
                 for idx, s in enumerate(clean_steps, 1):
                     s["step_number"] = idx
+                    if not s.get("step_type"):
+                        for alias in ("type", "action_type", "stepType"):
+                            if s.get(alias):
+                                s["step_type"] = s[alias]
+                                break
+                    if not s.get("step_type"):
+                        if s.get("function_name") or s.get("comm_inputs"):
+                            s["step_type"] = "tool_call"
+                        else:
+                            s["step_type"] = "command"
                 data["steps"] = clean_steps
+
+            # Normalize required_entities if emitted as dictionaries
+            raw_req_ents = data.get("required_entities")
+            if isinstance(raw_req_ents, list):
+                clean_req_ents = []
+                for item in raw_req_ents:
+                    if isinstance(item, dict):
+                        val = item.get("name") or item.get("entity") or item.get("key") or item.get("id")
+                        if val:
+                            clean_req_ents.append(str(val).strip())
+                    elif isinstance(item, str) and item.strip():
+                        clean_req_ents.append(item.strip())
+                data["required_entities"] = clean_req_ents
 
             is_exec = data.get("is_executable", True)
             if is_exec is False or len(data.get("steps", [])) == 0:
                 unexec_reason = data.get("unexecutable_reason") or "Raw SOP document contains zero executable steps."
                 data["is_executable"] = False
                 data["unexecutable_reason"] = unexec_reason
+                if not data.get("sop_id"):
+                    data["sop_id"] = f"SOP-{sop_slug}-001"
+                if not data.get("category"):
+                    data["category"] = "system"
                 validated_model = OKFPlaybookModel.model_validate(data)
                 data = validated_model.model_dump()
                 return {
@@ -384,10 +428,10 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None, 
                         "type": "Playbook",
                         "sop_id": None,
                         "title": data.get("title", os.path.basename(raw_filepath)),
-                        "platform": "system",
+                        "platform": data.get("platform") or "system",
                         "category": (data.get("category") or "other").lower().strip(),
                         "target_os": data.get("target_os", "windows"),
-                        "description": data.get("description", "Non-executable document."),
+                        "description": data.get("description", unexec_reason),
                         "is_executable": False,
                         "unexecutable_reason": unexec_reason,
                         "confidence_score": 0.0,

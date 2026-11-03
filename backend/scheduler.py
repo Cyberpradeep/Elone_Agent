@@ -27,12 +27,16 @@ from agents.a1_ingestion import ALLOWED_EXTENSIONS
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(BASE_DIR)
 KB_DIR = os.getenv("ELONE_KB_DIR")
 if not KB_DIR or not os.path.exists(KB_DIR):
-    if os.path.exists(os.path.join(BASE_DIR, "knowledge_base")):
+    root_kb = os.path.abspath(os.path.join(PROJECT_ROOT, "knowledge_base"))
+    if os.path.exists(root_kb):
+        KB_DIR = root_kb
+    elif os.path.exists(os.path.join(BASE_DIR, "knowledge_base")):
         KB_DIR = os.path.join(BASE_DIR, "knowledge_base")
     else:
-        KB_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "knowledge_base"))
+        KB_DIR = root_kb
 UPLOADS_DIR = os.path.join(KB_DIR, "_uploads")
 MANIFEST_PATH = os.path.join(UPLOADS_DIR, "_processed_manifest.json")
 

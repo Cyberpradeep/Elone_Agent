@@ -132,14 +132,45 @@ CONTEXTUAL_SECRET_PATTERNS = [
     re.compile(r"""(?i)\b(password|pwd|secret|passphrase)\s*[:=\-]+\s*["']?([^\s"']{4,})["']?"""),
 ]
 
-# Personal Contact Patterns (Real Email & Phone)
+# Personal Contact Patterns (Real Email & Formatted Phone Numbers)
 EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
-PHONE_PATTERN = re.compile(r"(?:\+?\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{4}\b")
+PHONE_PATTERN = re.compile(
+    r"""(?x)
+    (?:
+        (?:\+\d{1,3}[-.\s]?)?               # Optional country code (+1, +44, etc.)
+        (?:\(\d{2,4}\)[-.\s]?)              # Area code in parentheses: (123)
+        \d{3,4}[-.\s]?\d{4}\b               # Local number
+    )
+    |
+    (?:
+        \+\d{1,3}[-.\s]?\d{2,4}[-.\s]?\d{3,4}[-.\s]?\d{3,4}\b  # Explicit +country code with delimiters
+    )
+    |
+    (?:
+        \b\d{3,4}[-.\s]\d{3,4}[-.\s]\d{4}\b # Number strictly delimited by hyphens/dots/spaces (e.g., 555-123-4567)
+    )
+    """
+)
 
-# Safe documentation placeholders that should NOT be redacted
+# Safe documentation placeholders that should NOT be redacted as secrets
 DOCUMENTATION_TEMPLATE_DOMAINS = {
     "example.com", "example.org", "example.net", "company.com", "yourcompany.com", "domain.com", "test.com"
 }
+DOCUMENTATION_SECRET_PLACEHOLDERS = {
+    "your_api_key", "your-api-key", "insert_", "<token>", "<insert",
+    "placeholder", "dummy", "example", "changeme", "admin123", "password123",
+    "todo", "replace_me", "my_secret", "yourapikey", "your_secret"
+}
+
+# Safe filesystem paths and document extensions that should NOT be treated as high-entropy secrets
+SAFE_PATH_EXTENSIONS = (
+    ".html", ".htm", ".pdf", ".docx", ".xlsx", ".txt", ".json",
+    ".xml", ".log", ".old", ".ps1", ".bat", ".cmd", ".sh", ".exe", ".dll"
+)
+SAFE_PATH_PREFIXES = (
+    "users/", "downloads/", "appdata/", "windows/", "system32/", "program files/",
+    "display/it/", "attachments/", "c:/", "d:/", "e:/"
+)
 
 
 def calculate_shannon_entropy(data: str) -> float:
@@ -205,6 +236,9 @@ def redact_sensitive_dlp(text: str) -> Tuple[str, Dict[str, int]]:
 
     # 2. Contextual Passwords and Secrets
     def _redact_password(match):
+        val = match.group(2).lower().strip("'\"<>[]")
+        if any(p in val for p in DOCUMENTATION_SECRET_PLACEHOLDERS):
+            return match.group(0)  # Keep documentation placeholder intact
         stats["passwords"] += 1
         prefix = match.group(1)
         return f"{prefix}: [DLP_REDACTED_PASSWORD]"
@@ -212,6 +246,9 @@ def redact_sensitive_dlp(text: str) -> Tuple[str, Dict[str, int]]:
     sanitized = CONTEXTUAL_SECRET_PATTERNS[1].sub(_redact_password, sanitized)
 
     def _redact_contextual_key(match):
+        val = match.group(2).lower().strip("'\"<>[]")
+        if any(p in val for p in DOCUMENTATION_SECRET_PLACEHOLDERS):
+            return match.group(0)  # Keep documentation placeholder intact
         stats["api_keys"] += 1
         prefix = match.group(1)
         return f"{prefix}: [DLP_REDACTED_API_KEY]"
@@ -232,14 +269,10 @@ def redact_sensitive_dlp(text: str) -> Tuple[str, Dict[str, int]]:
 
     sanitized = EMAIL_PATTERN.sub(_redact_email, sanitized)
 
-    # 4. Phone Numbers (Min 10 digits total)
+    # 4. Formatted Phone Numbers
     def _redact_phone(match):
-        val = match.group(0)
-        digits_only = re.sub(r"\D", "", val)
-        if len(digits_only) >= 10:
-            stats["phones"] += 1
-            return "[DLP_REDACTED_PHONE]"
-        return val
+        stats["phones"] += 1
+        return "[DLP_REDACTED_PHONE]"
 
     sanitized = PHONE_PATTERN.sub(_redact_phone, sanitized)
 
@@ -249,12 +282,28 @@ def redact_sensitive_dlp(text: str) -> Tuple[str, Dict[str, int]]:
     high_entropy_replacements = []
     for match in token_candidates:
         candidate = match.group(1)
-        # Avoid redacting hex hashes or URLs if already handled
-        if "http" in candidate.lower() or candidate.startswith("DLP_REDACTED"):
+        c_lower = candidate.lower()
+
+        # Bypass URIs, URLs, and already redacted placeholders
+        if "http" in c_lower or "file:" in c_lower or candidate.startswith("DLP_REDACTED"):
             continue
+
+        # Bypass filesystem paths, directory structures, and document file paths
+        if candidate.count("/") >= 2 or candidate.count("\\") >= 2:
+            continue
+        if any(c_lower.startswith(p) for p in SAFE_PATH_PREFIXES):
+            continue
+        if any(c_lower.endswith(ext) for ext in SAFE_PATH_EXTENSIONS):
+            continue
+
+        # Bypass pure English word identifiers (titles, methods, filenames with 0 digits)
+        clean = candidate.replace("_", "").replace("-", "")
+        if clean.isalpha() or not any(ch.isdigit() for ch in candidate):
+            continue
+
         entropy = calculate_shannon_entropy(candidate)
-        # High entropy threshold for random API keys / secrets
-        if entropy > 4.2:
+        # High entropy threshold for random cryptographic API keys / secrets
+        if entropy > 4.3:
             high_entropy_replacements.append((candidate, "[DLP_REDACTED_API_KEY]"))
 
     for orig, repl in high_entropy_replacements:
@@ -698,4 +747,42 @@ def scan_commands_for_ast_threats(commands: List[str]) -> List[Dict[str, str]]:
         return _scan(commands)
     except Exception:
         return []
+
+def sanitize_json_text(text: str) -> str:
+    """Pre-sanitizes LLM-generated JSON strings before standard json.loads.
+    Tolerates and repairs common LLM syntax slips:
+    - Inner unescaped double quotes on 'key': 'val' or array lines
+    - Missing commas between fields and list entries
+    - Windows path single backslashes (e.g. C:\Windows)
+    - Trailing commas before closing braces/brackets
+    """
+    if not text:
+        return text
+
+    lines = []
+    for line in text.splitlines():
+        # Match '  "key": "value"' lines with inner unescaped quotes
+        m_kv = re.match(r'^(\s*"[\w_-]+"\s*:\s*")(.*)("\s*,?\s*)$', line)
+        if m_kv:
+            prefix, val, suffix = m_kv.group(1), m_kv.group(2), m_kv.group(3)
+            val_fixed = re.sub(r'(?<!\\)"', r'\"', val)
+            lines.append(prefix + val_fixed + suffix)
+            continue
+        # Match array string items: '  "value"' with inner unescaped quotes
+        m_arr = re.match(r'^(\s*")(.*)("\s*,?\s*)$', line)
+        if m_arr:
+            prefix, val, suffix = m_arr.group(1), m_arr.group(2), m_arr.group(3)
+            val_fixed = re.sub(r'(?<!\\)"', r'\"', val)
+            lines.append(prefix + val_fixed + suffix)
+            continue
+        lines.append(line)
+
+    repaired = "\n".join(lines)
+    # Normalize Windows backslashes: replace single backslash not part of a valid escape
+    repaired = re.sub(r'(?<!\\)\\(?!["\\/bfnrtu])', r'\\\\', repaired)
+    # Insert missing commas between lines: e.g. '"val"\n  "key":'
+    repaired = re.sub(r'([0-9"\'\]\}])\s*\n\s*("[\w_-]+"\s*:)', r'\1,\n  \2', repaired)
+    # Remove trailing commas before } or ]
+    repaired = re.sub(r',\s*([\]\}])', r'\1', repaired)
+    return repaired
 

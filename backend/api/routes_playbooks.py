@@ -10,7 +10,8 @@ import glob
 import json
 import shutil
 import datetime
-from starlette.responses import JSONResponse
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 from starlette.routing import Route
 
 from api.context import (
@@ -18,6 +19,9 @@ from api.context import (
     SOPS_DIR,
     PATTERNS_DIR,
     PROJECT_ROOT,
+    DRAFTS_DIR,
+    MANIFEST_PATH,
+    read_manifest,
     governance_ledger,
     retrieval_index,
     parse_yaml_frontmatter,
@@ -30,7 +34,7 @@ TRASH_DIR = os.path.join(KB_DIR, "_trash")
 SOFT_DELETABLE_STATES = {"published", "deactivated", "archived"}
 
 
-async def api_list_sops(request):
+async def api_list_sops(request: Request):
     playbook_files = glob.glob(os.path.join(SOPS_DIR, "**", "*.md"), recursive=True)
     playbooks = []
 
@@ -76,7 +80,7 @@ async def api_list_sops(request):
     })
 
 
-async def api_get_sop(request):
+async def api_get_sop(request: Request):
     sop_id = request.path_params.get("sop_id", "").strip()
     clean_id = sop_id.replace(".md", "")
 
@@ -131,7 +135,7 @@ async def api_get_sop(request):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-async def api_verify_sop_integrity(request):
+async def api_verify_sop_integrity(request: Request):
     sop_id = request.path_params.get("sop_id", "").strip()
     clean_id = sop_id.replace(".md", "")
 
@@ -171,7 +175,7 @@ def _rel(path: str) -> str:
         return path.replace("\\", "/")
 
 
-async def api_delete_sop(request):
+async def api_delete_sop(request: Request):
     """Deletes a playbook: moves its files to knowledge_base/_trash/, removes it from the downstream
     agent catalog, soft-deletes its lifecycle job, and refreshes the category index pages.
 
@@ -200,23 +204,51 @@ async def api_delete_sop(request):
     if not playbooks:
         return JSONResponse({"error": f"SOP '{sop_id}' not found"}, status_code=404)
 
-    # Everything that belongs to it: canonical JSON and the reflection rulebook(s).
-    files, catalog_ids = set(playbooks), {clean_id}
+    # Everything that belongs to it: canonical JSON, rules, and source content hashes.
+    files, catalog_ids, source_shas = set(playbooks), {clean_id}, set()
     for md in playbooks:
         try:
             with open(md, "r", encoding="utf-8") as f:
                 fm, _ = parse_yaml_frontmatter(f.read())
             if fm.get("sop_id"):
                 catalog_ids.add(str(fm["sop_id"]))
+            if fm.get("source_sha256"):
+                source_shas.add(str(fm["source_sha256"]))
         except Exception:
             pass
     for p in glob.glob(os.path.join(SOPS_DIR, "**", "*.canonical.json"), recursive=True):
         if os.path.basename(p)[: -len(".canonical.json")].lower() == clean_id.lower():
             files.add(p)
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    cdata = json.load(f)
+                sha = cdata.get("source", {}).get("sha256")
+                if sha:
+                    source_shas.add(str(sha))
+            except Exception:
+                pass
     for p in glob.glob(os.path.join(PATTERNS_DIR, "**", "rules_*.md"), recursive=True):
         if os.path.splitext(os.path.basename(p))[0][len("rules_"):].lower() == clean_id.lower():
             files.add(p)
     files = sorted(f for f in files if _inside(f, KB_DIR))
+
+    # Also inspect _drafts for associated hashes
+    if os.path.exists(DRAFTS_DIR):
+        for df_name in os.listdir(DRAFTS_DIR):
+            if df_name.endswith(".draft.json"):
+                df_path = os.path.join(DRAFTS_DIR, df_name)
+                try:
+                    with open(df_path, "r", encoding="utf-8") as df_file:
+                        d_data = json.load(df_file)
+                    d_sop = str(d_data.get("sop_id", "")).lower()
+                    d_canon = str(d_data.get("canonical_draft", {}).get("sop_id", "")).lower()
+                    if clean_id.lower() in (d_sop, d_canon):
+                        catalog_ids.add(d_data.get("sop_id", ""))
+                        d_sha = d_data.get("canonical_draft", {}).get("source", {}).get("sha256")
+                        if d_sha:
+                            source_shas.add(str(d_sha))
+                except Exception:
+                    pass
 
     # 1. Move to trash (preserving relative paths) with a manifest.
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -235,6 +267,7 @@ async def api_delete_sop(request):
                 "sop_id": clean_id, "deleted_by": actor, "reason": reason,
                 "deleted_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 "files": moved,
+                "source_shas": list(source_shas),
                 "restore": "Copy each listed file from this folder back to the same relative path under knowledge_base/.",
             }, mf, indent=2)
     except Exception as e:
@@ -243,15 +276,22 @@ async def api_delete_sop(request):
     # 2. Stop downstream agents retrieving it.
     purged = any(retrieval_index.purge_sop(i, reason="deleted") for i in catalog_ids)
 
-    # 3. Lifecycle: soft-delete the job(s) that were live.
+    # 3. Lifecycle: soft-delete the job(s) that were live (matching by ID, review task ID, or source content SHA).
     soft_deleted = []
+    all_target_ids = {clean_id.lower(), *[str(c).lower() for c in catalog_ids if c]}
     for job in list(governance_ledger._jobs.values()):
-        if job.sop_id.lower() == clean_id.lower() and job.current_state in SOFT_DELETABLE_STATES:
+        matches_id = job.sop_id.lower() in all_target_ids or (job.review_task and str(job.review_task.get("sop_id", "")).lower() in all_target_ids)
+        matches_sha = job.content_sha256 in source_shas
+        if matches_id or matches_sha:
             try:
                 governance_ledger.soft_delete_sop(job.job_id, actor=actor, role="owner")
                 soft_deleted.append(job.job_id)
             except Exception as e:
-                warnings.append(f"Ledger: could not soft-delete job {job.job_id}: {e}")
+                try:
+                    governance_ledger.transition_state(job.job_id, "soft_deleted", actor=actor, reason="SOP deleted by owner.")
+                    soft_deleted.append(job.job_id)
+                except Exception as e2:
+                    warnings.append(f"Ledger: could not soft-delete job {job.job_id}: {e2}")
 
     # 4. Refresh the index.md pages that listed it.
     try:
@@ -259,6 +299,39 @@ async def api_delete_sop(request):
         _update_sops_catalog_indexes()
     except Exception as e:
         warnings.append(f"Index pages not refreshed: {e}")
+
+    # 5. Clean processed manifest and drafts so ingestion button re-enables cleanly
+    try:
+        manifest = read_manifest()
+        to_del = []
+        for fn, info in manifest.items():
+            info_sop = str(info.get("sop_id", "")).lower()
+            if info_sop in all_target_ids:
+                to_del.append(fn)
+        for fn in to_del:
+            del manifest[fn]
+        if to_del:
+            with open(MANIFEST_PATH, "w", encoding="utf-8") as mf:
+                json.dump(manifest, mf, indent=2)
+
+        if os.path.exists(DRAFTS_DIR):
+            for df_name in os.listdir(DRAFTS_DIR):
+                if df_name.endswith(".draft.json"):
+                    df_path = os.path.join(DRAFTS_DIR, df_name)
+                    try:
+                        with open(df_path, "r", encoding="utf-8") as df_file:
+                            d_data = json.load(df_file)
+                        d_sop = str(d_data.get("sop_id", "")).lower()
+                        d_canon = str(d_data.get("canonical_draft", {}).get("sop_id", "")).lower()
+                        d_sha = str(d_data.get("canonical_draft", {}).get("source", {}).get("sha256", ""))
+                        if d_sop in all_target_ids or d_canon in all_target_ids or (d_sha and d_sha in source_shas):
+                            dst_draft = os.path.join(trash, "_drafts", df_name)
+                            os.makedirs(os.path.dirname(dst_draft), exist_ok=True)
+                            shutil.move(df_path, dst_draft)
+                    except Exception:
+                        pass
+    except Exception as e:
+        warnings.append(f"Manifest cleanup notice: {e}")
 
     return JSONResponse({
         "status": "deleted",
@@ -272,9 +345,10 @@ async def api_delete_sop(request):
     })
 
 
-playbook_routes = [
-    Route("/api/sops", api_list_sops, methods=["GET"]),
-    Route("/api/sops/{sop_id}", api_get_sop, methods=["GET"]),
-    Route("/api/sops/{sop_id}", api_delete_sop, methods=["DELETE"]),
-    Route("/api/sops/{sop_id}/verify", api_verify_sop_integrity, methods=["POST"]),
-]
+playbook_router = APIRouter(tags=["Playbooks & Canonical SOPs"])
+playbook_router.add_api_route("/api/sops", api_list_sops, methods=["GET"], summary="List Canonical SOP Playbooks")
+playbook_router.add_api_route("/api/sops/{sop_id}", api_get_sop, methods=["GET"], summary="Get SOP Details & Frontmatter")
+playbook_router.add_api_route("/api/sops/{sop_id}", api_delete_sop, methods=["DELETE"], summary="Delete SOP Playbook")
+playbook_router.add_api_route("/api/sops/{sop_id}/verify", api_verify_sop_integrity, methods=["POST"], summary="Verify SOP Cryptographic HMAC Integrity")
+
+playbook_routes = list(playbook_router.routes)

@@ -197,11 +197,22 @@ def build_canonical_sop_from_draft(
             line_range = _locate_quote(source_quote, source_lines)
             quote = source_quote
         else:
-            # No quote supplied (older drafts): fall back to matching the step's own description.
-            line_range = s.get("source_lines")
-            if not line_range or not (isinstance(line_range, list) and len(line_range) >= 2):
-                line_range = _find_matching_line_range(action, source_lines)
-            quote = action
+
+            # Fall back: locate via command or action in source document
+            cmd = (s.get("command") or "").strip()
+            cmd_clean = re.sub(r"\{\{[^}]+\}\}", "", cmd).strip()
+            rng = None
+            if cmd_clean and len(cmd_clean) > 3:
+                rng = _locate_quote(cmd_clean, source_lines)
+            if not rng or rng == [1, 1]:
+                rng = _locate_quote(action, source_lines)
+
+            line_range = rng
+            start_idx = max(0, line_range[0] - 1)
+            end_idx = min(len(source_lines), line_range[1])
+            doc_excerpt = " ".join(source_lines[start_idx:end_idx]).strip()
+            quote = doc_excerpt if doc_excerpt else action
+
 
         canonical_steps.append({
             "n": idx,

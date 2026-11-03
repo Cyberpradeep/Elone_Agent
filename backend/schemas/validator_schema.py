@@ -4,8 +4,8 @@ Pydantic Schema for Plan Validator Layer 2 Faithfulness Inspection
 Strict typing for the LLM faithfulness and hallucination inspection result.
 """
 
-from pydantic import BaseModel, Field
-from typing import List, Optional
+from pydantic import BaseModel, Field, field_validator
+from typing import List, Optional, Any
 
 
 class JITFaithfulnessInspectionResult(BaseModel):
@@ -61,3 +61,30 @@ class JITFaithfulnessInspectionResult(BaseModel):
         default="All steps, tool calls, and parameters verified against raw SOP without ambiguity.",
         description="Brief rationale for the validation confidence score."
     )
+
+    @field_validator("dropped_commands", "hallucinated_commands", mode="before")
+    @classmethod
+    def _normalize_command_list(cls, val: Any) -> List[str]:
+        if not isinstance(val, list):
+            return []
+        normalized: List[str] = []
+        for item in val:
+            if isinstance(item, dict):
+                text = item.get("source_action") or item.get("step_description") or item.get("command") or item.get("reason") or str(item)
+                normalized.append(str(text))
+            elif item is not None:
+                normalized.append(str(item))
+        return normalized
+
+    @field_validator("malicious_steps", mode="before")
+    @classmethod
+    def _normalize_malicious_steps(cls, val: Any) -> List[int]:
+        if not isinstance(val, list):
+            return []
+        res = []
+        for x in val:
+            try:
+                res.append(int(x))
+            except (ValueError, TypeError):
+                pass
+        return res

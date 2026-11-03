@@ -43,6 +43,9 @@ _PLANNING_MODEL = os.environ.get("PLANNING_MODEL", "qwen/qwen3.8-27b")
 _VALIDATION_PROVIDER = os.environ.get("VALIDATION_PROVIDER", "groq").lower()
 _VALIDATION_MODEL = os.environ.get("VALIDATION_MODEL", "qwen/qwen3.8-27b")
 
+_VLM_PROVIDER = os.environ.get("VLM_PROVIDER", "nvidia").lower()
+_VLM_MODEL = os.environ.get("VLM_MODEL", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning")
+
 _GROQ_MODEL = os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b")
 
 ROLE_PROVIDER_MAP = {
@@ -61,10 +64,13 @@ ROLE_PROVIDER_MAP = {
         # ],
     },
     "vlm_image_analysis": {
-        "provider": "nvidia",
-        "model": "meta/llama-3.2-11b-vision-instruct",
-        # "model":"nvidia/nemotron-nano-12b-v2-vl",
-        # "model":"nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+        "provider": _VLM_PROVIDER,
+        "model": _VLM_MODEL,
+        "fallbacks": [
+            {"provider": "gemini", "model": "gemini-2.5-flash"},
+            {"provider": "openrouter", "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"},
+            {"provider": "nvidia", "model": "meta/llama-3.2-11b-vision-instruct"},
+        ],
     },
 }
 
@@ -219,25 +225,27 @@ def _build_zai_glm_client(model: str = "glm-4.7-flash", temperature: float = 0.2
 
 
 def _build_nvidia_client(model: str, temperature: float = 0.2):
+    api_key = os.environ.get("NVIDIA_API_KEY")
+    if not api_key:
+        raise RuntimeError("NVIDIA_API_KEY not set in environment (.env)")
     try:
         from langchain_nvidia_ai_endpoints import ChatNVIDIA
-        api_key = os.environ.get("NVIDIA_API_KEY")
         return ChatNVIDIA(
             model=model,
-            nvidia_api_key=api_key,
+            api_key=api_key,
             temperature=temperature,
-            max_completion_tokens=350,
+            top_p=0.95,
+            max_completion_tokens=4096,
             timeout=150,
         )
     except ImportError:
         from langchain_openai import ChatOpenAI
-        api_key = os.environ.get("NVIDIA_API_KEY")
         return ChatOpenAI(
             model=model,
             api_key=api_key,
             base_url="https://integrate.api.nvidia.com/v1",
             temperature=temperature,
-            max_tokens=350,
+            max_tokens=4096,
             timeout=150.0,
             request_timeout=150.0,
         )
