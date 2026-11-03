@@ -111,7 +111,7 @@ def _validate_source_action_coverage(execution_plan: Dict[str, Any]) -> List[str
     return errors
 
 
-def _coverage_accounts_for_validator_claim(claim: str, coverage_items: List[Dict[str, Any]]) -> bool:
+def _coverage_accounts_for_validator_claim(claim: Any, coverage_items: List[Dict[str, Any]]) -> bool:
     """Return True when a Layer 2 claim is already accounted for in the ledger.
 
     This deliberately uses conservative word-overlap matching in addition to an
@@ -120,9 +120,26 @@ def _coverage_accounts_for_validator_claim(claim: str, coverage_items: List[Dict
     office PC IP"), so literal equality would reintroduce the GUI false positive
     this ledger exists to prevent.
     """
-    claim_normalized = re.sub(r"[^a-z0-9]+", " ", str(claim).lower()).strip()
+    if isinstance(claim, dict):
+        claim_str = claim.get("source_action") or claim.get("step_description") or claim.get("command") or claim.get("reason") or str(claim)
+    else:
+        claim_str = str(claim)
+    claim_normalized = re.sub(r"[^a-z0-9]+", " ", claim_str.lower()).strip()
     if not claim_normalized:
         return False
+
+    # CRITICAL SECURITY / SAFETY GUARD:
+    # A claim that flags a dropped critical safety control, verification gate,
+    # or security prerequisite MUST NOT be excused as an innocent manual UI omission.
+    safety_gate_keywords = [
+        "safety gate", "safety check", "safety control", "security control",
+        "suspicious activity", "go no go", "go / no go", "stop and follow",
+        "do not reset", "owner approval", "verification gate", "bypasses a critical safety",
+        "security gate", "critical gate", "escalation", "approval required"
+    ]
+    if any(k in claim_normalized for k in safety_gate_keywords):
+        return False
+
     ignored_words = {"the", "a", "an", "to", "for", "from", "and", "or", "of", "in", "on", "with", "your"}
     claim_tokens = {token for token in claim_normalized.split() if token not in ignored_words}
 
@@ -373,13 +390,29 @@ def validate_plan_faithfulness_and_linkage(
         )
 
         try:
-            parsed_json = json.loads(json_str)
+            try:
+                parsed_json = json.loads(json_str, strict=False)
+            except Exception:
+                from utils.security import sanitize_json_text
+                parsed_json = json.loads(sanitize_json_text(json_str), strict=False)
+
             if not isinstance(parsed_json, dict):
                 raise ValueError("Parsed JSON must be a dict")
 
             try:
                 inspection_result = JITFaithfulnessInspectionResult.model_validate(parsed_json)
             except Exception:
+                def _to_str_list(items):
+                    if not isinstance(items, list):
+                        return []
+                    out = []
+                    for it in items:
+                        if isinstance(it, dict):
+                            out.append(it.get("source_action") or it.get("step_description") or it.get("reason") or str(it))
+                        elif it is not None:
+                            out.append(str(it))
+                    return out
+
                 inspection_result = JITFaithfulnessInspectionResult(
                     is_faithful=bool(parsed_json.get("is_faithful", True)),
                     injection_detected=bool(parsed_json.get("injection_detected", False)),
@@ -390,9 +423,9 @@ def validate_plan_faithfulness_and_linkage(
                     hallucination_check_reasoning=str(parsed_json.get("hallucination_check_reasoning") or ""),
                     fallback_referral_reasoning=str(parsed_json.get("fallback_referral_reasoning") or ""),
                     injection_reasoning=str(parsed_json.get("injection_reasoning") or ""),
-                    dropped_commands=parsed_json.get("dropped_commands") or [],
-                    hallucinated_commands=parsed_json.get("hallucinated_commands") or [],
-                    malicious_steps=parsed_json.get("malicious_steps") or [],
+                    dropped_commands=_to_str_list(parsed_json.get("dropped_commands")),
+                    hallucinated_commands=_to_str_list(parsed_json.get("hallucinated_commands")),
+                    malicious_steps=[int(x) for x in parsed_json.get("malicious_steps", []) if str(x).isdigit()],
                     validation_feedback=str(parsed_json.get("validation_feedback") or ""),
                 )
 
@@ -436,11 +469,23 @@ def validate_plan_faithfulness_and_linkage(
                     and not unaccounted_drops
                     and not inspection_result.hallucinated_commands
                 ):
-                    log_info(
-                        "PlanValidator Layer 2",
-                        "Ignoring inconsistent faithfulness verdict: all reported drops accounted for by source_action_coverage."
-                    )
-                    return True, errors
+                    reasoning_text = (inspection_result.validation_feedback or "") + " " + (inspection_result.confidence_reason or "")
+                    reasoning_lower = reasoning_text.lower()
+                    safety_reasoning_keywords = [
+                        "bypasses a critical safety",
+                        "critical safety control",
+                        "mandatory safety check",
+                        "security control in the sop",
+                        "critical safety gate",
+                    ]
+                    if any(k in reasoning_lower for k in safety_reasoning_keywords):
+                        pass
+                    else:
+                        log_info(
+                            "PlanValidator Layer 2",
+                            "Ignoring inconsistent faithfulness verdict: all reported drops accounted for by source_action_coverage."
+                        )
+                        return True, errors
 
                 reasons = []
                 if unaccounted_drops:

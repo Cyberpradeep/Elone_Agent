@@ -12,7 +12,10 @@ import glob
 import json
 import datetime
 from starlette.concurrency import run_in_threadpool
-from starlette.responses import JSONResponse
+
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
+
 from starlette.routing import Route
 
 from api.context import (
@@ -21,6 +24,8 @@ from api.context import (
     SOPS_DIR,
     DRAFTS_DIR,
     UPLOADS_DIR,
+    MANIFEST_PATH,
+    read_manifest,
 )
 from schemas.governance_models import (
     SeparationOfDutiesViolation,
@@ -44,13 +49,19 @@ from agents.a4_verification.quote_tracer import verify_quote_trace
 from agents.a3_security.ast_sandbox import scan_commands_for_ast_threats
 
 
-async def api_governance_jobs(request):
+async def api_governance_jobs(request: Request):
     """Lists all SOP lifecycle jobs and their current state machine status (Section 8)."""
+
+    try:
+        governance_ledger.load()
+    except Exception:
+        pass
+
     jobs = [job.to_dict() for job in list(governance_ledger._jobs.values())]
     return JSONResponse({"jobs": jobs, "total": len(jobs)})
 
 
-async def api_governance_job_detail(request):
+async def api_governance_job_detail(request: Request):
     job_id = request.path_params.get("job_id")
     job = governance_ledger.get_job(job_id)
     if not job:
@@ -58,8 +69,12 @@ async def api_governance_job_detail(request):
     return JSONResponse(job.to_dict())
 
 
-async def api_governance_review_tasks(request):
+async def api_governance_review_tasks(request: Request):
     """Lists all human review tasks (RT-xxxxxx) across jobs (Section 5.5 & 13)."""
+    try:
+        governance_ledger.load()
+    except Exception:
+        pass
     tasks = []
     for job in list(governance_ledger._jobs.values()):
         if job.review_task:
@@ -79,7 +94,7 @@ async def api_governance_review_tasks(request):
     return JSONResponse({"tasks": tasks, "total": len(tasks)})
 
 
-async def api_governance_record_decision(request):
+async def api_governance_record_decision(request: Request):
     """Records human review decision (approve, changes_requested, reject) with SoD verification."""
     task_id = request.path_params.get("task_id")
     try:
@@ -145,7 +160,7 @@ async def api_governance_record_decision(request):
         return JSONResponse({"error": str(e)}, status_code=400)
 
 
-async def api_governance_publish_sop(request):
+async def api_governance_publish_sop(request: Request):
     """Publishes an approved SOP, validates version & hash consistency, and indexes into catalog."""
     sop_id = request.path_params.get("sop_id")
     try:
@@ -223,6 +238,30 @@ async def api_governance_publish_sop(request):
 
         indexed = retrieval_index.index_published_sop(canonical_sop)
         citation = indexed.citation if hasattr(indexed, "citation") else str(indexed)
+
+        # Update processed manifest with published status and SOP ID
+        try:
+            pub_sop_id = canonical_sop.get("sop_id") or target_job.sop_id
+            m = read_manifest()
+            target_fn = safe_name if "safe_name" in locals() and safe_name else None
+            if not target_fn:
+                for k, v in m.items():
+                    if v.get("sop_id") in (sop_id, pub_sop_id):
+                        target_fn = k
+                        break
+            if target_fn:
+                m[target_fn] = {
+                    "status": "success",
+                    "sop_id": pub_sop_id,
+                    "published": True,
+                    "published_at": datetime.datetime.now().isoformat(),
+                    "playbook_path": saved_playbook_path,
+                }
+                with open(MANIFEST_PATH, "w", encoding="utf-8") as mf:
+                    json.dump(m, mf, indent=2)
+        except Exception:
+            pass
+
         return JSONResponse({
             "status": "published",
             "sop_id": target_job.sop_id,
@@ -241,7 +280,7 @@ async def api_governance_publish_sop(request):
         return JSONResponse({"error": str(e)}, status_code=400)
 
 
-async def api_governance_get_canonical(request):
+async def api_governance_get_canonical(request: Request):
     """Retrieves Canonical SOP JSON 1.0 document."""
     sop_id = request.path_params.get("sop_id")
     pattern = os.path.join(SOPS_DIR, "**", f"{sop_id}.canonical.json")
@@ -262,7 +301,7 @@ async def api_governance_get_canonical(request):
     return JSONResponse(data)
 
 
-async def api_governance_update_canonical(request):
+async def api_governance_update_canonical(request: Request):
     """Updates Canonical JSON and triggers step auto-sync into .md playbook."""
     sop_id = request.path_params.get("sop_id")
     try:
@@ -279,7 +318,7 @@ async def api_governance_update_canonical(request):
         return JSONResponse({"error": f"Failed updating canonical SOP: {e}"}, status_code=400)
 
 
-async def api_governance_sync_playbook(request):
+async def api_governance_sync_playbook(request: Request):
     """Synchronizes Canonical JSON edits into the OKF Playbook .md file and re-stamps HMAC."""
     sop_id = request.path_params.get("sop_id")
     try:
@@ -295,7 +334,7 @@ async def api_governance_sync_playbook(request):
         return JSONResponse({"error": f"Sync failed: {e}"}, status_code=400)
 
 
-async def api_governance_downstream_search(request):
+async def api_governance_downstream_search(request: Request):
     """Downstream agent retrieval index query with clearance tier and tenant isolation (Section 14 & 18)."""
     try:
         body = await request.json()
@@ -327,14 +366,18 @@ async def api_governance_downstream_search(request):
     })
 
 
-async def api_governance_downstream_stats(request):
+async def api_governance_downstream_stats(request: Request):
     tenant_id = request.query_params.get("tenant_id")
     stats = retrieval_index.get_stats(tenant_id=tenant_id)
     return JSONResponse(stats)
 
 
-async def api_governance_quarantine_incidents(request):
+async def api_governance_quarantine_incidents(request: Request):
     """Lists all security quarantine incidents (INC-xxxxxx) (Section 10)."""
+    try:
+        governance_ledger.load()
+    except Exception:
+        pass
     incidents = []
     for job in list(governance_ledger._jobs.values()):
         if job.incident:
@@ -342,13 +385,13 @@ async def api_governance_quarantine_incidents(request):
     return JSONResponse({"incidents": incidents, "count": len(incidents)})
 
 
-async def api_get_config(request):
+async def api_get_config(request: Request):
     """Returns the active dynamic pipeline configuration."""
     from config.settings import get_settings
     return JSONResponse(get_settings().get_all())
 
 
-async def api_update_config(request):
+async def api_update_config(request: Request):
     """Dynamically updates pipeline configuration and hot-reloads settings."""
     from config.settings import update_settings
     try:
@@ -403,7 +446,7 @@ def _job_for_sop(sop_id: str):
     return None
 
 
-async def api_governance_get_draft(request):
+async def api_governance_get_draft(request: Request):
     """The editable steps of an unapproved draft, plus whether they can still be edited."""
     sop_id = request.path_params.get("sop_id", "")
     path, data = _read_draft(sop_id)
@@ -559,7 +602,7 @@ def _apply_step_edits(path: str, data: dict, steps_in: list, actor: str, canonic
     return {"canonical_draft": old, "warnings": warnings, "step_count": len(new_steps)}
 
 
-async def api_governance_update_draft_steps(request):
+async def api_governance_update_draft_steps(request: Request):
     """Saves a reviewer's edits to the steps of an unapproved draft (never touches sops/)."""
     sop_id = request.path_params.get("sop_id", "")
     try:
@@ -596,7 +639,7 @@ async def api_governance_update_draft_steps(request):
     return JSONResponse({"status": "saved", "last_editor": actor, **result})
 
 
-async def api_governance_update_draft_canonical(request):
+async def api_governance_update_draft_canonical(request: Request):
     """Saves hand-edited canonical JSON for an unapproved draft. Steps are synced into the playbook
     steps and re-verified; document sections are re-verified; system-managed fields are refused."""
     sop_id = request.path_params.get("sop_id", "")
@@ -672,21 +715,25 @@ async def api_governance_update_draft_canonical(request):
     return JSONResponse({"status": "saved", "last_editor": actor, **result})
 
 
-governance_routes = [
-    Route("/api/governance/jobs", api_governance_jobs, methods=["GET"]),
-    Route("/api/governance/jobs/{job_id}", api_governance_job_detail, methods=["GET"]),
-    Route("/api/governance/review-tasks", api_governance_review_tasks, methods=["GET"]),
-    Route("/api/governance/review-tasks/{task_id}/decision", api_governance_record_decision, methods=["POST"]),
-    Route("/api/governance/sops/{sop_id}/publish", api_governance_publish_sop, methods=["POST"]),
-    Route("/api/governance/sops/{sop_id}/canonical", api_governance_get_canonical, methods=["GET"]),
-    Route("/api/governance/sops/{sop_id}/canonical", api_governance_update_canonical, methods=["PUT"]),
-    Route("/api/governance/sops/{sop_id}/sync-playbook", api_governance_sync_playbook, methods=["POST"]),
-    Route("/api/governance/drafts/{sop_id}", api_governance_get_draft, methods=["GET"]),
-    Route("/api/governance/drafts/{sop_id}/steps", api_governance_update_draft_steps, methods=["PUT"]),
-    Route("/api/governance/drafts/{sop_id}/canonical", api_governance_update_draft_canonical, methods=["PUT"]),
-    Route("/api/governance/downstream/search", api_governance_downstream_search, methods=["POST"]),
-    Route("/api/governance/downstream/stats", api_governance_downstream_stats, methods=["GET"]),
-    Route("/api/governance/incidents", api_governance_quarantine_incidents, methods=["GET"]),
-    Route("/api/config", api_get_config, methods=["GET"]),
-    Route("/api/config", api_update_config, methods=["POST", "PUT"]),
-]
+
+governance_router = APIRouter(tags=["Governance, Dual-Custody & Downstream Catalog"])
+governance_router.add_api_route("/api/governance/jobs", api_governance_jobs, methods=["GET"], summary="List All SOP Governance Jobs")
+governance_router.add_api_route("/api/governance/jobs/{job_id}", api_governance_job_detail, methods=["GET"], summary="Get Job Details & State History")
+governance_router.add_api_route("/api/governance/review-tasks", api_governance_review_tasks, methods=["GET"], summary="List Pending Human Review Tasks")
+governance_router.add_api_route("/api/governance/review-tasks/{task_id}/decision", api_governance_record_decision, methods=["POST"], summary="Record Human Review Decision (Dual-Custody SoD)")
+governance_router.add_api_route("/api/governance/sops/{sop_id}/publish", api_governance_publish_sop, methods=["POST"], summary="Publish Approved SOP (Gatekeeper Verification)")
+governance_router.add_api_route("/api/governance/sops/{sop_id}/canonical", api_governance_get_canonical, methods=["GET"], summary="Get Canonical SOP JSON 1.0")
+governance_router.add_api_route("/api/governance/sops/{sop_id}/canonical", api_governance_update_canonical, methods=["PUT"], summary="Update Canonical SOP JSON 1.0")
+governance_router.add_api_route("/api/governance/sops/{sop_id}/sync-playbook", api_governance_sync_playbook, methods=["POST"], summary="Synchronize Canonical JSON to Markdown Playbook")
+governance_router.add_api_route("/api/governance/drafts/{sop_id}", api_governance_get_draft, methods=["GET"], summary="Get Unapproved SOP Draft")
+governance_router.add_api_route("/api/governance/drafts/{sop_id}/steps", api_governance_update_draft_steps, methods=["PUT"], summary="Update Unapproved SOP Draft Steps")
+governance_router.add_api_route("/api/governance/drafts/{sop_id}/canonical", api_governance_update_draft_canonical, methods=["PUT"], summary="Update Unapproved SOP Draft Canonical JSON")
+governance_router.add_api_route("/api/governance/downstream/search", api_governance_downstream_search, methods=["POST"], summary="Search Catalog (Clearance & Tenant Filtered)")
+governance_router.add_api_route("/api/governance/downstream/stats", api_governance_downstream_stats, methods=["GET"], summary="Get Downstream Catalog Metrics")
+governance_router.add_api_route("/api/governance/incidents", api_governance_quarantine_incidents, methods=["GET"], summary="List Security Quarantine Incidents")
+governance_router.add_api_route("/api/config", api_get_config, methods=["GET"], summary="Get Dynamic Pipeline Configuration")
+governance_router.add_api_route("/api/config", api_update_config, methods=["POST"], summary="Hot-Reload Dynamic Configuration", operation_id="api_update_config_post")
+governance_router.add_api_route("/api/config", api_update_config, methods=["PUT"], summary="Hot-Reload Dynamic Configuration (PUT)", operation_id="api_update_config_put")
+
+governance_routes = list(governance_router.routes)
+

@@ -155,8 +155,8 @@ def _run_vision_ocr(doc, filepath: str) -> str:
 
         for idx, page in enumerate(doc):
             check_cancelled()
-            pix = page.get_pixmap(dpi=150)
-            img_bytes = pix.tobytes("png")
+            pix = page.get_pixmap(dpi=100)
+            img_bytes = pix.tobytes("jpeg")
             b64_img = base64.b64encode(img_bytes).decode("utf-8")
 
             message = HumanMessage(
@@ -167,7 +167,7 @@ def _run_vision_ocr(doc, filepath: str) -> str:
                     },
                     {
                         "type": "image_url",
-                        "image_url": {"url": f"data:image/png;base64,{b64_img}"}
+                        "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}
                     }
                 ]
             )

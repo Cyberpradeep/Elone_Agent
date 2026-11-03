@@ -18,7 +18,7 @@ class OKFStepModel(BaseModel):
         description="5-25 words copied verbatim from the source SOP that this step is based on. "
                     "The canonical builder locates it in the document to verify traceability.",
     )
-    step_type: str = Field(..., description="Step type: 'tool_call' or 'command'")
+    step_type: str = Field(default="command", description="Step type: 'tool_call' or 'command'")
     step_reasoning: Optional[str] = Field(
         None,
         description="LLM's reasoning for why THIS specific step_type/tool/command was chosen for this step "
@@ -48,6 +48,20 @@ class OKFStepModel(BaseModel):
             # Normalize parse_instruction from aliases
             if "output_parse_instruction" in data and not data.get("parse_instruction"):
                 data["parse_instruction"] = data["output_parse_instruction"]
+
+            # Normalize step_type from common LLM alias keys
+            if not data.get("step_type"):
+                for alias in ("type", "action_type", "stepType", "step_action_type"):
+                    if data.get(alias):
+                        data["step_type"] = data[alias]
+                        break
+
+            # Smart auto-inference if step_type is omitted by the LLM
+            if not data.get("step_type"):
+                if data.get("function_name") or data.get("comm_inputs") or data.get("tool_name"):
+                    data["step_type"] = "tool_call"
+                else:
+                    data["step_type"] = "command"
         return data
 
     @field_validator("step_type")
@@ -55,6 +69,10 @@ class OKFStepModel(BaseModel):
     def validate_step_type(cls, v: str) -> str:
         v_clean = str(v).lower().strip()
         if v_clean not in {"tool_call", "command"}:
+            if v_clean in {"powershell", "cmd", "cli", "shell", "bash", "terminal"}:
+                return "command"
+            if v_clean in {"tool", "api", "function", "api_call"}:
+                return "tool_call"
             raise ValueError(f"Invalid step_type '{v}'. Must be 'tool_call' or 'command'.")
         return v_clean
 
@@ -119,6 +137,24 @@ class SourceActionCoverageModel(BaseModel):
 
 class OKFPlaybookModel(BaseModel):
     model_config = ConfigDict(extra="ignore")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_playbook_input(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            # Normalize required_entities if emitted as dictionaries (e.g. [{'name': 'username'}])
+            req_ents = data.get("required_entities")
+            if isinstance(req_ents, list):
+                clean_ents = []
+                for item in req_ents:
+                    if isinstance(item, dict):
+                        val = item.get("name") or item.get("entity") or item.get("key") or item.get("id")
+                        if val:
+                            clean_ents.append(str(val).strip())
+                    elif isinstance(item, str) and item.strip():
+                        clean_ents.append(item.strip())
+                data["required_entities"] = clean_ents
+        return data
 
     sop_id: str = Field(..., description="Unique SOP ID (e.g. SOP-NET-001)")
     title: str = Field(..., description="Human-readable title of the Playbook")

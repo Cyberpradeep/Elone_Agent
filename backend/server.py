@@ -1,8 +1,9 @@
 """
-Elone Agent — SOP Governance Hub Backend API Bridge
-=====================================================
-Lightweight ASGI bridge server providing RESTful endpoints for the
-SOP Governance Hub frontend dashboard and downstream agents.
+Elone Agent — SOP Governance Hub FastAPI Server
+================================================
+Production-ready FastAPI ASGI server providing RESTful endpoints for the
+SOP Governance Hub frontend dashboard, interactive OpenAPI docs (/docs),
+and downstream agent catalog retrieval.
 """
 
 import os
@@ -15,11 +16,9 @@ if BASE_DIR not in sys.path:
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from starlette.applications import Starlette
-from starlette.staticfiles import StaticFiles
-from starlette.routing import Mount
-from starlette.middleware import Middleware
-from starlette.middleware.cors import CORSMiddleware
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 
 # Shared Context & Services
 from api.context import (
@@ -37,36 +36,52 @@ from api.context import (
 )
 
 # Route Controllers
-from api import all_routes
+from api import all_routers, all_routes
 
-# Static Files Setup
-FRONTEND_DIR = os.path.join(PROJECT_ROOT, "frontend")
-static_routes = []
-if os.path.exists(FRONTEND_DIR):
-    static_routes.append(Mount("/", app=StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend"))
-
-# Starlette Application
-middleware = [
-    Middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-]
-
-app = Starlette(
-    debug=True,
-    routes=all_routes + static_routes,
-    middleware=middleware,
+# FastAPI Application
+app = FastAPI(
+    title="Elone Agent — SOP Governance Hub API",
+    description=(
+        "Enterprise Multi-Agent Standard Operating Procedure Governance Engine.\n\n"
+        "Features:\n"
+        "- 14-State Lifecycle Machine & Separation of Duties (SoD)\n"
+        "- Dual-Custody HITL (Human-in-the-Loop) Review Gate\n"
+        "- Automated Secret Scanning, DLP & AST Threat Quarantine Gate\n"
+        "- Verbatim Quote Traceability & Source Line Completeness Verification\n"
+        "- Downstream Multi-Tenant Clearance Catalog Retrieval (L0-L3)\n"
+    ),
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
 )
+
+# CORS Middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Register API Routers
+for router in all_routers:
+    app.include_router(router)
+
+# Mount Frontend Dashboard Static Assets
+FRONTEND_DIR = os.path.join(PROJECT_ROOT, "frontend")
+if os.path.exists(FRONTEND_DIR):
+    app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
 
 
 if __name__ == "__main__":
     import uvicorn
-    print("\n" + "=" * 60)
-    print("  Elone Agent — SOP Governance Hub API Server")
-    print("  Serving Dashboard at: http://127.0.0.1:8000")
-    print("  REST API Endpoints:   http://127.0.0.1:8000/api/overview")
-    print("=" * 60 + "\n")
+    print("\n" + "=" * 70)
+    print("  Elone Agent — SOP Governance Hub FastAPI Server")
+    print("  Interactive Swagger Docs: http://127.0.0.1:8000/docs")
+    print("  Interactive ReDoc:        http://127.0.0.1:8000/redoc")
+    print("  Serving Web Dashboard at: http://127.0.0.1:8000")
+    print("  REST API Health Check:    http://127.0.0.1:8000/api/health")
+    print("=" * 70 + "\n")
     uvicorn.run("server:app", host="127.0.0.1", port=8000, reload=True)

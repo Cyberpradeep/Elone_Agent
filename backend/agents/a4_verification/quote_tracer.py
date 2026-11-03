@@ -102,13 +102,15 @@ def compute_source_line_coverage(
             tokens = set(tok for tok in norm.split() if len(tok) > 2)
             non_blank[idx] = (stripped, tokens)
 
-    # Detect repeating headers/footers dynamically across multi-page documents (appearing 3+ times)
+    # Detect repeating headers/footers dynamically across multi-page documents (appearing 2+ times)
     line_counts = Counter(s for s, _ in non_blank.values())
-    repeats = {l for l, c in line_counts.items() if c >= 3 and len(l) > 3}
+    repeats = {l for l, c in line_counts.items() if c >= 2 and len(l) > 3}
     mapped_line_indices = {idx for idx, (s, _) in non_blank.items() if s in repeats}
 
     # 2. Universal Structural document scaffolding patterns (headers, metadata, sections, dates, footers)
     structural_patterns = [
+        # Document Title & Headers (supports Markdown '#', '##', '###', etc.)
+        r"^\s*#{1,6}\s+.*",
         r"^\s*standard operating procedure",
         r"^\s*(?:document\s+)?owner",
         r"^\s*platform",
@@ -116,8 +118,8 @@ def compute_source_line_coverage(
         r"^\s*review\s+cycle",
         r"^\s*\.?\s*table of contents",
         r"^\s*(?:document\s+control|revision\s+history|change\s+log|document\s+history)",
-        r"^\s*\d+[\.\)]\s*(?:purpose|scope|procedure|notes|prerequisites|preconditions|verification|overview|requirements|objective|detailed procedure|escalation|document control)",
-        r"^\s*(?:objective|purpose|scope|prerequisites|preconditions|escalation criteria|document control|detailed procedure):?$",
+        r"^\s*(?:#{1,6}\s+)?\d+[\.\)]\s*(?:purpose|scope|procedure|notes|prerequisites|preconditions|verification|overview|requirements|objective|detailed procedure|escalation|expected outcome|document control)",
+        r"^\s*(?:#{1,6}\s+)?(?:objective|purpose|scope|prerequisites|preconditions|escalation criteria|document control|detailed procedure|expected outcome):?$",
         r"^\s*(?:sop\s+id|support\s+level|primary\s+remediation\s+path|document\s+version|status|classification|attribute|value):?$",
         r"^\s*(?:process\s+flow\s+overview|decision\s+flow):?$",
         r"^\s*(?:step\s+\d+|expected\s+result|resolution\s+notes|action\s+taken|root\s+cause|issue|status)\b",
@@ -125,6 +127,12 @@ def compute_source_line_coverage(
         r"^\s*page\s+\d+(?:\s+of\s+\d+)?",
         r"^\s*\d{1,2}-[a-z]{3}-\d{4}",
         r"^\s*(?:annual|quarterly|monthly|bi-annual)$",
+        # Markdown Formatting Scaffolding
+        r"^\s*```[a-zA-Z0-9_-]*\s*$",                     # Code block fence (```bash, ```)
+        r"^\s*\|\s*[:\s-]+(?:\|\s*[:\s-]+\s*)+\|\s*$",   # Table separator row (| :--- | :--- |)
+        r"^\s*\|\s*(?:document\s+id|department|version|effective\s+date|status|owner|platform)\b", # Metadata table row
+        r"^\s*file:///[A-Za-z]:/.*\d+/\d+\s*$",          # Browser print footer (file:///C:/... 1/2)
+        r"^\s*>\s*\**warning:?\**",                       # Markdown callout warning prefix
     ]
     structural_re = re.compile("|".join(f"(?:{p})" for p in structural_patterns), re.IGNORECASE)
 
