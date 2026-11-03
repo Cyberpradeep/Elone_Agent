@@ -82,6 +82,8 @@ export const api = {
       ...(uploadedBy ? { uploaded_by: uploadedBy } : {}),
     },
   }),
+  /** Ask a running ingestion to stop. It ends at its next checkpoint; nothing is saved. */
+  cancelIngest: (filename, actor) => request('/api/uploads/ingest/cancel', { method: 'POST', json: { filename, actor } }),
   runScan: () => request('/api/uploads/scan', { method: 'POST' }),
   planPreview: filename => request('/api/plan-preview', { method: 'POST', json: { filename } }),
 

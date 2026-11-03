@@ -17,6 +17,7 @@ from langchain_core.messages import HumanMessage
 from config.llm_config import get_llm
 from config.settings import get_max_images_per_sop
 from utils.security import validate_and_sanitize_image_bytes
+from utils.cancellation import check_cancelled
 # pyrefly: ignore [missing-import]
 from prompts.vlm_prompts import VLM_SUPPORT_PROMPT
 
@@ -171,6 +172,7 @@ def analyze_image_bytes(image_bytes: bytes, mime_type: str) -> str:
     last_error: Optional[Exception] = None
     img_tok = estimate_image_tokens(image_bytes)
     for attempt in range(1, max_retries + 1):
+        check_cancelled()
         try:
             res = llm.invoke([message])
             in_tok = 0

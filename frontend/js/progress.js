@@ -9,7 +9,7 @@
  */
 
 import { api } from './api.js';
-import { esc, icon, fmt, openModal } from './ui.js';
+import { esc, icon, fmt, openModal, registerActions, toast } from './ui.js';
 
 const STAGES = [
   { id: 'read', label: 'Validate & read the document', hint: 'File checks and text extraction', states: ['received', 'extracting'] },
@@ -41,9 +41,13 @@ const CALL_LABELS = {
 const secs = ms => (ms < 10000 ? `${(ms / 1000).toFixed(1)} s` : ms < 60000 ? `${Math.round(ms / 1000)} s` : `${Math.floor(ms / 60000)}m ${String(Math.round((ms % 60000) / 1000)).padStart(2, '0')}s`);
 
 /** Pure renderer — everything the dialog shows, from plain data. */
-export function progressHtml({ file, job, calls, lastActiveIndex = 0, startedAt = Date.now() }) {
+export function progressHtml({ file, job, calls, lastActiveIndex = 0, startedAt = Date.now(), stopping = false }) {
   const state = job?.current_state || null;
-  const { index, halted } = locate(state);
+  const loc = locate(state);
+  const index = loc.index;
+  const lastReason = job?.history?.[job.history.length - 1]?.reason || '';
+  // A job the user stopped ends as "failed" with a reason starting "Cancelled".
+  const halted = state === 'failed' && /^Cancelled/.test(lastReason) ? 'Stopped by you' : loc.halted;
   const active = index === -1 ? lastActiveIndex : index;
   const stoppedAt = halted ? active : -1;
 
@@ -84,20 +88,20 @@ export function progressHtml({ file, job, calls, lastActiveIndex = 0, startedAt 
         }).join('')}
       </ul>` : '';
     const working = i === 2 && status === 'active'
-      ? `<div class="ip-working tiny muted">${calls.length ? 'Waiting on the next model call…' : 'Waiting for the first model call…'}</div>` : '';
+      ? `<div class="ip-working tiny muted">${stopping ? 'Letting the call in progress finish; its result will be discarded…' : calls.length ? 'Waiting on the next model call…' : 'Waiting for the first model call…'}</div>` : '';
 
     return `
       <li class="ip-stage ip-${status}">
         <span class="ip-mark" aria-hidden="true">${status === 'done' ? icon('check') : status === 'failed' ? icon('x') : status === 'active' ? '<span class="spinner"></span>' : '<span class="ip-dot"></span>'}</span>
         <div class="ip-body">
           <div class="ip-title"><span>${esc(s.label)}</span><span class="ip-time tiny mono">${timing}</span></div>
-          <div class="ip-hint tiny muted">${stoppedHere ? esc(halted) : esc(s.hint)}</div>
+          <div class="ip-hint tiny muted">${stoppedHere ? esc(halted) : (stopping && status === 'active') ? 'Stopping — no further model calls will be made' : esc(s.hint)}</div>
           ${callHtml}${working}
         </div>
       </li>`;
   }).join('');
 
-  const current = halted ? halted : index >= STAGES.length ? 'Finishing up…' : STAGES[Math.max(0, active)].label;
+  const current = halted ? halted : stopping ? 'Stopping… waiting for the step in progress to finish' : index >= STAGES.length ? 'Finishing up…' : STAGES[Math.max(0, active)].label;
   return `
     <div class="stack">
       <div class="row-between">
@@ -109,11 +113,45 @@ export function progressHtml({ file, job, calls, lastActiveIndex = 0, startedAt 
     </div>`;
 }
 
+
+// ---------------------------------------------------------------------------
+// Stop button
+// ---------------------------------------------------------------------------
+
+const FOOTER = {
+  run: `<span class="tiny muted" style="margin-right:auto">You can stop this at any time.</span>
+        <button class="btn btn-danger-ghost" data-action="ingest-stop">${icon('x')}Stop processing</button>`,
+  confirm: `<span class="small" style="margin-right:auto"><b>Stop this ingestion?</b> Nothing will be saved.</span>
+            <button class="btn btn-outline" data-action="ingest-stop-no">Keep going</button>
+            <button class="btn btn-danger" data-action="ingest-stop-yes">Yes, stop</button>`,
+  stopping: `<span class="small muted" style="margin-right:auto"><span class="spinner" style="vertical-align:-3px"></span> Stopping… the step in progress can't be interrupted, but nothing further will run and nothing will be saved.</span>`,
+};
+
+let active = null;      // the ingestion this dialog is showing: { file, actor, requestStop }
+const setFooter = html => { const f = document.getElementById('modal-footer'); if (f) f.innerHTML = html; };
+
+registerActions({
+  'ingest-stop': () => setFooter(FOOTER.confirm),          // first click only asks "are you sure?"
+  'ingest-stop-no': () => setFooter(FOOTER.run),
+  'ingest-stop-yes': async () => {
+    if (!active) return;
+    setFooter(FOOTER.stopping);
+    active.requestStop();
+    try {
+      const r = await api.cancelIngest(active.file, active.actor);
+      if (r.status === 'not_running') toast('It had already finished.', 'info');
+    } catch (err) {
+      setFooter(FOOTER.run);
+      toast(`Couldn't send the stop request: ${err.message}`, 'error', 6000);
+    }
+  },
+});
+
 /**
  * Open the progress dialog and start watching. Call `finish()` when the ingest request settles.
  * @returns {{stop: () => void, finish: (pauseMs?: number) => Promise<void>}}
  */
-export function trackIngest(file) {
+export function trackIngest(file, { actor = '' } = {}) {
   const startedAt = Date.now();
   let job = null;
   let calls = [];
@@ -121,6 +159,7 @@ export function trackIngest(file) {
   let before = new Map();
   let callBase = 0;
   let stopped = false;
+  let stopping = false;
   let lastHtml = '';
 
   const body = () => document.getElementById('modal-body');
@@ -129,7 +168,7 @@ export function trackIngest(file) {
     if (!el || !el.querySelector('#ip-stages')) return;            // the dialog was closed or replaced
     const { index } = locate(job?.current_state);
     if (index >= 0) lastActive = Math.min(index, STAGES.length - 1);
-    const html = progressHtml({ file, job, calls, lastActiveIndex: lastActive, startedAt });
+    const html = progressHtml({ file, job, calls, lastActiveIndex: lastActive, startedAt, stopping });
     if (html !== lastHtml) { el.innerHTML = html; lastHtml = html; tick(); }   // re-fill the clocks the template reset
   };
   const tick = () => {
@@ -138,7 +177,8 @@ export function trackIngest(file) {
     document.querySelectorAll('[data-run-since]').forEach(n => { n.textContent = secs(Math.max(0, now - Number(n.dataset.runSince))); });
   };
 
-  openModal({ title: 'Ingesting…', size: 'md', body: progressHtml({ file, job: null, calls: [], startedAt }) });
+  openModal({ title: 'Ingesting…', size: 'md', body: progressHtml({ file, job: null, calls: [], startedAt }), footer: FOOTER.run });
+  active = { file, actor, requestStop() { stopping = true; paint(); } };
   lastHtml = body().innerHTML;
   tick();
 
@@ -170,7 +210,7 @@ export function trackIngest(file) {
     stop.timers = [pollTimer, tickTimer];
   })();
 
-  function stop() { stopped = true; (stop.timers || []).forEach(clearInterval); }
+  function stop() { stopped = true; if (active && active.file === file) active = null; (stop.timers || []).forEach(clearInterval); }
 
   /** Take one last snapshot, show it for a moment, then stop watching. */
   async function finish(pause = 700) {

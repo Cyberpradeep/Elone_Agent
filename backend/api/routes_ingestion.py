@@ -5,8 +5,10 @@ Handles document uploads, Gate 1 validation, staging intake, and JIT plan previe
 """
 
 import os
+import asyncio
 import hashlib
 import datetime
+import threading
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse
 from starlette.routing import Route
@@ -18,6 +20,7 @@ from api.context import (
     read_manifest,
 )
 from utils.security import sanitize_filename, redact_sensitive_dlp
+from utils.cancellation import IngestionCancelled, bind_cancel, reset_cancel
 from config.settings import get_max_file_size_bytes, get_max_file_size_mb
 from agents.a1_ingestion import (
     validate_sop_file,
@@ -113,6 +116,84 @@ async def api_upload_file(request):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+# ---------------------------------------------------------------------------
+# Cancellation. An ingestion runs its slow LLM work in a worker thread, which cannot be killed
+# mid-call. "Stop" therefore (1) sets a flag the pipeline checks before every LLM call and
+# (2) lets this request return immediately; the thread stops at its next checkpoint and its
+# result is discarded. Everything that is saved happens in this request, after the thread.
+# ---------------------------------------------------------------------------
+
+class _IngestControl:
+    def __init__(self, actor: str):
+        self.event = threading.Event()
+        self.actor = actor
+
+
+_INGESTS: dict = {}          # safe filename -> _IngestControl, for ingestions currently running
+
+
+def _begin_ingest(name: str, actor: str):
+    if name in _INGESTS:
+        return None
+    ctl = _INGESTS[name] = _IngestControl(actor)
+    return ctl
+
+
+def _end_ingest(name: str, ctl) -> None:
+    if _INGESTS.get(name) is ctl:
+        del _INGESTS[name]
+
+
+async def _wait_for(event: threading.Event) -> None:
+    while not event.is_set():
+        await asyncio.sleep(0.2)
+
+
+def _swallow(task) -> None:
+    """Ignore the outcome of a worker thread whose result nobody is waiting for any more."""
+    if not task.cancelled():
+        task.exception()
+
+
+async def _run_cancellable(ctl, fn, *args, **kwargs):
+    """Run blocking `fn` in a worker thread; give control back at once if the user cancels."""
+    if ctl.event.is_set():
+        raise IngestionCancelled()
+
+    def call():
+        token = bind_cancel(ctl.event)       # lets the pipeline's check_cancelled() see this flag
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            reset_cancel(token)
+
+    work = asyncio.ensure_future(run_in_threadpool(call))
+    watcher = asyncio.ensure_future(_wait_for(ctl.event))
+    done, _ = await asyncio.wait({work, watcher}, return_when=asyncio.FIRST_COMPLETED)
+    if work in done:
+        watcher.cancel()
+        return work.result()                 # re-raises the worker's own error, if any
+    work.add_done_callback(_swallow)         # cancelled: the thread winds down in the background
+    raise IngestionCancelled()
+
+
+async def api_cancel_ingest(request):
+    """Ask a running ingestion to stop. Body: {"filename": "...", "actor": "<who>"}."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    name = sanitize_filename(os.path.basename(str(body.get("filename", "")).strip()))
+    ctl = _INGESTS.get(name)
+    if not ctl:
+        return JSONResponse({"status": "not_running", "filename": name})
+    actor = str(body.get("actor", "")).strip()
+    if actor:
+        ctl.actor = actor
+    ctl.event.set()
+    return JSONResponse({"status": "cancelling", "filename": name})
+
+
 async def api_ingest_single(request):
     """Trigger complete 14-state lifecycle processing for a single uploaded document.
     Enforces secret scanning and human-in-the-loop review gate (halts before saving to sops/).
@@ -143,6 +224,12 @@ async def api_ingest_single(request):
             "metadata": meta
         }, status_code=400)
 
+    ctl = _begin_ingest(safe_name, body.get("uploaded_by", "analyst@example.com"))
+    if ctl is None:
+        return JSONResponse({"success": False, "status": "already_running",
+                             "error": f"'{safe_name}' is already being processed."}, status_code=409)
+    job = None
+    job_id = None
     try:
         auto_approve = body.get("auto_approve", False)
         override_sop_id = body.get("sop_id")
@@ -156,7 +243,7 @@ async def api_ingest_single(request):
         sop_id = override_sop_id or f"SOP-{content_hash[:6].upper()}"
 
         # Returns (parser_type, segments); the document text is the joined text segments.
-        parser_type, segments = await run_in_threadpool(extract_ordered_sop_content, target_path)
+        parser_type, segments = await _run_cancellable(ctl, extract_ordered_sop_content, target_path)
         raw_text = "\n\n".join(s["content"] for s in segments if s.get("type") == "text")
 
         # Secret Scanning Gate (Section 10)
@@ -203,7 +290,7 @@ async def api_ingest_single(request):
 
         # The LLM stage takes tens of seconds. Run it in a worker thread so the server keeps answering
         # other requests (the dashboard polls /api/governance/jobs for live progress meanwhile).
-        draft = await run_in_threadpool(jit_converter.plan_okf_from_raw, target_path, override_sop_id=override_sop_id)
+        draft = await _run_cancellable(ctl, jit_converter.plan_okf_from_raw, target_path, override_sop_id=override_sop_id)
 
         if draft.get("is_executable") is False or draft.get("frontmatter", {}).get("is_executable") is False:
             unexec_reason = draft.get("unexecutable_reason") or draft.get("frontmatter", {}).get("unexecutable_reason") or "SOP is not actionable as an automated procedure."
@@ -217,7 +304,8 @@ async def api_ingest_single(request):
 
         governance_ledger.transition_state(job_id, "assessing")
 
-        canonical_draft = await run_in_threadpool(
+        canonical_draft = await _run_cancellable(
+            ctl,
             build_canonical_sop_from_draft,
             draft,
             raw_text=raw_text,
@@ -226,6 +314,9 @@ async def api_ingest_single(request):
         )
         conf_score = canonical_draft.get("classification", {}).get("score", 25)
         conf_level = canonical_draft.get("classification", {}).get("level", "L1")
+
+        if ctl.event.is_set():          # cancelled while the last step was finishing
+            raise IngestionCancelled()
 
         # Human-in-the-Loop review gate (A5 Coordinator) — HALT HERE BEFORE COMMITTING TO DISK!
         task = governance_ledger.create_review_task(
@@ -260,12 +351,27 @@ async def api_ingest_single(request):
             "canonical_draft": canonical_draft,
             "message": "SOP successfully structured and assessed. Human review required before saving to knowledge base."
         })
+    except IngestionCancelled:
+        # Nothing has been written yet (the draft and review task are created last), so only the job needs closing.
+        if job is not None and job.current_state != "duplicate":
+            try:
+                governance_ledger.transition_state(job_id, "failed", actor=ctl.actor, reason=f"Cancelled by {ctl.actor}")
+            except Exception:
+                pass
+        return JSONResponse({
+            "success": False,
+            "status": "cancelled",
+            "job_id": job.job_id if job is not None else None,
+            "message": "Processing was stopped. Nothing was saved and no review task was created.",
+        }, status_code=200)
     except Exception as e:
         return JSONResponse({
             "success": False,
             "status": "INGESTION_ERROR",
             "error": str(e)
         }, status_code=500)
+    finally:
+        _end_ingest(safe_name, ctl)
 
 
 async def api_run_scan_cycle(request):
@@ -311,6 +417,7 @@ ingestion_routes = [
     Route("/api/uploads", api_list_uploads, methods=["GET"]),
     Route("/api/uploads/upload", api_upload_file, methods=["POST"]),
     Route("/api/uploads/ingest", api_ingest_single, methods=["POST"]),
+    Route("/api/uploads/ingest/cancel", api_cancel_ingest, methods=["POST"]),
     Route("/api/uploads/scan", api_run_scan_cycle, methods=["POST"]),
     Route("/api/plan-preview", api_plan_preview, methods=["POST"]),
 ]

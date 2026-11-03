@@ -13,6 +13,7 @@ import ast
 import datetime
 from typing import Tuple, Dict, Any, Optional
 from langchain_core.messages import HumanMessage, ToolMessage
+from utils.cancellation import check_cancelled
 
 # pyrefly: ignore [missing-import]
 from config.llm_config import get_llm
@@ -235,6 +236,7 @@ def plan_okf_from_raw(raw_filepath: str, override_sop_id: Optional[str] = None, 
                 if "Quota" in type(q_err).__name__ or "DailyQuotaExceededError" in str(type(q_err)):
                     raise q_err
 
+            check_cancelled()
             res = llm_with_tools.invoke(messages)
             messages.append(res)
 

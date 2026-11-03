@@ -12337,18 +12337,18 @@
   },
   "2026-11-03": {
     "date": "2026-11-03",
-    "total_calls": 8,
+    "total_calls": 9,
     "max_daily_calls": "unlimited",
     "calls_remaining": "unlimited",
     "gemini_calls": 0,
     "nvidia_vision_calls": 0,
-    "mistral_calls": 8,
-    "total_input_tokens": 26743,
-    "total_output_tokens": 5209,
+    "mistral_calls": 9,
+    "total_input_tokens": 29786,
+    "total_output_tokens": 6140,
     "total_image_tokens": 0,
-    "total_tokens": 31952,
-    "total_cost_usd": 0.08474,
-    "total_cost_inr": 7.3725,
+    "total_tokens": 35926,
+    "total_cost_usd": 0.096412,
+    "total_cost_inr": 8.388,
     "call_history": [
       {
         "timestamp": "2026-11-03 10:54:38",
@@ -12445,6 +12445,18 @@
         "image_tokens": 0,
         "cost_usd": 0.009626,
         "cost_inr": 0.8375
+      },
+      {
+        "timestamp": "2026-11-03 12:45:00",
+        "caller": "execution_planning",
+        "provider": "mistral",
+        "model": "mistral-large-latest",
+        "sop_id": "SOP-KILL-HANG-APPLIC",
+        "input_tokens": 3043,
+        "output_tokens": 931,
+        "image_tokens": 0,
+        "cost_usd": 0.011672,
+        "cost_inr": 1.0155
       }
     ]
   }

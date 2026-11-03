@@ -16,6 +16,7 @@ from langchain_core.messages import HumanMessage
 from config.llm_config import get_llm
 from agents.a1_ingestion.intake_validator import validate_sop_file, SOPInputValidationError
 from utils.security import clean_unicode_and_zero_width, redact_sensitive_dlp
+from utils.cancellation import check_cancelled
 try:
     from utils.pipeline_logger import log_info, log_warning, log_error
 except ImportError:
@@ -153,6 +154,7 @@ def _run_vision_ocr(doc, filepath: str) -> str:
         full_ocr = []
 
         for idx, page in enumerate(doc):
+            check_cancelled()
             pix = page.get_pixmap(dpi=150)
             img_bytes = pix.tobytes("png")
             b64_img = base64.b64encode(img_bytes).decode("utf-8")

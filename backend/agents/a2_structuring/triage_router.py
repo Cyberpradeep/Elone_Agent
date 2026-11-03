@@ -11,6 +11,7 @@ import re
 import json
 from typing import Dict, Any, Optional
 from langchain_core.messages import HumanMessage, ToolMessage
+from utils.cancellation import check_cancelled
 
 # pyrefly: ignore [missing-import]
 from config.llm_config import get_llm
@@ -70,6 +71,7 @@ def run_triage_router(
 
     if not enable_tool_inspection:
         # Fast path for command-based SOPs: 1 single direct LLM evaluation without tool loop latency
+        check_cancelled()
         res = llm.invoke(messages)
         in_tok = getattr(res, "usage_metadata", {}).get("input_tokens", 0) if hasattr(res, "usage_metadata") and res.usage_metadata else 0
         out_tok = getattr(res, "usage_metadata", {}).get("output_tokens", 0) if hasattr(res, "usage_metadata") and res.usage_metadata else 0
@@ -106,6 +108,7 @@ def run_triage_router(
                 if "Quota" in type(q_err).__name__ or "DailyQuotaExceededError" in str(type(q_err)):
                     raise q_err
 
+            check_cancelled()
             res = llm_with_tools.invoke(messages)
 
             in_tok = 0
@@ -152,6 +155,7 @@ def run_triage_router(
 
         if not content.strip():
             try:
+                check_cancelled()
                 final_res = llm.invoke(messages + [HumanMessage(content="Tool inspection complete. Output the final triage JSON now.")])
                 raw_c = final_res.content if hasattr(final_res, "content") else str(final_res)
                 if isinstance(raw_c, list):
