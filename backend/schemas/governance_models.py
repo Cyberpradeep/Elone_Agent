@@ -71,7 +71,7 @@ ALLOWED_TRANSITIONS: Dict[str, Set[str]] = {
     STATE_STRUCTURING: {STATE_ASSESSING, STATE_FAILED, STATE_BLOCKED},
     STATE_ASSESSING: {STATE_CORRECTING, STATE_AWAITING_REVIEW, STATE_FAILED, STATE_BLOCKED},
     STATE_CORRECTING: {STATE_ASSESSING, STATE_FAILED, STATE_BLOCKED},
-    STATE_AWAITING_REVIEW: {STATE_APPROVED, STATE_CHANGES_REQUESTED, STATE_AWAITING_REVIEW, STATE_STRUCTURING},
+    STATE_AWAITING_REVIEW: {STATE_APPROVED, STATE_CHANGES_REQUESTED, STATE_REJECTED, STATE_AWAITING_REVIEW, STATE_STRUCTURING},
     STATE_CHANGES_REQUESTED: {STATE_STRUCTURING, STATE_AWAITING_REVIEW},
     STATE_APPROVED: {STATE_PUBLISHED, STATE_AWAITING_REVIEW},
     STATE_PUBLISHED: {STATE_DEACTIVATED, STATE_ARCHIVED, STATE_SOFT_DELETED},
@@ -103,7 +103,8 @@ class IllegalTransitionError(GovernanceError):
     """Raised when an invalid state transition is attempted."""
     def __init__(self, current_state: str, attempted_state: str):
         allowed = sorted(list(ALLOWED_TRANSITIONS.get(current_state, set())))
-        msg = f"Illegal transition from '{current_state}' to '{attempted_state}'. Allowed next states: {allowed}"
+        msg = (f"Not allowed: this SOP cannot move from '{current_state}' to '{attempted_state}' right now. "
+               f"From '{current_state}' it can only move to: {', '.join(allowed) if allowed else 'nothing (final state)'}.")
         super().__init__(msg, error_code="illegal_transition")
         self.current_state = current_state
         self.attempted_state = attempted_state

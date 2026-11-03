@@ -7,6 +7,7 @@ Handles document uploads, Gate 1 validation, staging intake, and JIT plan previe
 import os
 import hashlib
 import datetime
+from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
@@ -154,7 +155,9 @@ async def api_ingest_single(request):
         job_id = f"job_{content_hash[:10]}"
         sop_id = override_sop_id or f"SOP-{content_hash[:6].upper()}"
 
-        raw_text, parse_meta = extract_ordered_sop_content(target_path)
+        # Returns (parser_type, segments); the document text is the joined text segments.
+        parser_type, segments = await run_in_threadpool(extract_ordered_sop_content, target_path)
+        raw_text = "\n\n".join(s["content"] for s in segments if s.get("type") == "text")
 
         # Secret Scanning Gate (Section 10)
         _, dlp_stats = redact_sensitive_dlp(raw_text)
@@ -198,7 +201,9 @@ async def api_ingest_single(request):
 
         governance_ledger.transition_state(job_id, "structuring")
 
-        draft = jit_converter.plan_okf_from_raw(target_path, override_sop_id=override_sop_id)
+        # The LLM stage takes tens of seconds. Run it in a worker thread so the server keeps answering
+        # other requests (the dashboard polls /api/governance/jobs for live progress meanwhile).
+        draft = await run_in_threadpool(jit_converter.plan_okf_from_raw, target_path, override_sop_id=override_sop_id)
 
         if draft.get("is_executable") is False or draft.get("frontmatter", {}).get("is_executable") is False:
             unexec_reason = draft.get("unexecutable_reason") or draft.get("frontmatter", {}).get("unexecutable_reason") or "SOP is not actionable as an automated procedure."
@@ -212,7 +217,8 @@ async def api_ingest_single(request):
 
         governance_ledger.transition_state(job_id, "assessing")
 
-        canonical_draft = build_canonical_sop_from_draft(
+        canonical_draft = await run_in_threadpool(
+            build_canonical_sop_from_draft,
             draft,
             raw_text=raw_text,
             tenant_id=tenant_id,
@@ -291,7 +297,7 @@ async def api_plan_preview(request):
         return JSONResponse({"error": f"File '{safe_name}' not found"}, status_code=404)
 
     try:
-        draft = jit_converter.plan_okf_from_raw(target_path)
+        draft = await run_in_threadpool(jit_converter.plan_okf_from_raw, target_path)
         return JSONResponse({
             "success": True,
             "draft": draft,

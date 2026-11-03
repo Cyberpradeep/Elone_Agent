@@ -1,70 +1,132 @@
 /**
- * Elone Agent — Audit Logs & Reasoning Traces View
+ * Audit — browse the pipeline's debug/reasoning logs. Plain text from the API,
+ * rendered escaped with line numbers, severity colouring, in-log search and download.
  */
 
-export function renderAudit(data, state) {
-  const logs = data.logs || [];
-  const selectedLog = state.selectedLog || (logs[0] ? logs[0].filename : null);
-  const logContent = state.activeLogContent || '';
+import { api } from '../api.js';
+import { esc, icon, fmt, toast, copyText, downloadText, registerActions, emptyState, debounce } from '../ui.js';
 
-  return `
-    <div class="audit-view">
-      <div class="panel">
-        <div class="panel-header">
-          <div>
-            <div class="panel-title">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-              Execution Traces & CoT Audit Logs
-            </div>
-            <div class="panel-subtitle">
-              Inspect comprehensive internal reasoning traces, dual-layer validation passes, and security checks from <code style="color: #a5b4fc;">knowledge_base/logs/debug/</code>.
-            </div>
-          </div>
-          <span class="badge-tag">${logs.length} Debug Logs Available</span>
-        </div>
+const MAX_LINES = 3000;
+let selected = null;
+let content = '';
+let listFilter = '';
+let logQuery = '';
+let onlyMatches = false;
+let wrap = false;
 
-        <div style="display: grid; grid-template-columns: 320px 1fr; gap: 20px;">
-          <!-- Left: Logs List -->
-          <div>
-            <label style="display: block; font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px;">
-              Select Execution Log File:
-            </label>
-            <div style="background: var(--bg-secondary); border: 1px solid var(--card-border); border-radius: var(--radius-md); max-height: 520px; overflow-y: auto; padding: 6px;">
-              ${logs.length === 0 ? `
-                <div style="padding: 16px; text-align: center; color: var(--text-muted); font-size: 12px;">No logs found.</div>
-              ` : logs.map(l => `
-                <div 
-                  class="log-item ${l.filename === selectedLog ? 'active' : ''}" 
-                  onclick="window.loadLogFile('${l.filename}')"
-                  style="padding: 10px 12px; border-radius: var(--radius-sm); cursor: pointer; margin-bottom: 4px; transition: var(--transition); background: ${l.filename === selectedLog ? 'rgba(99, 102, 241, 0.15)' : 'transparent'}; border: 1px solid ${l.filename === selectedLog ? 'rgba(99, 102, 241, 0.3)' : 'transparent'};"
-                >
-                  <div style="font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: ${l.filename === selectedLog ? '#a5b4fc' : 'var(--text-primary)'}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                    ${l.filename}
-                  </div>
-                  <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); margin-top: 4px;">
-                    <span>${l.size_kb} KB</span>
-                    <span>${l.modified_at ? l.modified_at.split('T')[0] : ''}</span>
-                  </div>
-                </div>
-              `).join('')}
-            </div>
-          </div>
-
-          <!-- Right: Log Content Viewer -->
-          <div>
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-              <span style="font-size: 12px; font-weight: 600; color: var(--text-secondary); font-family: var(--font-mono);">
-                ${selectedLog || 'No log selected'}
-              </span>
-              <button class="btn btn-sm btn-outline" onclick="window.copyActiveLog()">Copy Raw Log</button>
-            </div>
-
-            <div style="background: #07090e; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: var(--radius-md); padding: 16px; height: 490px; overflow-y: auto; font-family: var(--font-mono); font-size: 11px; line-height: 1.6; color: #cbd5e1; white-space: pre-wrap;">
-              ${logContent || '<div style="color: var(--text-muted); text-align: center; padding-top: 150px;">Select a log file on the left to inspect full reasoning trace.</div>'}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
+function severity(line) {
+  if (/\b(error|exception|traceback|fatal|failed|violation)\b/i.test(line)) return 'err';
+  if (/\b(warn(ing)?|retry|quota|blocked)\b/i.test(line)) return 'warn';
+  if (/\b(success|passed|authentic|verified)\b/i.test(line)) return 'ok';
+  return '';
 }
+
+function highlight(line, q) {
+  const safe = esc(line);
+  if (!q) return safe;
+  const re = new RegExp(esc(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+  return safe.replace(re, m => `<mark>${m}</mark>`);
+}
+
+function viewerHtml() {
+  if (!selected) return emptyState({ icon: 'file', title: 'Select a log', text: 'Pick a file on the left to read its reasoning trace.' });
+  const lines = content.split(/\r?\n/);
+  const q = logQuery.trim();
+  const indexed = lines.map((text, i) => ({ text, no: i + 1 }));
+  const visible = (q && onlyMatches ? indexed.filter(l => l.text.toLowerCase().includes(q.toLowerCase())) : indexed);
+  const shown = visible.slice(0, MAX_LINES);
+  const hits = q ? indexed.filter(l => l.text.toLowerCase().includes(q.toLowerCase())).length : 0;
+  return `
+    ${q ? `<div class="tiny muted" style="padding:0 14px 6px">${hits} matching line${hits === 1 ? '' : 's'}</div>` : ''}
+    ${shown.map(l => `<div class="log-line ${severity(l.text)}"><span class="ll-no">${l.no}</span><span class="ll-text">${highlight(l.text, q) || '&nbsp;'}</span></div>`).join('')}
+    ${visible.length > shown.length ? `<div class="tiny muted" style="padding:10px 14px">Showing the first ${MAX_LINES} of ${fmt.num(visible.length)} lines — download the file to read the rest.</div>` : ''}`;
+}
+
+function listHtml(logs) {
+  const f = listFilter.toLowerCase();
+  const rows = logs.filter(l => !f || l.filename.toLowerCase().includes(f));
+  if (!rows.length) return '<div class="tiny muted" style="padding:16px;text-align:center">No logs match.</div>';
+  return rows.map(l => `
+    <button class="log-item ${l.filename === selected ? 'active' : ''}" data-action="open-log" data-file="${esc(l.filename)}">
+      <div class="li-name">${esc(l.filename)}</div>
+      <div class="li-meta"><span>${fmt.bytes(l.size_bytes)}</span><span>${fmt.rel(l.modified)}</span></div>
+    </button>`).join('');
+}
+
+async function fetchLog(name) {
+  selected = name;
+  content = await api.getLog(name);
+}
+
+registerActions({
+  'open-log': async el => {
+    try { await fetchLog(el.dataset.file); } catch (e) { toast(`Couldn't read log: ${e.message}`, 'error'); return; }
+    document.querySelectorAll('.log-item').forEach(b => b.classList.toggle('active', b === el));
+    document.getElementById('log-name').textContent = selected;
+    const v = document.getElementById('log-view'); v.innerHTML = viewerHtml(); v.scrollTop = 0;
+  },
+  'log-copy': () => copyText(content, 'Log copied'),
+  'log-download': () => downloadText(selected || 'log.txt', content),
+  'log-end': () => { const v = document.getElementById('log-view'); v.scrollTop = v.scrollHeight; },
+});
+
+export default {
+  id: 'audit',
+  label: 'Audit logs',
+  icon: 'file',
+  title: 'Audit logs & traces',
+  subtitle: 'Reasoning traces and validation records written during ingestion.',
+
+  async load() {
+    const data = await api.listLogs();
+    const logs = data.logs || [];
+    if (!logs.some(l => l.filename === selected)) { selected = logs[0]?.filename || null; content = ''; }
+    if (selected && !content) { try { content = await api.getLog(selected); } catch { content = ''; } }
+    return data;
+  },
+
+  render(data) {
+    const logs = data.logs || [];
+    if (!logs.length) {
+      return `<div class="panel">${emptyState({ icon: 'file', title: 'No debug logs yet', text: 'Logs are written to knowledge_base/logs/debug as documents are processed.' })}</div>`;
+    }
+    return `
+      <div class="panel">
+        <div class="log-layout">
+          <div class="stack-sm">
+            <div class="search-wrapper">${icon('search')}<input id="log-filter" type="search" class="search-input" style="width:100%" placeholder="Filter ${logs.length} logs…" value="${esc(listFilter)}" aria-label="Filter log files"></div>
+            <div class="log-list" id="log-list">${listHtml(logs)}</div>
+          </div>
+          <div class="stack-sm" style="min-width:0">
+            <div class="row-between">
+              <span class="mono strong small truncate" id="log-name">${esc(selected || '')}</span>
+              <div class="row">
+                <div class="search-wrapper">${icon('search')}<input id="log-search" type="search" class="search-input" style="width:190px" placeholder="Search in log…" value="${esc(logQuery)}" aria-label="Search within the log"></div>
+                <label class="row small secondary" style="gap:6px;cursor:pointer"><span class="switch"><input type="checkbox" id="log-only" ${onlyMatches ? 'checked' : ''}><span></span></span>Only matches</label>
+                <label class="row small secondary" style="gap:6px;cursor:pointer"><span class="switch"><input type="checkbox" id="log-wrap" ${wrap ? 'checked' : ''}><span></span></span>Wrap</label>
+                <button class="btn btn-sm btn-outline" data-action="log-end">End</button>
+                <button class="btn btn-sm btn-outline" data-action="log-copy">${icon('copy')}Copy</button>
+                <button class="btn btn-sm btn-outline" data-action="log-download">${icon('download')}Download</button>
+              </div>
+            </div>
+            <div class="log-view ${wrap ? 'wrap' : ''}" id="log-view" tabindex="0" aria-label="Log contents">${viewerHtml()}</div>
+          </div>
+        </div>
+      </div>`;
+  },
+
+  mount(root, data, ctx) {
+    const logs = data.logs || [];
+    const opts = { signal: ctx.signal };
+    const view = root.querySelector('#log-view');
+    if (!view) return;
+    const repaint = () => { view.innerHTML = viewerHtml(); };
+
+    root.querySelector('#log-filter').addEventListener('input', debounce(e => {
+      listFilter = e.target.value; root.querySelector('#log-list').innerHTML = listHtml(logs);
+    }, 120), opts);
+    root.querySelector('#log-search').addEventListener('input', debounce(e => { logQuery = e.target.value; repaint(); }, 160), opts);
+    root.querySelector('#log-only').addEventListener('change', e => { onlyMatches = e.target.checked; repaint(); }, opts);
+    root.querySelector('#log-wrap').addEventListener('change', e => { wrap = e.target.checked; view.classList.toggle('wrap', wrap); }, opts);
+  },
+};

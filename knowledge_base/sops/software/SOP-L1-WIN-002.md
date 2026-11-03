@@ -10,7 +10,7 @@ description: Automated workflow to verify if a specific application process is r
 confidence_score: 0.98
 confidence_level: High
 confidence_reason: All steps mapped to deterministic Windows PowerShell commands with
-  exact variable linkage and conditional execution based on process presence.
+  exact variable linkage and conditional execution.
 is_executable: true
 unexecutable_reason: null
 automation_status: fully_automated
@@ -25,8 +25,9 @@ trigger_words:
 - application
 steps:
 - step_number: 1
-  sop_step_description: Verify if the target application process is currently running
-    on the system.
+  sop_step_description: Verify the application process is currently running on the
+    system.
+  source_quote: tasklist | findstr "ApplicationName"
   step_type: command
   platform: null
   function_name: null
@@ -40,7 +41,8 @@ steps:
   timeout_seconds: 30
   shell: powershell
 - step_number: 2
-  sop_step_description: Force-terminate the hung application process.
+  sop_step_description: Forcefully terminate the hung application process.
+  source_quote: taskkill /F /IM ApplicationName.exe
   step_type: command
   platform: null
   function_name: null
@@ -48,33 +50,34 @@ steps:
   command: taskkill /F /IM "{{entities.application}}.exe"
   fallback_command: null
   fallback_sop_id: null
-  parse_instruction: If exit code is 0, set variables.process_terminated = true, else
-    set variables.process_terminated = false
+  parse_instruction: null
   execute_if: variables.process_running == true
   timeout_seconds: 30
   shell: powershell
 source_action_coverage:
-- source_action: Open Command Prompt
+- source_action: Open Command Prompt and run the command below, replacing ApplicationName
+    with the actual process name.
   coverage: manual_ui_omitted
   step_number: null
   tool: null
   condition: null
-  reason: 'GUI setup instruction omitted; execution environment is defined by shell:
-    powershell.'
-- source_action: Verify the application is running using tasklist | findstr
+  reason: GUI setup instruction omitted; command execution is handled by the automation
+    engine.
+- source_action: tasklist | findstr "ApplicationName"
   coverage: command_covered
   step_number: 1
   tool: null
   condition: null
-  reason: Diagnostic check to confirm process existence before termination.
-- source_action: Terminate the application using taskkill /F /IM
+  reason: Diagnostic command to verify process existence.
+- source_action: Once confirmed, force-terminate the process using the command below.
   coverage: command_covered
   step_number: 2
   tool: null
   condition: null
-  reason: Corrective action to force-terminate the hung process.
+  reason: Corrective command to terminate the process, gated on diagnostic result.
+document_metadata: {}
 integrity_version: v2
-integrity_hmac_sha256: 25e78014594c8c8352e5ae49630c1cfc4cc3b35cbeba7d26558eae07aa342b46
+integrity_hmac_sha256: 848db8c9a25d39907be315011ca97a2efc0ced358202dfc2d50a8d29129cc792
 ---
 
 # Check and Terminate a Hung Application – Windows Playbook
@@ -83,5 +86,5 @@ integrity_hmac_sha256: 25e78014594c8c8352e5ae49630c1cfc4cc3b35cbeba7d26558eae07a
 Automated workflow to verify if a specific application process is running and forcibly terminate it if confirmed.
 
 ## Execution Steps
-- **Step 1**: Verify if the target application process is currently running on the system. (`tasklist | findstr "{{entities.application}}"`)
-- **Step 2**: Force-terminate the hung application process. (`taskkill /F /IM "{{entities.application}}.exe"`)
+- **Step 1**: Verify the application process is currently running on the system. (`tasklist | findstr "{{entities.application}}"`)
+- **Step 2**: Forcefully terminate the hung application process. (`taskkill /F /IM "{{entities.application}}.exe"`)

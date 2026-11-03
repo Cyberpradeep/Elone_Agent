@@ -13,14 +13,15 @@
     4
   ],
   "department": {
-    "status": "present",
+    "status": "missing",
     "value": "Software",
     "source_lines": [
-      3
+      3,
+      4
     ]
   },
   "owner": {
-    "status": "present",
+    "status": "missing",
     "value": "author@corp.com",
     "source_lines": [
       3,
@@ -28,7 +29,7 @@
     ]
   },
   "version_label": {
-    "status": "present",
+    "status": "missing",
     "value": "v1.0",
     "source_lines": [
       3,
@@ -36,8 +37,8 @@
     ]
   },
   "review_date": {
-    "status": "present",
-    "value": "2026-10-29",
+    "status": "missing",
+    "value": "2026-11-03",
     "source_lines": [
       3,
       4
@@ -45,8 +46,8 @@
   },
   "source": {
     "filename": "sop-l1-win-002.txt",
-    "sha256": "dc8e7d1835092666e6eba35564ac242645662e523199760997c31de40ed63178",
-    "size": 287,
+    "sha256": "4b45f5a1c978f3e24d207a6633ca9b105e948e1f1f4251395549b500050f430f",
+    "size": 282,
     "detected_type": "text/plain",
     "pages": 1,
     "extracted_lines": 4,
@@ -83,7 +84,7 @@
   "steps": [
     {
       "n": 1,
-      "action": "Verify if the target application process is currently running on the system.",
+      "action": "Verify the application process is currently running on the system.",
       "input": "tasklist | findstr \"{{entities.application}}\"",
       "expected_outcome": "If stdout contains '{{entities.application}}', set variables.process_running = true, else set variables.process_running = false",
       "warning": null,
@@ -91,27 +92,27 @@
       "requires_approval": false,
       "risk": "low",
       "source_lines": [
-        3,
-        4
+        1,
+        1
       ],
-      "quote": "Verify if the target application process is currently running on the system.",
-      "verified": true
+      "quote": "tasklist | findstr \"ApplicationName\"",
+      "verified": false
     },
     {
       "n": 2,
-      "action": "Force-terminate the hung application process.",
+      "action": "Forcefully terminate the hung application process.",
       "input": "taskkill /F /IM \"{{entities.application}}.exe\"",
-      "expected_outcome": "If exit code is 0, set variables.process_terminated = true, else set variables.process_terminated = false",
+      "expected_outcome": null,
       "warning": null,
       "actor": "agent",
       "requires_approval": false,
       "risk": "low",
       "source_lines": [
-        4,
-        4
+        1,
+        1
       ],
-      "quote": "Force-terminate the hung application process.",
-      "verified": true
+      "quote": "taskkill /F /IM ApplicationName.exe",
+      "verified": false
     }
   ],
   "exceptions": [],
@@ -132,22 +133,22 @@
   },
   "quality": {
     "completeness": 100.0,
-    "traceability": 100.0,
+    "traceability": 0.0,
     "schema_valid": true,
     "blocking_issues_count": 0,
-    "quality_score": 100.0,
-    "status": "Ready"
+    "quality_score": 60.0,
+    "status": "Failed checks"
   },
   "transformations": [],
   "lifecycle": {
     "state": "structuring",
     "uploaded_by": "author@corp.com",
-    "created_at": "2026-10-29T09:34:25.418943+00:00",
+    "created_at": "2026-11-03T05:49:13.048113+00:00",
     "approvals": []
   },
   "provenance": {
     "producing_agent": "A2_structuring",
     "provider": "elverve_ai",
-    "generated_at": "2026-10-29T09:34:25.418943+00:00"
+    "generated_at": "2026-11-03T05:49:13.049117+00:00"
   }
 }

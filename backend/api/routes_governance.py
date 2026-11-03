@@ -6,9 +6,12 @@ separation-of-duties decisions, publication gatekeeper, and downstream search.
 """
 
 import os
+import re
+import copy
 import glob
 import json
 import datetime
+from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
@@ -17,6 +20,7 @@ from api.context import (
     retrieval_index,
     SOPS_DIR,
     DRAFTS_DIR,
+    UPLOADS_DIR,
 )
 from schemas.governance_models import (
     SeparationOfDutiesViolation,
@@ -29,15 +33,20 @@ from agents.a6_hub.publisher import (
     evaluate_publication_gates,
     write_okf_playbook,
 )
+from agents.a1_ingestion import extract_ordered_sop_content
 from agents.a2_structuring.canonical_builder import (
+    build_canonical_sop_from_draft,
     sync_canonical_to_playbook,
     write_canonical_sop_json,
+    _locate_quote,
 )
+from agents.a4_verification.quote_tracer import verify_quote_trace
+from agents.a3_security.ast_sandbox import scan_commands_for_ast_threats
 
 
 async def api_governance_jobs(request):
     """Lists all SOP lifecycle jobs and their current state machine status (Section 8)."""
-    jobs = [job.to_dict() for job in governance_ledger._jobs.values()]
+    jobs = [job.to_dict() for job in list(governance_ledger._jobs.values())]
     return JSONResponse({"jobs": jobs, "total": len(jobs)})
 
 
@@ -52,7 +61,7 @@ async def api_governance_job_detail(request):
 async def api_governance_review_tasks(request):
     """Lists all human review tasks (RT-xxxxxx) across jobs (Section 5.5 & 13)."""
     tasks = []
-    for job in governance_ledger._jobs.values():
+    for job in list(governance_ledger._jobs.values()):
         if job.review_task:
             task_dict = dict(job.review_task)
             due_str = task_dict.get("due_date")
@@ -85,7 +94,7 @@ async def api_governance_record_decision(request):
     confirmed_classif = body.get("confirmed_classification", True)
 
     target_job = None
-    for job in governance_ledger._jobs.values():
+    for job in list(governance_ledger._jobs.values()):
         if job.review_task and job.review_task.get("task_id") == task_id:
             target_job = job
             break
@@ -115,7 +124,8 @@ async def api_governance_record_decision(request):
             actor_type=actor_type,
             notes=notes,
             publication_gate_check=gate_check,
-            last_editor=body.get("last_editor"),
+            # Not taken on trust from the client: whoever last edited the draft cannot approve it.
+            last_editor=body.get("last_editor") or _draft_last_editor(target_job.sop_id),
         )
         return JSONResponse({
             "status": "success",
@@ -144,7 +154,7 @@ async def api_governance_publish_sop(request):
         body = {}
 
     target_job = None
-    for job in governance_ledger._jobs.values():
+    for job in list(governance_ledger._jobs.values()):
         if job.sop_id == sop_id:
             target_job = job
             break
@@ -326,7 +336,7 @@ async def api_governance_downstream_stats(request):
 async def api_governance_quarantine_incidents(request):
     """Lists all security quarantine incidents (INC-xxxxxx) (Section 10)."""
     incidents = []
-    for job in governance_ledger._jobs.values():
+    for job in list(governance_ledger._jobs.values()):
         if job.incident:
             incidents.append(job.incident)
     return JSONResponse({"incidents": incidents, "count": len(incidents)})
@@ -354,6 +364,314 @@ async def api_update_config(request):
     })
 
 
+# ---------------------------------------------------------------------------
+# Draft step editing (review page). Edits stay in the draft file; nothing is written to sops/
+# until the SOP is approved and published.
+# ---------------------------------------------------------------------------
+
+_SOP_ID_RE = re.compile(r"[A-Za-z0-9_-]+")
+_MAX = {"sop_step_description": 1000, "command": 4000, "fallback_command": 4000, "source_quote": 1000, "parse_instruction": 1500}
+
+
+def _draft_file(sop_id: str):
+    """Path of a draft file, or None if the id is not a plain SOP id."""
+    if not _SOP_ID_RE.fullmatch(sop_id or ""):
+        return None
+    return os.path.join(DRAFTS_DIR, f"{sop_id}.draft.json")
+
+
+def _read_draft(sop_id: str):
+    path = _draft_file(sop_id)
+    if not path or not os.path.exists(path):
+        return None, None
+    with open(path, "r", encoding="utf-8") as f:
+        return path, json.load(f)
+
+
+def _draft_last_editor(sop_id: str):
+    try:
+        _, data = _read_draft(sop_id)
+        return (data or {}).get("last_editor")
+    except Exception:
+        return None
+
+
+def _job_for_sop(sop_id: str):
+    for job in list(governance_ledger._jobs.values()):
+        if job.sop_id == sop_id:
+            return job
+    return None
+
+
+async def api_governance_get_draft(request):
+    """The editable steps of an unapproved draft, plus whether they can still be edited."""
+    sop_id = request.path_params.get("sop_id", "")
+    path, data = _read_draft(sop_id)
+    if not data:
+        return JSONResponse({"error": f"No draft found for '{sop_id}'."}, status_code=404)
+    job = _job_for_sop(sop_id)
+    state = job.current_state if job else None
+    editable = state == "awaiting_review"
+    fm = (data.get("draft") or {}).get("frontmatter") or data.get("draft") or {}
+    return JSONResponse({
+        "sop_id": sop_id,
+        "job_state": state,
+        "editable": editable,
+        "editable_reason": None if editable else (
+            "This SOP is not waiting for review any more, so its steps are locked." if job else "No lifecycle job exists for this draft."),
+        "last_editor": data.get("last_editor"),
+        "last_edited_at": data.get("last_edited_at"),
+        "steps": fm.get("steps") or [],
+    })
+
+
+# Canonical JSON fields a reviewer may edit by hand. Everything else is system-managed: changing the
+# confidentiality tier, quality scores, source details or lifecycle by hand would bypass the gates.
+_EDITABLE_JSON_KEYS = ("title", "department", "owner", "version_label", "review_date", "purpose", "scope",
+                       "preconditions", "roles", "exceptions", "notes", "references", "steps")
+_PROTECTED_JSON_KEYS = ("schema_version", "sop_id", "version", "tenant_id", "title_lines", "metadata_lines", "source",
+                        "media", "issues", "classification", "quality", "transformations", "lifecycle", "provenance")
+_PROTECTED_HINTS = {
+    "classification": "the confidentiality tier is confirmed with the checkbox on the decision form",
+    "quality": "it is computed from the document and your steps when you save",
+    "lifecycle": "it is controlled by the review workflow",
+}
+
+
+def _merge_document_sections(old: dict, fm: dict, extra: dict, raw_text: str):
+    """Apply hand-edited document sections (everything except steps) and re-verify their quotes."""
+    for key in _EDITABLE_JSON_KEYS:
+        if key != "steps" and key in extra:
+            old[key] = extra[key]
+    title = str(old.get("title") or "").strip()
+    if title:
+        fm["title"] = title
+    lines = [l.strip() for l in raw_text.splitlines() if l.strip()]
+
+    def reverify(item):
+        if isinstance(item, dict) and str(item.get("quote") or "").strip():
+            rng = _locate_quote(item["quote"], lines)
+            item["source_lines"] = rng
+            item["verified"], _ = verify_quote_trace(lines, rng[0], rng[1], item["quote"])
+
+    for key in ("purpose", "scope"):
+        reverify(old.get(key))
+    for key in ("preconditions", "exceptions"):
+        for item in (old.get(key) or []):
+            reverify(item)
+
+
+def _apply_step_edits(path: str, data: dict, steps_in: list, actor: str, canonical_extra: dict = None):
+    """Validate + apply the edits, rebuild the canonical copy, and write the draft file atomically.
+    Runs in a worker thread (it re-reads the source document to re-verify the quotes)."""
+    draft = data["draft"]
+    fm = draft.get("frontmatter") or draft
+    existing = fm.get("steps") or []
+
+    errors, new_steps = [], []
+    for i, raw in enumerate(steps_in, start=1):
+        ref = raw.get("ref")
+        base = copy.deepcopy(existing[ref - 1]) if isinstance(ref, int) and 1 <= ref <= len(existing) else {
+            "step_type": "command", "shell": "powershell", "timeout_seconds": 30,
+            "platform": None, "function_name": None, "comm_inputs": None, "fallback_sop_id": None,
+            "execute_if": None, "step_reasoning": "Added by a human reviewer.",
+        }
+        def text(key):
+            v = raw.get(key)
+            v = ("" if v is None else str(v)).strip()
+            if len(v) > _MAX[key]:
+                errors.append(f"Step {i}: '{key}' is longer than {_MAX[key]} characters.")
+            return v
+        desc = text("sop_step_description")
+        if not desc:
+            errors.append(f"Step {i}: the description cannot be empty.")
+        base["step_number"] = i
+        base["sop_step_description"] = desc
+        base["source_quote"] = text("source_quote") or None
+        base["parse_instruction"] = text("parse_instruction") or None
+        base["fallback_command"] = text("fallback_command") or None
+        if base.get("step_type") == "tool_call":
+            ci = raw.get("comm_inputs")
+            if isinstance(ci, str):
+                try:
+                    ci = json.loads(ci) if ci.strip() else {}
+                except Exception:
+                    errors.append(f"Step {i}: the tool inputs are not valid JSON.")
+                    ci = base.get("comm_inputs") or {}
+            if not isinstance(ci, dict):
+                errors.append(f"Step {i}: the tool inputs must be a JSON object.")
+                ci = base.get("comm_inputs") or {}
+            base["comm_inputs"] = ci
+        else:
+            cmd = text("command")
+            if not cmd:
+                errors.append(f"Step {i}: a command step needs a command.")
+            base["command"] = cmd or None
+        new_steps.append(base)
+
+    if not new_steps:
+        errors.append("An SOP needs at least one step.")
+
+    # Same dangerous-command screen the LLM's output goes through (LOLBins, encoded PowerShell, injection).
+    for i, st in enumerate(new_steps, start=1):
+        for threat in scan_commands_for_ast_threats([c for c in (st.get("command"), st.get("fallback_command")) if c]):
+            errors.append(f"Step {i}: blocked by the security screen ({threat['description']}).")
+    if errors:
+        return {"errors": errors}
+
+    # Variable linkage: a condition may only use variables an earlier step sets (a warning, not a block).
+    warnings, known = [], set()
+    for i, st in enumerate(new_steps, start=1):
+        for var in re.findall(r"variables\.(\w+)", st.get("execute_if") or ""):
+            if var not in known:
+                warnings.append(f"Step {i} only runs if variables.{var}, but no earlier step sets it.")
+        known |= set(re.findall(r"variables\.(\w+)\s*=", st.get("parse_instruction") or ""))
+
+    # Re-verify against the real document so the evidence + quality figures reflect the edits.
+    raw_name = os.path.basename(str(data.get("raw_filename") or ""))
+    source_path = os.path.join(UPLOADS_DIR, raw_name)
+    if not raw_name or not os.path.exists(source_path):
+        return {"errors": [f"The source document '{raw_name}' is no longer in the uploads folder, so the quotes cannot be re-verified."]}
+    _, segments = extract_ordered_sop_content(source_path)
+    raw_text = "\n\n".join(s_["content"] for s_ in segments if s_.get("type") == "text")
+
+    fm["steps"] = new_steps
+    old = data.get("canonical_draft") or {}
+    rebuilt = build_canonical_sop_from_draft(
+        draft, raw_text=raw_text,
+        tenant_id=old.get("tenant_id", "tn_northwind"),
+        uploaded_by=(old.get("lifecycle") or {}).get("uploaded_by", "author@corp.com"),
+    )
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    old["steps"] = rebuilt["steps"]
+    old["quality"] = rebuilt["quality"]
+    old["issues"] = rebuilt.get("issues", old.get("issues", []))
+    if canonical_extra:
+        _merge_document_sections(old, fm, canonical_extra, raw_text)
+    old.setdefault("lifecycle", {}).update({"last_editor": actor, "last_edited_at": now})
+    data["canonical_draft"] = old
+    data["last_editor"], data["last_edited_at"] = actor, now
+
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp, path)
+    return {"canonical_draft": old, "warnings": warnings, "step_count": len(new_steps)}
+
+
+async def api_governance_update_draft_steps(request):
+    """Saves a reviewer's edits to the steps of an unapproved draft (never touches sops/)."""
+    sop_id = request.path_params.get("sop_id", "")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    actor = str(body.get("actor", "")).strip()
+    steps_in = body.get("steps")
+    if not actor:
+        return JSONResponse({"error": "'actor' (who is editing) is required."}, status_code=400)
+    if not isinstance(steps_in, list):
+        return JSONResponse({"error": "'steps' must be a list."}, status_code=400)
+
+    path, data = _read_draft(sop_id)
+    if not data:
+        return JSONResponse({"error": f"No draft found for '{sop_id}'."}, status_code=404)
+    job = _job_for_sop(sop_id)
+    if not job or job.current_state != "awaiting_review":
+        return JSONResponse({"error": "Steps can only be edited while the SOP is awaiting review."}, status_code=409)
+
+    try:
+        result = await run_in_threadpool(_apply_step_edits, path, data, steps_in, actor)
+    except Exception as e:
+        return JSONResponse({"error": f"Could not save the edits: {e}"}, status_code=500)
+    if "errors" in result:
+        return JSONResponse({"error": result["errors"][0], "errors": result["errors"]}, status_code=422)
+
+    # Leave a trace in the job history (awaiting_review -> awaiting_review is an allowed self-transition).
+    try:
+        governance_ledger.transition_state(job.job_id, "awaiting_review", actor=actor,
+                                           reason=f"Steps edited by reviewer ({result['step_count']} steps).")
+    except Exception as e:
+        result["warnings"].append(f"Edit saved, but could not be logged in the job history: {e}")
+    return JSONResponse({"status": "saved", "last_editor": actor, **result})
+
+
+async def api_governance_update_draft_canonical(request):
+    """Saves hand-edited canonical JSON for an unapproved draft. Steps are synced into the playbook
+    steps and re-verified; document sections are re-verified; system-managed fields are refused."""
+    sop_id = request.path_params.get("sop_id", "")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    actor = str(body.get("actor", "")).strip()
+    canon = body.get("canonical")
+    if not actor:
+        return JSONResponse({"error": "'actor' (who is editing) is required."}, status_code=400)
+    if not isinstance(canon, dict):
+        return JSONResponse({"error": "'canonical' must be a JSON object."}, status_code=400)
+    if len(json.dumps(canon)) > 300_000:
+        return JSONResponse({"error": "The JSON is too large (limit 300 KB)."}, status_code=413)
+
+    path, data = _read_draft(sop_id)
+    if not data:
+        return JSONResponse({"error": f"No draft found for '{sop_id}'."}, status_code=404)
+    job = _job_for_sop(sop_id)
+    if not job or job.current_state != "awaiting_review":
+        return JSONResponse({"error": "The JSON can only be edited while the SOP is awaiting review."}, status_code=409)
+
+    current = data.get("canonical_draft") or {}
+    problems = []
+    for key in canon:
+        if key not in _EDITABLE_JSON_KEYS and key not in _PROTECTED_JSON_KEYS:
+            problems.append(f"'{key}' is not a field of the canonical SOP.")
+    missing = object()
+    for key in _PROTECTED_JSON_KEYS:
+        if json.dumps(canon.get(key, "__missing__"), sort_keys=True) != json.dumps(current.get(key, "__missing__"), sort_keys=True):
+            hint = _PROTECTED_HINTS.get(key)
+            problems.append(f"'{key}' is managed by the system and can't be edited here" + (f" ({hint})." if hint else "."))
+
+    steps = canon.get("steps")
+    if not isinstance(steps, list):
+        problems.append("'steps' must be a list.")
+        steps = []
+    okf_count = len(((data.get("draft") or {}).get("frontmatter") or data.get("draft") or {}).get("steps") or [])
+    edits, used = [], set()
+    for i, st in enumerate(steps, start=1):
+        if not isinstance(st, dict):
+            problems.append(f"Step {i}: must be an object.")
+            continue
+        ref = st.get("n")
+        ref = ref if isinstance(ref, int) and 1 <= ref <= okf_count and ref not in used else None
+        if ref:
+            used.add(ref)
+        inp = st.get("input")
+        edits.append({
+            "ref": ref,
+            "sop_step_description": st.get("action"),
+            "command": inp if isinstance(inp, str) else ("" if inp is None else json.dumps(inp)),
+            "comm_inputs": inp,
+            "source_quote": st.get("quote"),
+            "parse_instruction": st.get("expected_outcome"),
+            "fallback_command": st.get("warning"),
+        })
+    if problems:
+        return JSONResponse({"error": problems[0], "errors": problems}, status_code=422)
+
+    try:
+        result = await run_in_threadpool(_apply_step_edits, path, data, edits, actor, canon)
+    except Exception as e:
+        return JSONResponse({"error": f"Could not save the edits: {e}"}, status_code=500)
+    if "errors" in result:
+        return JSONResponse({"error": result["errors"][0], "errors": result["errors"]}, status_code=422)
+    try:
+        governance_ledger.transition_state(job.job_id, "awaiting_review", actor=actor,
+                                           reason="Canonical JSON edited by reviewer.")
+    except Exception as e:
+        result["warnings"].append(f"Edit saved, but could not be logged in the job history: {e}")
+    return JSONResponse({"status": "saved", "last_editor": actor, **result})
+
+
 governance_routes = [
     Route("/api/governance/jobs", api_governance_jobs, methods=["GET"]),
     Route("/api/governance/jobs/{job_id}", api_governance_job_detail, methods=["GET"]),
@@ -363,6 +681,9 @@ governance_routes = [
     Route("/api/governance/sops/{sop_id}/canonical", api_governance_get_canonical, methods=["GET"]),
     Route("/api/governance/sops/{sop_id}/canonical", api_governance_update_canonical, methods=["PUT"]),
     Route("/api/governance/sops/{sop_id}/sync-playbook", api_governance_sync_playbook, methods=["POST"]),
+    Route("/api/governance/drafts/{sop_id}", api_governance_get_draft, methods=["GET"]),
+    Route("/api/governance/drafts/{sop_id}/steps", api_governance_update_draft_steps, methods=["PUT"]),
+    Route("/api/governance/drafts/{sop_id}/canonical", api_governance_update_draft_canonical, methods=["PUT"]),
     Route("/api/governance/downstream/search", api_governance_downstream_search, methods=["POST"]),
     Route("/api/governance/downstream/stats", api_governance_downstream_stats, methods=["GET"]),
     Route("/api/governance/incidents", api_governance_quarantine_incidents, methods=["GET"]),
