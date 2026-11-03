@@ -12,8 +12,10 @@ import glob
 import json
 import datetime
 from starlette.concurrency import run_in_threadpool
+
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
+
 from starlette.routing import Route
 
 from api.context import (
@@ -49,10 +51,12 @@ from agents.a3_security.ast_sandbox import scan_commands_for_ast_threats
 
 async def api_governance_jobs(request: Request):
     """Lists all SOP lifecycle jobs and their current state machine status (Section 8)."""
+
     try:
         governance_ledger.load()
     except Exception:
         pass
+
     jobs = [job.to_dict() for job in list(governance_ledger._jobs.values())]
     return JSONResponse({"jobs": jobs, "total": len(jobs)})
 
@@ -711,6 +715,7 @@ async def api_governance_update_draft_canonical(request: Request):
     return JSONResponse({"status": "saved", "last_editor": actor, **result})
 
 
+
 governance_router = APIRouter(tags=["Governance, Dual-Custody & Downstream Catalog"])
 governance_router.add_api_route("/api/governance/jobs", api_governance_jobs, methods=["GET"], summary="List All SOP Governance Jobs")
 governance_router.add_api_route("/api/governance/jobs/{job_id}", api_governance_job_detail, methods=["GET"], summary="Get Job Details & State History")
@@ -731,3 +736,4 @@ governance_router.add_api_route("/api/config", api_update_config, methods=["POST
 governance_router.add_api_route("/api/config", api_update_config, methods=["PUT"], summary="Hot-Reload Dynamic Configuration (PUT)", operation_id="api_update_config_put")
 
 governance_routes = list(governance_router.routes)
+

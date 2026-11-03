@@ -52,16 +52,16 @@ ROLE_PROVIDER_MAP = {
     "execution_planning": {
         "provider": _PLANNING_PROVIDER,
         "model": _PLANNING_MODEL,
-        "fallbacks": [
-            {"provider": "gemini", "model": "gemini-2.5-flash"},
-        ],
+        # "fallbacks": [
+        #     {"provider": "gemini", "model": "gemini-2.5-flash"},
+        # ],
     },
     "planning_validation": {
         "provider": _VALIDATION_PROVIDER,
         "model": _VALIDATION_MODEL,
-        "fallbacks": [
-            {"provider": "gemini", "model": "gemini-2.5-flash"},
-        ],
+        # "fallbacks": [
+        #     {"provider": "gemini", "model": "gemini-2.5-flash"},
+        # ],
     },
     "vlm_image_analysis": {
         "provider": _VLM_PROVIDER,

@@ -10,8 +10,10 @@ import hashlib
 import datetime
 import threading
 from starlette.concurrency import run_in_threadpool
+
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
+
 from starlette.routing import Route
 
 from api.context import (
@@ -282,6 +284,7 @@ async def api_ingest_single(request: Request):
         job_id = f"job_{content_hash[:10]}"
         sop_id = override_sop_id or f"SOP-{content_hash[:6].upper()}"
 
+
         parser_type, segments = await _run_cancellable(ctl, extract_ordered_sop_content, target_path)
         raw_text = "\n\n".join(s["content"] for s in segments if s.get("type") == "text")
 
@@ -327,7 +330,9 @@ async def api_ingest_single(request: Request):
 
         governance_ledger.transition_state(job_id, "structuring")
 
+
         draft = await _run_cancellable(ctl, jit_converter.plan_okf_from_raw, target_path, override_sop_id=override_sop_id, pre_extracted_text=raw_text)
+
 
         if draft.get("is_executable") is False or draft.get("frontmatter", {}).get("is_executable") is False:
             unexec_reason = draft.get("unexecutable_reason") or draft.get("frontmatter", {}).get("unexecutable_reason") or "SOP is not actionable as an automated procedure."
@@ -481,6 +486,7 @@ async def api_ingest_single(request: Request):
             "message": "SOP successfully structured and assessed. Human review required before saving to knowledge base."
         })
     except IngestionCancelled:
+
         if job is not None and job.current_state != "duplicate":
             try:
                 governance_ledger.transition_state(job_id, "failed", actor=ctl.actor, reason=f"Cancelled by {ctl.actor}")
@@ -541,6 +547,7 @@ async def api_plan_preview(request: Request):
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
 
+
 ingestion_router = APIRouter(tags=["Document Ingestion & Staging"])
 ingestion_router.add_api_route("/api/uploads", api_list_uploads, methods=["GET"], summary="List Staged Uploads & Gate 1 Status")
 ingestion_router.add_api_route("/api/uploads/upload", api_upload_file, methods=["POST"], summary="Upload Raw SOP File")
@@ -550,3 +557,4 @@ ingestion_router.add_api_route("/api/uploads/scan", api_run_scan_cycle, methods=
 ingestion_router.add_api_route("/api/plan-preview", api_plan_preview, methods=["POST"], summary="Dry-Run JIT Execution Plan Preview")
 
 ingestion_routes = list(ingestion_router.routes)
+
