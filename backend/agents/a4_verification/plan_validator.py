@@ -10,6 +10,7 @@ from tools.tool_validator_helpers import validate_tool_step_schema
 from tools.platforms import find_platform_schema
 # pyrefly: ignore [missing-import]
 from prompts.validator_prompts import JIT_VALIDATOR_COT_SYSTEM_PROMPT
+from utils.cancellation import check_cancelled
 # pyrefly: ignore [missing-import]
 from schemas import JITFaithfulnessInspectionResult
 # pyrefly: ignore [missing-import]
@@ -333,6 +334,7 @@ def validate_plan_faithfulness_and_linkage(
             {"role": "system", "content": prompt},
             {"role": "user", "content": "Please perform the faithfulness and security audit on the provided SOP and execution plan, and output the required JSON evaluation according to the system instructions."}
         ]
+        check_cancelled()
         res = llm.invoke(messages)
 
         # Record token usage in gemini_monitor

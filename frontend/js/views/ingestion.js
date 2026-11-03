@@ -101,7 +101,7 @@ registerActions({
     };
     store.set('uploader', opts.uploadedBy); store.set('tenant', opts.tenantId);
 
-    const tracker = trackIngest(file);       // live stage list; the request itself only answers at the end
+    const tracker = trackIngest(file, { actor: opts.uploadedBy });       // live stage list; the request itself only answers at the end
     let res;
     try {
       res = await api.ingestSingle(file, opts);
@@ -190,6 +190,17 @@ function resultModal(res, file) {
         <p class="small muted">Remove the credentials from <b>${esc(file)}</b> and upload a clean copy.</p></div>`,
       footer: close,
     };
+  }
+  if (status === 'cancelled') {
+    return {
+      body: `<div class="stack">
+        <div class="callout">${icon('info')}<div><b>Processing was stopped.</b> Nothing was saved and no review task was created.</div></div>
+        <p class="small muted">A model call that was already in progress may still finish in the background, but its result is thrown away. You can ingest <b>${esc(file)}</b> again whenever you like.</p></div>`,
+      footer: `${close}<button class="btn btn-primary" data-action="ingest-file" data-file="${esc(file)}">${icon('play')}Ingest again</button>`,
+    };
+  }
+  if (status === 'already_running') {
+    return { body: `<div class="callout warn">${icon('alert')}<div><b>Already being processed.</b> ${esc(res.error || '')} Wait for it to finish, or stop it first.</div></div>`, footer: close };
   }
   if (status === 'duplicate') {
     return { body: `<div class="callout warn">${icon('alert')}<div><b>Duplicate document.</b> ${esc(res.message || 'This exact file has already been processed.')}</div></div>`, footer: close };
