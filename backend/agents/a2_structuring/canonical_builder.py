@@ -60,6 +60,36 @@ def _find_matching_line_range(quote: str, raw_lines: List[str]) -> List[int]:
     return [best_idx, min(len(raw_lines), best_idx + 1)]
 
 
+def _locate_quote(quote: str, raw_lines: List[str], max_span: int = 3) -> List[int]:
+    """Finds where a quoted passage sits in the document: the window of 1..max_span consecutive
+    lines (1-based, inclusive) that contains the largest share of the quote's words.
+
+    PDFs wrap sentences across lines, so a verbatim quote can span several. Ties prefer the
+    smaller (then earlier) window. A paraphrase scores low everywhere, so it later fails
+    verification instead of being credited.
+    """
+    def tokens(text: str) -> set:
+        return {t for t in re.sub(r"[^\w\s]", " ", text.lower()).split() if len(t) > 1}
+
+    q_tokens = tokens(quote or "")
+    if not q_tokens or not raw_lines:
+        return [1, 1]
+
+    line_tokens = [tokens(line) for line in raw_lines]
+    best_start, best_end, best_score = 1, 1, -1.0
+    for start in range(len(raw_lines)):
+        window: set = set()
+        for span in range(1, max_span + 1):
+            end = start + span - 1
+            if end >= len(raw_lines):
+                break
+            window |= line_tokens[end]
+            score = len(q_tokens & window) / len(q_tokens)
+            if score > best_score:
+                best_start, best_end, best_score = start + 1, end + 1, score
+    return [best_start, best_end]
+
+
 def _extract_document_sections(raw_text: str) -> Dict[str, str]:
     """Extracts standard SOP sections (Purpose, Scope, Notes, Owner, Review Date, Platform) from raw text."""
     sections: Dict[str, str] = {}
@@ -160,10 +190,27 @@ def build_canonical_sop_from_draft(
         action = s.get("sop_step_description") or f"Execute step {idx}"
         inp = s.get("command") or json.dumps(s.get("comm_inputs") or {})
 
-        # Real line resolution instead of synthetic [idx * 2, idx * 2 + 1]
-        line_range = s.get("source_lines")
-        if not line_range or not (isinstance(line_range, list) and len(line_range) >= 2):
-            line_range = _find_matching_line_range(action, source_lines)
+        # Traceability: the LLM supplies a verbatim quote from the SOP; the code (not the LLM)
+        # finds where it sits in the document, so a made-up or paraphrased quote cannot verify.
+        source_quote = (s.get("source_quote") or "").strip()
+        if source_quote:
+            line_range = _locate_quote(source_quote, source_lines)
+            quote = source_quote
+        else:
+            # Fall back: locate via command or action in source document
+            cmd = (s.get("command") or "").strip()
+            cmd_clean = re.sub(r"\{\{[^}]+\}\}", "", cmd).strip()
+            rng = None
+            if cmd_clean and len(cmd_clean) > 3:
+                rng = _locate_quote(cmd_clean, source_lines)
+            if not rng or rng == [1, 1]:
+                rng = _locate_quote(action, source_lines)
+
+            line_range = rng
+            start_idx = max(0, line_range[0] - 1)
+            end_idx = min(len(source_lines), line_range[1])
+            doc_excerpt = " ".join(source_lines[start_idx:end_idx]).strip()
+            quote = doc_excerpt if doc_excerpt else action
 
         canonical_steps.append({
             "n": idx,
@@ -175,7 +222,7 @@ def build_canonical_sop_from_draft(
             "requires_approval": False,
             "risk": "low",
             "source_lines": line_range,
-            "quote": action,
+            "quote": quote,
             "verified": False,
         })
 

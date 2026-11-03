@@ -8,7 +8,8 @@ import os
 import glob
 import re
 import datetime
-from starlette.responses import JSONResponse, Response
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from api.context import (
@@ -25,7 +26,7 @@ from utils.security import redact_sensitive_dlp, clean_unicode_and_zero_width
 from agents.a4_verification.plan_validator import MALICIOUS_COMMAND_PATTERNS as AST_MALICIOUS_PATTERNS
 
 
-async def api_health(request):
+async def api_health(request: Request):
     return JSONResponse({
         "status": "healthy",
         "service": "Elone SOP Governance Hub API Bridge",
@@ -33,7 +34,7 @@ async def api_health(request):
     })
 
 
-async def api_overview(request):
+async def api_overview(request: Request):
     """Aggregate dashboard metrics across all pipeline components."""
     manifest = read_manifest()
     total_manifest = len(manifest)
@@ -175,12 +176,12 @@ async def api_overview(request):
     })
 
 
-async def api_get_scheduler(request):
+async def api_get_scheduler(request: Request):
     status = get_scheduler_status()
     return JSONResponse(status)
 
 
-async def api_get_tools(request):
+async def api_get_tools(request: Request):
     return JSONResponse({
         "platforms": TOOL_CATALOG,
         "count": len(TOOL_CATALOG),
@@ -188,7 +189,7 @@ async def api_get_tools(request):
     })
 
 
-async def api_get_telemetry(request):
+async def api_get_telemetry(request: Request):
     usage_data = _load_usage_data()
     today_usage = get_today_usage()
 
@@ -199,38 +200,67 @@ async def api_get_telemetry(request):
     })
 
 
-async def api_list_logs(request):
+async def api_list_logs(request: Request):
     logs = []
-    if os.path.exists(LOGS_DIR):
-        for name in sorted(os.listdir(LOGS_DIR), reverse=True):
-            if name.endswith(".log"):
-                path = os.path.join(LOGS_DIR, name)
-                stat = os.stat(path)
-                logs.append({
-                    "filename": name,
-                    "size_bytes": stat.st_size,
-                    "modified": datetime.datetime.fromtimestamp(stat.st_mtime).isoformat()
-                })
+    base_logs = os.path.dirname(LOGS_DIR)
+    search_dirs = [
+        LOGS_DIR,
+        os.path.join(base_logs, "converter_input"),
+        os.path.join(base_logs, "parser"),
+        base_logs,
+    ]
+    seen = set()
+    for directory in search_dirs:
+        if not os.path.exists(directory):
+            continue
+        for name in sorted(os.listdir(directory), reverse=True):
+            if name.endswith(".log") and name not in seen:
+                seen.add(name)
+                path = os.path.join(directory, name)
+                try:
+                    stat = os.stat(path)
+                    logs.append({
+                        "filename": name,
+                        "size_bytes": stat.st_size,
+                        "modified": datetime.datetime.fromtimestamp(stat.st_mtime).isoformat()
+                    })
+                except OSError:
+                    continue
+
+    logs.sort(key=lambda x: x["modified"], reverse=True)
     return JSONResponse({"logs": logs, "total": len(logs)})
 
 
-async def api_get_log(request):
+async def api_get_log(request: Request):
     filename = request.path_params.get("filename", "").strip()
     safe_name = os.path.basename(filename)
-    path = os.path.join(LOGS_DIR, safe_name)
 
-    if not os.path.exists(path) or not safe_name.endswith(".log"):
+    base_logs = os.path.dirname(LOGS_DIR)
+    search_dirs = [
+        LOGS_DIR,
+        os.path.join(base_logs, "converter_input"),
+        os.path.join(base_logs, "parser"),
+        base_logs,
+    ]
+    resolved_path = None
+    for directory in search_dirs:
+        candidate = os.path.join(directory, safe_name)
+        if os.path.exists(candidate) and safe_name.endswith(".log"):
+            resolved_path = candidate
+            break
+
+    if not resolved_path:
         return JSONResponse({"error": f"Log file '{filename}' not found"}, status_code=404)
 
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
+        with open(resolved_path, "r", encoding="utf-8", errors="replace") as f:
             content = f.read()
         return Response(content, media_type="text/plain")
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-async def api_test_security(request):
+async def api_test_security(request: Request):
     """Interactive endpoint to test security filters (DLP, AST, Zero-width)."""
     try:
         body = await request.json()
@@ -289,13 +319,14 @@ async def api_test_security(request):
     return JSONResponse(results)
 
 
-telemetry_routes = [
-    Route("/api/health", api_health, methods=["GET"]),
-    Route("/api/overview", api_overview, methods=["GET"]),
-    Route("/api/scheduler", api_get_scheduler, methods=["GET"]),
-    Route("/api/tools", api_get_tools, methods=["GET"]),
-    Route("/api/telemetry", api_get_telemetry, methods=["GET"]),
-    Route("/api/logs", api_list_logs, methods=["GET"]),
-    Route("/api/logs/{filename}", api_get_log, methods=["GET"]),
-    Route("/api/security/test", api_test_security, methods=["POST"]),
-]
+telemetry_router = APIRouter(tags=["Telemetry & System Health"])
+telemetry_router.add_api_route("/api/health", api_health, methods=["GET"], summary="System Health Check")
+telemetry_router.add_api_route("/api/overview", api_overview, methods=["GET"], summary="Governance Overview & Pipeline Metrics")
+telemetry_router.add_api_route("/api/scheduler", api_get_scheduler, methods=["GET"], summary="Ingestion Directory Scheduler Status")
+telemetry_router.add_api_route("/api/tools", api_get_tools, methods=["GET"], summary="Available Platform Tool Catalog")
+telemetry_router.add_api_route("/api/telemetry", api_get_telemetry, methods=["GET"], summary="Multi-Model LLM Token Telemetry & Quotas")
+telemetry_router.add_api_route("/api/logs", api_list_logs, methods=["GET"], summary="List Audit Logs")
+telemetry_router.add_api_route("/api/logs/{filename}", api_get_log, methods=["GET"], summary="Inspect Raw Audit Log File")
+telemetry_router.add_api_route("/api/security/test", api_test_security, methods=["POST"], summary="Security Regex & DLP Self-Test")
+
+telemetry_routes = list(telemetry_router.routes)

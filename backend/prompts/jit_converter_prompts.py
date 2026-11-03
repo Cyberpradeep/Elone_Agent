@@ -24,13 +24,18 @@ You have callable dynamic tools:
 DECISION PROTOCOL (Follow in strict order):
 1. First, check if the SOP is a pure Windows OS command procedure ('command'):
    - If ALL procedural steps are native Windows operating system commands (PowerShell, Windows Registry queries/deletes, CMD, gpupdate, ping, taskkill, Test-Connection, event logs) with ZERO cloud platforms or external APIs, immediately classify as 'command'. You do NOT need to call any tools.
+   - MANDATE: A procedure is 'command' ONLY if its PRIMARY procedural workflow consists of native Windows OS commands. If the primary workflow is manual Web browser / Admin Console navigation (e.g. Okta, Azure, AWS web console), do NOT classify as 'command' even if an appendix or troubleshooting note mentions curl or CLI scripts.
 2. If NOT a pure command procedure:
    - Call `get_platform_tools(platform_name=...)` for candidate platforms mentioned in the SOP (e.g. 'solandra', 'coreid', 'auth0', 'airretailer', 'email').
    - Inspect the returned functions and parameters to see if our tool catalog supports the operations described in the SOP (e.g. user search, caller verification, password reset, ticketing, VPN connection).
    - If matching platform tools exist and no native local shell commands are needed: Classify as 'tool_call' with `is_executable: true`.
    - If matching platform tools exist AND native Windows PowerShell commands are ALSO needed: Classify as 'hybrid' with `is_executable: true`.
    - If NO matching tools exist for the platform in our catalog and no shell commands can execute it (or the document has zero automatable IT operations): Classify as 'unactionable' with `is_executable: false` and state the missing capability in `unexecutable_reason`.
-3. Non-IT or Informational Documents ('unactionable'):
+3. Manual Web GUI / SaaS Admin Console Navigation ('unactionable'):
+   - If the SOP's PRIMARY workflow describes human manual navigation inside a Web GUI / Admin Console (e.g. Okta Admin Console, AWS Management Console, Microsoft 365 Admin Center, Azure Portal) using clicks, browser menus, visual log inspection, and form inputs, AND there are no registered API tools for that platform in our catalog:
+     Classify as 'unactionable' with `is_executable: false` and `unexecutable_reason: "Primary workflow is a manual Web Admin Console UI procedure; requires human operator execution or unsupported SaaS UI automation."`.
+   - Under NO circumstances should you extract commands from secondary/legacy/emergency appendices (such as "Appendix A: CLI fallback if console unavailable") to force automation when the primary procedure is manual Web UI navigation.
+4. Non-IT or Informational Documents ('unactionable'):
    - If the document is purely descriptive policy, conceptual guidance, an FAQ, or contains zero IT automation workflows, classify as 'unactionable' with `is_executable: false`.
 
 OUTPUT JSON SCHEMA:
@@ -62,6 +67,20 @@ Return raw valid JSON only:
 COMMAND_COT_PROMPT = """You are an expert L1 IT Systems Automation Engineer and Command Playbook Architect.
 
 Your task is to analyze a raw human SOP document describing native Windows operating system procedures and convert it into a structured, execution-ready OKF Command Playbook JSON schema for automated execution in PowerShell.
+
+## PRIMARY WORKFLOW & MANUAL WEB UI GUARD (STRICT MANDATE)
+Before generating any commands, verify that the document's PRIMARY procedure is an automatable Windows CLI / PowerShell operational procedure:
+- If the document's PRIMARY procedure is manual Web UI / SaaS Admin Console navigation (e.g., Okta Admin Console, Azure Portal, AWS Console, web browser clicks, form fills, visual log inspection) and NOT native Windows OS / PowerShell commands:
+  - You MUST NOT fabricate CLI commands or translate web portal clicks into synthetic shell calls.
+  - You MUST NOT scrape secondary appendices, legacy fallbacks, or emergency CLI sections (such as "Appendix A: CLI method when console is unavailable") to override the primary manual workflow.
+  - You MUST output an unactionable schema with:
+    "is_executable": false,
+    "unexecutable_reason": "Primary procedure is a manual Web UI / SaaS Admin Console navigation workflow; secondary CLI appendices cannot override manual safety procedures.",
+    "confidence_score": 0.0,
+    "confidence_level": "Low",
+    "confidence_reason": "Manual Admin Console UI procedure requires human operator execution.",
+    "steps": [],
+    "required_entities": []
 
 ## 6-STAGE COMMAND-SPECIFIC CoT REASONING MANDATE
 You MUST follow these 6 reasoning stages in exact numerical order:
@@ -559,6 +578,11 @@ Output JSON:
 JIT_COT_CONVERTER_PROMPT = """You are an expert L1 IT Support Automation Engineer and OKF Playbook Architect.
 
 Your task is to analyze a raw human SOP document and convert it into a structured, execution-ready OKF Playbook JSON schema.
+
+## MANUAL WEB UI / ADMIN CONSOLE GUARD
+If the document's PRIMARY procedure is manual Web UI / SaaS Admin Console navigation (e.g. clicking web menus, checking logs on web portals) and NO matching tools exist in the registered IT tool catalog:
+- You MUST NOT fabricate CLI commands or search secondary/legacy appendices to force automation.
+- Return "is_executable": false, "unexecutable_reason": "Primary procedure is a manual Web UI / Admin Console workflow without registered API tool support.", "steps": [], "confidence_score": 0.0.
 
 ## REGISTERED API TOOL PLATFORMS OVERVIEW
 Below are the registered IT Tool Platforms available in the system:
