@@ -197,6 +197,7 @@ def build_canonical_sop_from_draft(
             line_range = _locate_quote(source_quote, source_lines)
             quote = source_quote
         else:
+
             # Fall back: locate via command or action in source document
             cmd = (s.get("command") or "").strip()
             cmd_clean = re.sub(r"\{\{[^}]+\}\}", "", cmd).strip()
@@ -211,6 +212,7 @@ def build_canonical_sop_from_draft(
             end_idx = min(len(source_lines), line_range[1])
             doc_excerpt = " ".join(source_lines[start_idx:end_idx]).strip()
             quote = doc_excerpt if doc_excerpt else action
+
 
         canonical_steps.append({
             "n": idx,

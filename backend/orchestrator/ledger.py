@@ -20,6 +20,7 @@ import json
 import uuid
 import datetime
 import threading
+import copy
 from typing import Dict, List, Set, Optional, Tuple, Any
 from dataclasses import dataclass, field, asdict
 
@@ -358,6 +359,11 @@ class OrchestratorLedger:
             else:
                 raise ValueError(f"Unknown review decision '{decision}'. Must be 'approve', 'changes_requested', or 'reject'.")
 
+            # Snapshot what we are about to change, so a refused transition leaves no trace.
+            prev_task = copy.deepcopy(job.review_task)
+            prev_decision = job.approval_decision
+            prev_gates = job.gate_results
+
             # Update review task if present
             if job.review_task:
                 job.review_task["status"] = clean_decision
@@ -378,13 +384,19 @@ class OrchestratorLedger:
             if publication_gate_check:
                 job.gate_results = asdict(publication_gate_check)
 
-            # Transition state
-            self.transition_state(
-                job_id,
-                next_state,
-                actor=reviewer,
-                reason=f"Human review decision recorded: {clean_decision}. Notes: {notes}",
-            )
+            # Transition state (rolling back the edits above if it is refused)
+            try:
+                self.transition_state(
+                    job_id,
+                    next_state,
+                    actor=reviewer,
+                    reason=f"Human review decision recorded: {clean_decision}. Notes: {notes}",
+                )
+            except Exception:
+                job.review_task = prev_task
+                job.approval_decision = prev_decision
+                job.gate_results = prev_gates
+                raise
             return rec
 
     # -----------------------------------------------------------------------
