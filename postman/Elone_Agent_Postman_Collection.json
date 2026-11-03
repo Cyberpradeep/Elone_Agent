@@ -1,0 +1,1125 @@
+{
+  "info": {
+    "_postman_id": "0ff4c6c7-7f37-42ac-a1bf-c05970ae289f",
+    "name": "Elone Agent \u2014 SOP Governance Hub API Suite",
+    "description": "Comprehensive automated test collection for all native application REST APIs in Elone Agent (excluding MCP and external platform tool catalog). Covers Telemetry, Playbooks, Ingestion, Governance Lifecycle, Canonical Sync, Downstream Multi-Tenant Search, and Dynamic Config.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8000",
+      "type": "string"
+    },
+    {
+      "key": "sop_id",
+      "value": "SOP-L1-APP-001",
+      "type": "string"
+    },
+    {
+      "key": "tenant_id",
+      "value": "tn_northwind",
+      "type": "string"
+    },
+    {
+      "key": "job_id",
+      "value": "job_demo_101",
+      "type": "string"
+    },
+    {
+      "key": "task_id",
+      "value": "RT-DEMO-01",
+      "type": "string"
+    },
+    {
+      "key": "log_filename",
+      "value": "pipeline_debug.log",
+      "type": "string"
+    },
+    {
+      "key": "sample_upload_file",
+      "value": "SOP_Kill_Hang_Application_Windows.pdf",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Telemetry & Diagnostics",
+      "item": [
+        {
+          "name": "GET Health Status",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"Service is healthy\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.status).to.eql(\"healthy\");",
+                  "    pm.expect(json.service).to.contain(\"Elone\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "health"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET System Overview & Gates",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"Overview response contains stats, telemetry, gates\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property(\"stats\");",
+                  "    pm.expect(json).to.have.property(\"telemetry\");",
+                  "    pm.expect(json).to.have.property(\"gates\");",
+                  "    pm.expect(json.gates.length).to.be.at.least(5);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/overview",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "overview"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Ingestion Scheduler Status",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"Scheduler payload structure valid\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property(\"is_running\");",
+                  "    pm.expect(json).to.have.property(\"interval_minutes\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/scheduler",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "scheduler"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Multi-Model Telemetry & Quotas",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"Telemetry metrics valid\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property(\"today\");",
+                  "    pm.expect(json).to.have.property(\"max_daily_calls\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/telemetry",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "telemetry"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET List System Logs",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"Capture first log filename if present\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property(\"logs\");",
+                  "    if (json.logs && json.logs.length > 0) {",
+                  "        pm.collectionVariables.set(\"log_filename\", json.logs[0].filename);",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/logs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "logs"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Log File Content",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 or 404\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/logs/{{log_filename}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "logs",
+                "{{log_filename}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST Test Security Filters (DLP, AST, Unicode)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"DLP and AST threats flagged correctly\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property(\"dlp\");",
+                  "    pm.expect(json).to.have.property(\"ast_blacklist\");",
+                  "    pm.expect(json.ast_blacklist.is_blocked).to.be.true;",
+                  "    pm.expect(json.dlp.has_secrets).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"payload\": \"powershell -enc aQBwAGMAbwBuAGYAaQBnAA== password=TopSecret123! api_key=sk-ant-api03-abcdef1234567890\",\n  \"type\": \"all\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/security/test",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "security",
+                "test"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Playbooks & Cryptographic Integrity",
+      "item": [
+        {
+          "name": "GET All Compiled Playbooks",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"Playbooks parsed & first sop_id captured\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property(\"playbooks\");",
+                  "    if (json.playbooks && json.playbooks.length > 0) {",
+                  "        pm.collectionVariables.set(\"sop_id\", json.playbooks[0].sop_id);",
+                  "        pm.expect(json.playbooks[0]).to.have.property(\"integrity\");",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/sops",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sops"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Playbook Details By ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 or 404\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test(\"Valid playbook structure\", function () {",
+                  "        var json = pm.response.json();",
+                  "        pm.expect(json).to.have.property(\"frontmatter\");",
+                  "        pm.expect(json).to.have.property(\"integrity\");",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/sops/{{sop_id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sops",
+                "{{sop_id}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST Verify Playbook HMAC-SHA256 Signature",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 or 404\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test(\"Integrity audit result returned\", function () {",
+                  "        var json = pm.response.json();",
+                  "        pm.expect(json).to.have.property(\"is_valid\");",
+                  "        pm.expect(json).to.have.property(\"status\");",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/sops/{{sop_id}}/verify",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sops",
+                "{{sop_id}}",
+                "verify"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Document Ingestion & Staging",
+      "item": [
+        {
+          "name": "GET Staged Uploads & Gate 1 Status",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"Uploads list parsed\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property(\"files\");",
+                  "    pm.expect(json).to.have.property(\"allowed_extensions\");",
+                  "    if (json.files && json.files.length > 0) {",
+                  "        pm.collectionVariables.set(\"sample_upload_file\", json.files[0].filename);",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/uploads",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "uploads"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST Upload Document File (Multipart)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/uploads/upload",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "uploads",
+                "upload"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST Trigger Ingestion Lifecycle (Secret Scan + Structuring)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200, 400, 403, or 409\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 400, 403, 409]);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "if (json.job_id) pm.collectionVariables.set(\"job_id\", json.job_id);",
+                  "if (json.task_id) pm.collectionVariables.set(\"task_id\", json.task_id);",
+                  "if (json.sop_id) pm.collectionVariables.set(\"sop_id\", json.sop_id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filename\": \"{{sample_upload_file}}\",\n  \"tenant_id\": \"{{tenant_id}}\",\n  \"uploaded_by\": \"analyst@northwind.com\",\n  \"auto_approve\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/uploads/ingest",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "uploads",
+                "ingest"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST Trigger Immediate Directory Scan Cycle",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 or 500\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 500]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/uploads/scan",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "uploads",
+                "scan"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST Preview JIT Plan (Dry Run)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200, 400, or 404\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 400, 404]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filename\": \"{{sample_upload_file}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/plan-preview",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "plan-preview"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Governance, HITL Review & Publication",
+      "item": [
+        {
+          "name": "GET All Governance Lifecycle Jobs",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"Jobs array returned & first job_id captured\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property(\"jobs\");",
+                  "    if (json.jobs && json.jobs.length > 0) {",
+                  "        pm.collectionVariables.set(\"job_id\", json.jobs[0].job_id);",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/governance/jobs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "governance",
+                "jobs"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Job Details & State History",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 or 404\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/governance/jobs/{{job_id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "governance",
+                "jobs",
+                "{{job_id}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Pending Human Review Tasks",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"Tasks array returned & task_id captured\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property(\"tasks\");",
+                  "    if (json.tasks && json.tasks.length > 0) {",
+                  "        pm.collectionVariables.set(\"task_id\", json.tasks[0].task_id);",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/governance/review-tasks",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "governance",
+                "review-tasks"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST Record Review Decision (Dual-Custody SoD)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200, 400, 403, or 404\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 400, 403, 404]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"approve\",\n  \"reviewer\": \"qa_lead@northwind.com\",\n  \"actor_type\": \"human\",\n  \"notes\": \"Verified through Postman automated test suite.\",\n  \"confirmed_classification\": true,\n  \"secrets_count\": 0,\n  \"schema_valid\": true,\n  \"schema_errors_count\": 0,\n  \"traceability_pct\": 96.0,\n  \"completeness_pct\": 92.0,\n  \"open_blocking_issues_count\": 0,\n  \"rule_ai_conflict\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/governance/review-tasks/{{task_id}}/decision",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "governance",
+                "review-tasks",
+                "{{task_id}}",
+                "decision"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST Publish Approved SOP (Gatekeeper & Indexing)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200, 400, 404, or 409\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 400, 404, 409]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"actor\": \"A6_hub\",\n  \"traceability_pct\": 95.0,\n  \"completeness_pct\": 90.0\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/governance/sops/{{sop_id}}/publish",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "governance",
+                "sops",
+                "{{sop_id}}",
+                "publish"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Security Quarantine Incidents",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"Incidents list parsed\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property(\"incidents\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/governance/incidents",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "governance",
+                "incidents"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Canonical SOP 1.0 & Synchronization",
+      "item": [
+        {
+          "name": "GET Canonical SOP JSON 1.0",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 or 404\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test(\"Canonical schema fields present\", function () {",
+                  "        var json = pm.response.json();",
+                  "        pm.expect(json).to.have.property(\"sop_id\");",
+                  "        pm.expect(json).to.have.property(\"lifecycle\");",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/governance/sops/{{sop_id}}/canonical",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "governance",
+                "sops",
+                "{{sop_id}}",
+                "canonical"
+              ]
+            }
+          }
+        },
+        {
+          "name": "PUT Update Canonical SOP JSON 1.0",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 or 400\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 400]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"schema_version\": \"1.0\",\n  \"sop_id\": \"{{sop_id}}\",\n  \"version\": \"1.0.0\",\n  \"tenant_id\": \"{{tenant_id}}\",\n  \"title\": \"Automated Application Maintenance Runbook\",\n  \"category\": \"general\",\n  \"source\": {\n    \"sha256\": \"d41d8cd98f00b204e9800998ecf8427e\"\n  },\n  \"classification\": {\n    \"level\": \"L1\",\n    \"score\": 25\n  },\n  \"lifecycle\": {\n    \"state\": \"approved\"\n  },\n  \"steps\": [\n    {\n      \"step_number\": 1,\n      \"title\": \"Check Local Network Interface\",\n      \"step_type\": \"command\",\n      \"command\": \"Get-NetIPAddress\",\n      \"shell\": \"powershell\",\n      \"timeout_seconds\": 30,\n      \"source_provenance\": {\n        \"raw_line_number\": 5,\n        \"verbatim_quote\": \"Verify local network connectivity.\"\n      }\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/governance/sops/{{sop_id}}/canonical",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "governance",
+                "sops",
+                "{{sop_id}}",
+                "canonical"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST Synchronize Canonical to Playbook (.md)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 or 400\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 400]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sop_id\": \"{{sop_id}}\",\n  \"category\": \"general\",\n  \"title\": \"Automated Application Maintenance Runbook\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/governance/sops/{{sop_id}}/sync-playbook",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "governance",
+                "sops",
+                "{{sop_id}}",
+                "sync-playbook"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Downstream Multi-Tenant Catalog",
+      "item": [
+        {
+          "name": "POST Search Catalog (Clearance & Tenant Filtered)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"Filtered results returned\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property(\"results\");",
+                  "    pm.expect(json).to.have.property(\"caller_clearance\");",
+                  "    pm.expect(json).to.have.property(\"caller_tenant\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"application password reset or unlock\",\n  \"tenant_id\": \"{{tenant_id}}\",\n  \"clearance_level\": \"L2\",\n  \"agent_id\": \"agent_ops_01\",\n  \"agent_persona\": \"Tier1_ServiceDesk\",\n  \"department\": \"IT Support\",\n  \"limit\": 10\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/governance/downstream/search",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "governance",
+                "downstream",
+                "search"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Downstream Catalog Metrics",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"Catalog index statistics valid\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property(\"total_indexed\");",
+                  "    pm.expect(json).to.have.property(\"tenant_id\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/governance/downstream/stats?tenant_id=tn_northwind",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "governance",
+                "downstream",
+                "stats"
+              ],
+              "query": [
+                {
+                  "key": "tenant_id",
+                  "value": "tn_northwind"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Dynamic Configuration & Hot-Reload",
+      "item": [
+        {
+          "name": "GET Dynamic Pipeline Configuration",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"Configuration blocks present\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property(\"file_upload\");",
+                  "    pm.expect(json).to.have.property(\"governance\");",
+                  "    pm.expect(json).to.have.property(\"llm_models\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/config",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "config"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST Hot-Reload Dynamic Configuration",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"Configuration update persisted\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.status).to.eql(\"success\");",
+                  "    pm.expect(json.config.governance.min_passing_score).to.eql(80.0);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"governance\": {\n    \"min_passing_score\": 80.0\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/config",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "config"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

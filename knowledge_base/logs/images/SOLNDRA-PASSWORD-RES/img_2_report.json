@@ -1,9 +1,0 @@
-{
-  "image_filename": "img_2.png",
-  "label": "Image 2 (inline, following the text above)",
-  "mime_type": "image/png",
-  "confidence_score": 0.0,
-  "confidence_level": "Low",
-  "confidence_reason": "VLM vision analysis failed or encountered an upstream API error.",
-  "vlm_report": "VLM Analysis FAILED (non-retryable error): HTTPSConnectionPool(host='ai.api.nvidia.com', port=443): Read timed out. (read timeout=60)"
-}

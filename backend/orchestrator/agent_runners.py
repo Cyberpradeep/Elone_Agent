@@ -336,7 +336,12 @@ def run_a2_structuring(task: TaskMessage, bus: Any) -> ResultMessage:
     # 2. Synthesis of OKF Draft Playbook & Canonical SOP JSON
     try:
         # pyrefly: ignore [missing-import]
-        draft = plan_okf_from_raw(filepath, feedback_override=feedback_errors if feedback_errors else None)
+        # Reuses already-extracted text from Agent A1 to prevent duplicate VLM OCR
+        draft = plan_okf_from_raw(
+            filepath,
+            feedback_override=feedback_errors if feedback_errors else None,
+            pre_extracted_text=cleaned_text or raw_text,
+        )
         # 2. Synthesis of OKF Draft Playbook & Canonical SOP JSON with real source metadata
         intake_meta = extracted_art.data.get("intake_meta", {}) if isinstance(extracted_art.data, dict) else {}
         if isinstance(intake_meta, (tuple, list)):
@@ -431,10 +436,14 @@ def run_a4_verification(task: TaskMessage, bus: Any) -> ResultMessage:
         frontmatter.get("target_os"),
         frontmatter.get("platform"),
         frontmatter.get("description"),
+        frontmatter.get("objective"),
+        frontmatter.get("scope"),
+        frontmatter.get("expected_outcome"),
         canonical_data.get("purpose", {}).get("text") if isinstance(canonical_data.get("purpose"), dict) else "",
         canonical_data.get("scope", {}).get("text") if isinstance(canonical_data.get("scope"), dict) else "",
         canonical_data.get("owner", {}).get("value") if isinstance(canonical_data.get("owner"), dict) else "",
         canonical_data.get("review_date", {}).get("value") if isinstance(canonical_data.get("review_date"), dict) else "",
+        canonical_data.get("expected_outcome", {}).get("text") if isinstance(canonical_data.get("expected_outcome"), dict) else "",
     ]
     if isinstance(frontmatter.get("trigger_words"), list):
         metadata_fields.extend(frontmatter.get("trigger_words"))

@@ -230,6 +230,20 @@ def trace_e2e_sop(sop_filepath: str, auto_approve: bool = False, tenant_id: str 
     title = canonical_data.get("title") or frontmatter.get("title", "Untitled SOP")
     steps = canonical_data.get("steps") or frontmatter.get("steps", [])
 
+    # Check if document was classified as unactionable (e.g. manual Web UI procedure)
+    is_exec = okf_draft.get("is_executable")
+    if is_exec is None:
+        is_exec = frontmatter.get("is_executable", True)
+    if is_exec is False:
+        unexec_reason = okf_draft.get("unexecutable_reason") or frontmatter.get("unexecutable_reason") or "SOP is not actionable as an automated procedure."
+        log_info("Pipeline", f"Stage 3 Early Exit: Document is unactionable ({unexec_reason}).")
+        print("\n" + "=" * 70)
+        print("  [PIPELINE HALT] Document is UNACTIONABLE.")
+        print(f"  Reason: {unexec_reason}")
+        print("  0 execution steps generated. Pipeline gracefully stopped before verification.")
+        print("=" * 70 + "\n")
+        return
+
     # Confidentiality Assessment: A2 -> A3 (assess)
     task_a3_conf = TaskMessage(
         correlation_id=correlation_id,
@@ -375,14 +389,34 @@ def trace_e2e_sop(sop_filepath: str, auto_approve: bool = False, tenant_id: str 
     if not auto_approve:
         print()
         log_warning("HITL Gate", f"The SOP '{title}' [{sop_id}] is staged and awaiting your governance decision.")
-        user_input = input("  Enter decision [A]pprove & Publish / [R]eject / [E]xit without publish: ").strip().lower()
-        if user_input.startswith("a"):
-            decision = "approve"
-        elif user_input.startswith("r"):
-            decision = "reject"
-        else:
-            log_info("HITL Gate", "Draft remains safely staged in _drafts/ awaiting future approval.")
-            return
+        # Drain any accidental keystrokes accumulated in stdin during stages 1-4
+        try:
+            import msvcrt
+            while msvcrt.kbhit():
+                msvcrt.getch()
+        except (ImportError, Exception):
+            pass
+
+        while True:
+            try:
+                user_input = input("  Enter decision [A]pprove & Publish / [R]eject / [E]xit without publish: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                log_info("HITL Gate", "Draft remains safely staged in _drafts/ awaiting future approval.")
+                return
+
+            if not user_input:
+                continue
+            if user_input.startswith("a"):
+                decision = "approve"
+                break
+            elif user_input.startswith("r"):
+                decision = "reject"
+                break
+            elif user_input.startswith("e") or user_input in {"exit", "quit", "q"}:
+                log_info("HITL Gate", "Draft remains safely staged in _drafts/ awaiting future approval.")
+                return
+            else:
+                print("  Invalid selection. Please enter 'A' to approve, 'R' to reject, or 'E' to exit.")
 
     # Record Decision via Agent A5 Runner
     task_a5_decision = TaskMessage(

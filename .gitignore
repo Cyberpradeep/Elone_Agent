@@ -3,7 +3,7 @@
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# Environment & Secrets (Never commit secrets or active API keys)
+# Environment & Secrets (Never commit secrets, tokens, or active API keys)
 # -----------------------------------------------------------------------------
 .env
 .env.*
@@ -11,6 +11,15 @@
 .env.*.local
 *.env
 !.env.example
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+service_account*.json
+credentials.json
+client_secret*.json
 
 # -----------------------------------------------------------------------------
 # Virtual Environments
@@ -36,9 +45,13 @@ __pycache__/
 .pytest_cache/
 .coverage
 .coverage.*
+coverage.xml
 htmlcov/
 .mypy_cache/
 .ruff_cache/
+.hypothesis/
+.deepeval/
+deepeval_test_cache/
 
 # -----------------------------------------------------------------------------
 # Packaging & Distribution
@@ -48,6 +61,8 @@ build/
 *.egg-info/
 *.egg
 .eggs/
+pip-wheel-metadata/
+pip-log.txt
 
 # -----------------------------------------------------------------------------
 # Operating System Artifacts
@@ -58,6 +73,7 @@ build/
 Thumbs.db
 ehthumbs.db
 [Dd]esktop.ini
+$RECYCLE.BIN/
 
 # -----------------------------------------------------------------------------
 # IDEs & Editor Files
@@ -67,11 +83,15 @@ ehthumbs.db
 *.swp
 *.swo
 *~
+*.sublime-workspace
+*.sublime-project
 
 # -----------------------------------------------------------------------------
-# Agent IDE, Observability & Local Database Storage
+# AI Agent IDE, Observability & Local Database Storage
 # -----------------------------------------------------------------------------
 .agents/
+.cursor/
+.windsurf/
 .phoenix/
 phoenix.db
 *.db
@@ -101,6 +121,7 @@ temp/
 # Knowledge Base Uploads, Drafts, Logs, Telemetry & Governance Runtime Data
 # -----------------------------------------------------------------------------
 *.log
+*.log.*
 logs/
 **/logs/
 knowledge_base/logs/
@@ -111,23 +132,28 @@ knowledge_base/_uploads/*
 !knowledge_base/_uploads/solndra_password_reset.docx
 !knowledge_base/_uploads/ARVpndetails.docx
 
-# Staged unapproved drafts & governance ledger runtime state
+# Staged unapproved drafts, trash, quarantine & governance runtime state
 **/_drafts/
+**/_trash/
+**/_quarantine/
 **/_governance_ledger.json
 **/_retrieval_catalog.json
 **/_processed_manifest.json
+**/_manifest.json
+*.bak
+*.old
 
-# API call usage tracker & temp cache
+# API call usage tracker, temporary trace artifacts & test SOPs
 **/daily_usage.json
 test_sop_*.txt
 quick_trace_*.txt
-# API call usage tracker & temp cache
-**/daily_usage.json
-test_sop_*.txt
-quick_trace_*.txt
-
-
-/docs
-docs
-.pdf_tools
 *SOP-TEST-*
+*.trace.json
+*.trace.txt
+
+# -----------------------------------------------------------------------------
+# PDF Processing Tools & Local Documentation
+# -----------------------------------------------------------------------------
+.pdf_tools/
+docs/
+/docs
