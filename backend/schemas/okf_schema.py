@@ -13,6 +13,11 @@ class OKFStepModel(BaseModel):
 
     step_number: int = Field(..., description="1-indexed step number")
     sop_step_description: str = Field(..., description="Description of the SOP step action")
+    source_quote: Optional[str] = Field(
+        None,
+        description="5-25 words copied verbatim from the source SOP that this step is based on. "
+                    "The canonical builder locates it in the document to verify traceability.",
+    )
     step_type: str = Field(..., description="Step type: 'tool_call' or 'command'")
     step_reasoning: Optional[str] = Field(
         None,

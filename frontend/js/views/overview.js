@@ -1,207 +1,216 @@
 /**
- * Elone Agent — Overview & Executive Governance Dashboard View
+ * Overview — pipeline health at a glance: KPIs, job funnel, recent jobs,
+ * scheduler, model routing and the security gates the backend reports.
  */
 
-export function renderOverview(data, state, actions) {
-  const stats = data.stats || {};
-  const telemetry = data.telemetry || {};
-  const scheduler = data.scheduler || {};
-  const gates = data.gates || [];
+import { api } from '../api.js';
+import { esc, icon, fmt, pill, jobPill, isUnlimited, jsonBlock, emptyState } from '../ui.js';
 
-  const quotaPct = telemetry.max_daily_calls > 0
-    ? Math.round((telemetry.total_calls / telemetry.max_daily_calls) * 100)
-    : 0;
+const FUNNEL = [
+  { label: 'In pipeline', states: ['received', 'extracting', 'scanning', 'structuring', 'assessing', 'correcting'], tone: 'info' },
+  { label: 'Awaiting review', states: ['awaiting_review', 'changes_requested'], tone: 'warning' },
+  { label: 'Approved', states: ['approved'], tone: 'success' },
+  { label: 'Published', states: ['published'], tone: 'success' },
+  { label: 'Halted', states: ['quarantined', 'rejected', 'failed', 'blocked', 'duplicate'], tone: 'danger' },
+];
 
+function kpi({ title, value, badge, badgeTone = '', sub = '', iconName, tone = '', href, extra = '' }) {
+  const tag = href ? `a href="${href}"` : 'div';
+  const close = href ? 'a' : 'div';
   return `
-    <div class="overview-view">
-      <!-- KPI Bento Grid -->
-      <div class="kpi-grid">
-        <div class="kpi-card">
-          <div class="kpi-card-header">
-            <span class="kpi-title">Verified Playbooks</span>
-            <div class="kpi-icon-wrap">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-            </div>
-          </div>
-          <div class="kpi-value-row">
-            <span class="kpi-value">${stats.total_playbooks || 0}</span>
-            <span class="kpi-badge badge-success">OKF Format</span>
-          </div>
-          <div class="kpi-subtext">Cryptographically signed with HMAC-SHA256</div>
-        </div>
-
-        <div class="kpi-card">
-          <div class="kpi-card-header">
-            <span class="kpi-title">Ingestion Success Rate</span>
-            <div class="kpi-icon-wrap" style="color: var(--success);">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-            </div>
-          </div>
-          <div class="kpi-value-row">
-            <span class="kpi-value">${stats.success_rate || 100}%</span>
-            <span class="kpi-badge badge-success">${stats.manifest_success || 0} Passed</span>
-          </div>
-          <div class="kpi-subtext">${stats.manifest_failed || 0} security rejected / quota halted</div>
-        </div>
-
-        <div class="kpi-card">
-          <div class="kpi-card-header">
-            <span class="kpi-title">Daily Call Quota</span>
-            <div class="kpi-icon-wrap" style="color: ${quotaPct > 80 ? 'var(--danger)' : 'var(--accent-secondary)'};">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-            </div>
-          </div>
-          <div class="kpi-value-row">
-            <span class="kpi-value">${telemetry.total_calls || 0} / ${telemetry.max_daily_calls || 50}</span>
-            <span class="kpi-badge ${quotaPct > 80 ? 'badge-danger' : 'badge-warning'}">${telemetry.calls_remaining || 0} left</span>
-          </div>
-          <div class="quota-gauge-wrapper">
-            <div class="gauge-track">
-              <div class="gauge-fill ${quotaPct > 80 ? 'warning' : ''}" style="width: ${Math.min(quotaPct, 100)}%;"></div>
-            </div>
-          </div>
-        </div>
-
-        <div class="kpi-card">
-          <div class="kpi-card-header">
-            <span class="kpi-title">Daily AI Expenditure</span>
-            <div class="kpi-icon-wrap" style="color: var(--warning);">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-            </div>
-          </div>
-          <div class="kpi-value-row">
-            <span class="kpi-value">$${Number(telemetry.total_cost_usd || 0).toFixed(4)}</span>
-            <span class="kpi-badge badge-warning">~₹${Number(telemetry.total_cost_inr || 0).toFixed(2)}</span>
-          </div>
-          <div class="kpi-subtext">Total Tokens: ${(telemetry.total_tokens || 0).toLocaleString()}</div>
-        </div>
+    <${tag} class="kpi-card">
+      <div class="kpi-card-header">
+        <span class="kpi-title">${esc(title)}</span>
+        <span class="kpi-icon-wrap ${tone ? `tone-${tone}` : ''}">${icon(iconName)}</span>
       </div>
+      <div class="kpi-value-row">
+        <span class="kpi-value">${value}</span>
+        ${badge ? `<span class="kpi-badge ${badgeTone}">${esc(badge)}</span>` : ''}
+      </div>
+      ${extra}
+      ${sub ? `<div class="kpi-subtext">${esc(sub)}</div>` : ''}
+    </${close}>`;
+}
 
-      <!-- Quick Action Bar -->
-      <div class="panel" style="padding: 16px 20px;">
-        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px;">
+function funnel(jobs) {
+  const counts = FUNNEL.map(f => jobs.filter(j => f.states.includes(j.current_state)).length);
+  const max = Math.max(1, ...counts);
+  return `
+    <div class="flow" role="list">
+      ${FUNNEL.map((f, i) => `
+        <a class="flow-step tone-${f.tone}" href="#/review" role="listitem" title="${esc(f.states.map(fmt.words).join(', '))}">
+          <span class="flow-count">${counts[i]}</span>
+          <span class="flow-label">${esc(f.label)}</span>
+          <span class="flow-bar"><i style="width:${Math.round((counts[i] / max) * 100)}%"></i></span>
+        </a>`).join('')}
+    </div>`;
+}
+
+function recentJobs(jobs) {
+  const rows = [...jobs].sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at))).slice(0, 6);
+  if (!rows.length) return emptyState({ icon: 'inbox', title: 'No jobs yet', text: 'Upload an SOP document to start the pipeline.', action: '<a class="btn btn-primary" href="#/ingestion">Ingest an SOP</a>' });
+  return `
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead><tr><th>SOP</th><th>State</th><th>Tenant</th><th>Updated</th></tr></thead>
+        <tbody>
+          ${rows.map(j => `
+            <tr>
+              <td><div class="id-cell">${esc(j.sop_id)}</div><div class="cell-sub">${esc(j.job_id)} · v${esc(j.version)}</div></td>
+              <td>${jobPill(j.current_state)}</td>
+              <td class="secondary">${esc(j.tenant_id)}</td>
+              <td class="nowrap"><div class="mono tiny">${fmt.date(j.updated_at)}</div><div class="cell-sub">${fmt.rel(j.updated_at)}</div></td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function schedulerPanel(s) {
+  return `
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">${icon('clock')}Background scheduler</div>
+        ${pill(s.running ? 'WATCHER ACTIVE' : 'STANDBY', s.running ? 'success' : 'warning')}
+      </div>
+      <div class="kv-list">
+        <div><span class="k">Scan interval</span><span class="v mono">${esc(s.interval_minutes ?? '—')} min</span></div>
+        <div><span class="k">Last run</span><span class="v">${fmt.date(s.last_run_at)} <span class="muted tiny">${fmt.rel(s.last_run_at)}</span></span></div>
+        <div><span class="k">Next run</span><span class="v">${fmt.date(s.next_run_at)} <span class="muted tiny">${fmt.rel(s.next_run_at)}</span></span></div>
+        <div><span class="k">Total runs</span><span class="v mono">${fmt.num(s.total_runs || 0)}</span></div>
+      </div>
+      ${s.last_run_summary ? `<details class="accordion" style="margin-top:12px"><summary>Last run summary</summary><div class="acc-body">${jsonBlock(s.last_run_summary)}</div></details>` : ''}
+      <button class="btn btn-secondary" style="margin-top:14px;width:100%" data-action="run-scan">${icon('refresh')}Run scan now</button>
+    </div>`;
+}
+
+function modelsPanel(models) {
+  const entries = Object.entries(models || {});
+  return `
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">${icon('database')}Model routing</div>
+        <span class="badge-tag">${entries.length} roles</span>
+      </div>
+      ${entries.length ? `
+        <div class="kv-list">
+          ${entries.map(([role, cfg]) => {
+            const c = typeof cfg === 'object' && cfg ? cfg : { model: cfg };
+            const fb = Array.isArray(c.fallbacks) ? c.fallbacks.length : 0;
+            return `<div>
+              <span class="k">${esc(fmt.words(role))}</span>
+              <span class="v"><span class="mono">${esc([c.provider, c.model].filter(Boolean).join(' / ') || '—')}</span>${fb ? `<div class="tiny muted">${fb} fallback${fb > 1 ? 's' : ''}</div>` : ''}</span>
+            </div>`;
+          }).join('')}
+        </div>` : '<p class="muted small">No model routing reported.</p>'}
+    </div>`;
+}
+
+function gatesPanel(gates) {
+  return `
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">${icon('shield')}Security gates</div>
+          <div class="panel-subtitle">Safeguards between an uploaded document and a published playbook, as reported by the backend.</div>
+        </div>
+        ${pill(`${gates.length} reported`, 'info')}
+      </div>
+      ${gates.map(g => `
+        <details class="accordion">
+          <summary><span class="row" style="gap:10px;flex-wrap:nowrap"><span class="badge-tag">Gate ${esc(g.gate_id)}</span><span>${esc(g.name)}</span></span>${pill(String(g.status || 'active').toUpperCase(), g.status === 'active' ? 'success' : 'warning')}</summary>
+          <div class="acc-body">
+            <div class="tiny muted" style="margin-bottom:6px">${esc(g.phase)}</div>
+            <ul>${(g.rules || []).map(r => `<li>${esc(r)}</li>`).join('')}</ul>
+          </div>
+        </details>`).join('')}
+    </div>`;
+}
+
+export default {
+  id: 'overview',
+  label: 'Overview',
+  icon: 'dashboard',
+  title: 'Governance overview',
+  subtitle: 'Pipeline health, reviews waiting on a human, and today\'s AI usage.',
+  refreshMs: 20000,
+
+  async load(ctx) {
+    const [overview, jobs, tasks, incidents] = await Promise.all([
+      api.getOverview(),
+      api.getGovernanceJobs().catch(() => ({ jobs: [] })),
+      api.getReviewTasks().catch(() => ({ tasks: [] })),
+      api.getIncidents().catch(() => ({ incidents: [] })),
+    ]);
+    const pending = (tasks.tasks || []).filter(t => t.status === 'pending');
+    ctx.setBadges({ playbooks: overview.stats?.total_playbooks ?? null, pending: pending.length });
+    return { overview, jobs: jobs.jobs || [], tasks: tasks.tasks || [], pending, incidents: incidents.incidents || [] };
+  },
+
+  render({ overview, jobs, pending, incidents }) {
+    const stats = overview.stats || {};
+    const t = overview.telemetry || {};
+    const unlimited = isUnlimited(t.max_daily_calls);
+    const quotaPct = !unlimited && t.max_daily_calls > 0 ? Math.round((t.total_calls / t.max_daily_calls) * 100) : 0;
+    const overdue = pending.filter(p => p.is_overdue).length;
+
+    return `
+      <div class="view-stack">
+        <div class="hero">
           <div>
-            <h4 style="font-size: 15px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px;">Governance Operations Control</h4>
-            <p style="font-size: 12px; color: var(--text-muted);">Manage real-time SOP document ingestion, run security audits, and trigger pipeline syncs.</p>
+            <h3>${pending.length ? `${pending.length} review${pending.length > 1 ? 's' : ''} waiting on a human` : 'Nothing is waiting on you'}</h3>
+            <p>${pending.length
+              ? `${overdue ? `${overdue} overdue. ` : ''}An SOP can't be published until someone other than its uploader approves it.`
+              : 'Upload a document to run it through extraction, secret scanning, structuring and verification.'}</p>
           </div>
-          <div style="display: flex; flex-wrap: wrap; gap: 10px;">
-            <button class="btn btn-primary" onclick="window.switchTab('ingestion')">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              Upload & Ingest SOP
-            </button>
-            <button class="btn btn-secondary" id="btn-trigger-scan">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-              Trigger Full Scan Cycle
-            </button>
-            <button class="btn btn-outline" onclick="window.switchTab('pipeline')">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
-              Inspect 7 Gates
-            </button>
+          <div class="row">
+            <a class="btn btn-primary" href="#/ingestion">${icon('upload')}Ingest an SOP</a>
+            ${pending.length ? `<a class="btn btn-secondary" href="#/review">${icon('review')}Open review queue</a>` : ''}
           </div>
         </div>
-      </div>
 
-      <!-- Two Column Layout: Pipeline Gates Overview + Provider & Scheduler Status -->
-      <div style="display: grid; grid-template-columns: 1.4fr 1fr; gap: 24px;">
-        <!-- Left: 7 Active Security Gates -->
+        <div class="kpi-grid kpi-6">
+          ${kpi({ title: 'Published playbooks', value: fmt.num(stats.total_playbooks || 0), badge: 'HMAC signed', badgeTone: 'badge-success', sub: `${fmt.num(stats.total_uploads || 0)} files in the uploads folder`, iconName: 'book', href: '#/playbooks' })}
+          ${kpi({ title: 'Pending reviews', value: fmt.num(pending.length), badge: overdue ? `${overdue} overdue` : '', badgeTone: 'badge-danger', sub: 'Dual-custody approval required', iconName: 'review', tone: pending.length ? 'warning' : 'success', href: '#/review' })}
+          ${kpi({ title: 'Quarantine incidents', value: fmt.num(incidents.length), sub: incidents.length ? 'Documents halted by the secret scanner' : 'No secrets detected so far', iconName: 'lock', tone: incidents.length ? 'danger' : 'success', href: '#/review' })}
+          ${kpi({ title: 'Ingestion success', value: `${stats.success_rate ?? 100}<small>%</small>`, badge: `${stats.manifest_success || 0} ok`, badgeTone: 'badge-success', sub: `${stats.manifest_failed || 0} failed of ${stats.manifest_total || 0} processed`, iconName: 'check', tone: 'success' })}
+          ${kpi({
+            title: 'AI calls today',
+            value: fmt.num(t.total_calls || 0),
+            badge: unlimited ? 'No daily cap' : `${t.calls_remaining ?? 0} left`,
+            badgeTone: quotaPct > 80 ? 'badge-danger' : '',
+            iconName: 'chart', tone: quotaPct > 80 ? 'danger' : 'info', href: '#/telemetry',
+            extra: unlimited ? '' : `<div class="gauge-track" role="progressbar" aria-valuenow="${quotaPct}" aria-valuemin="0" aria-valuemax="100" aria-label="Daily quota used"><div class="gauge-fill ${quotaPct > 80 ? 'danger' : ''}" style="width:${Math.min(quotaPct, 100)}%"></div></div>`,
+          })}
+          ${kpi({ title: 'AI spend today', value: fmt.usd(t.total_cost_usd), badge: fmt.inr(t.total_cost_inr), sub: `${fmt.num(t.total_tokens || 0)} tokens`, iconName: 'database', tone: 'warning', href: '#/telemetry' })}
+        </div>
+
         <div class="panel">
           <div class="panel-header">
             <div>
-              <div class="panel-title">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                7-Gate Ingestion Security Architecture
-              </div>
-              <div class="panel-subtitle">Multi-layered deterministic & LLM defense enforcing OWASP Top 10 for LLMs</div>
+              <div class="panel-title">${icon('refresh')}Job lifecycle</div>
+              <div class="panel-subtitle">Where every ingested SOP currently sits in the orchestrator.</div>
             </div>
-            <span class="status-pill status-success">All 7 Active</span>
+            <span class="badge-tag">${jobs.length} jobs</span>
           </div>
+          ${funnel(jobs)}
+        </div>
 
-          <div style="display: flex; flex-direction: column; gap: 10px;">
-            ${gates.map(gate => `
-              <div style="background: var(--bg-secondary); border: 1px solid var(--card-border); border-radius: var(--radius-sm); padding: 12px 16px; display: flex; align-items: center; justify-content: space-between;">
-                <div style="display: flex; align-items: center; gap: 12px;">
-                  <span style="font-family: var(--font-mono); font-size: 11px; font-weight: 700; background: rgba(99, 102, 241, 0.15); color: #a5b4fc; padding: 2px 7px; border-radius: 4px; border: 1px solid rgba(99, 102, 241, 0.3);">Gate ${gate.gate_id}</span>
-                  <div>
-                    <div style="font-size: 13px; font-weight: 600; color: var(--text-primary);">${gate.name}</div>
-                    <div style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">${gate.module}</div>
-                  </div>
-                </div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                  <span class="status-pill status-success" style="font-size: 10px; padding: 2px 7px;">ENFORCING</span>
-                </div>
-              </div>
-            `).join('')}
+        <div class="grid-main-side">
+          <div class="panel panel-flush">
+            <div class="panel-header">
+              <div class="panel-title">${icon('file')}Recent jobs</div>
+              <a class="btn btn-sm btn-outline" href="#/review">View all</a>
+            </div>
+            ${recentJobs(jobs)}
+          </div>
+          <div class="stack">
+            ${schedulerPanel(overview.scheduler || {})}
+            ${modelsPanel(overview.models)}
           </div>
         </div>
 
-        <!-- Right: Multi-Model Orchestration & Scheduler Telemetry -->
-        <div style="display: flex; flex-direction: column; gap: 24px;">
-          <!-- Multi-Model Routing Status -->
-          <div class="panel">
-            <div class="panel-header">
-              <div class="panel-title">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>
-                Multi-Model Orchestration
-              </div>
-              <span class="status-pill status-info">Active Matrix</span>
-            </div>
-
-            <div style="display: flex; flex-direction: column; gap: 12px; font-size: 12px;">
-              <div style="background: var(--bg-tertiary); padding: 10px 14px; border-radius: var(--radius-sm); border: 1px solid var(--card-border); display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                  <span style="color: var(--text-muted); font-size: 10px; font-weight: 700; text-transform: uppercase;">Planning & Conversion:</span>
-                  <div style="font-weight: 700; color: #818cf8; font-family: var(--font-mono);">gemini-2.5-flash</div>
-                </div>
-                <span class="status-pill status-success" style="font-size: 10px;">Primary</span>
-              </div>
-
-              <div style="background: var(--bg-tertiary); padding: 10px 14px; border-radius: var(--radius-sm); border: 1px solid var(--card-border); display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                  <span style="color: var(--text-muted); font-size: 10px; font-weight: 700; text-transform: uppercase;">Layer 2 Validation:</span>
-                  <div style="font-weight: 700; color: #38bdf8; font-family: var(--font-mono);">mistral-small-latest</div>
-                </div>
-                <span class="status-pill status-success" style="font-size: 10px;">Audit Head</span>
-              </div>
-
-              <div style="background: var(--bg-tertiary); padding: 10px 14px; border-radius: var(--radius-sm); border: 1px solid var(--card-border); display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                  <span style="color: var(--text-muted); font-size: 10px; font-weight: 700; text-transform: uppercase;">Screenshot & VLM OCR:</span>
-                  <div style="font-weight: 700; color: #34d399; font-family: var(--font-mono);">llama-3.2-11b-vision / nvidia</div>
-                </div>
-                <span class="status-pill status-success" style="font-size: 10px;">Vision Head</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Background Polling Worker Status -->
-          <div class="panel">
-            <div class="panel-header">
-              <div class="panel-title">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                Background Polling Scheduler
-              </div>
-              <span class="status-pill ${scheduler.running ? 'status-success' : 'status-warning'}">
-                ${scheduler.running ? 'WATCHER ACTIVE' : 'STANDBY'}
-              </span>
-            </div>
-
-            <div style="display: flex; flex-direction: column; gap: 8px; font-size: 12px; color: var(--text-secondary);">
-              <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--card-border);">
-                <span>Scan Interval:</span>
-                <strong style="color: var(--text-primary); font-family: var(--font-mono);">${scheduler.interval_minutes || 10} minutes</strong>
-              </div>
-              <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--card-border);">
-                <span>Total Runs Executed:</span>
-                <strong style="color: var(--text-primary); font-family: var(--font-mono);">${scheduler.total_runs || 0} cycles</strong>
-              </div>
-              <div style="display: flex; justify-content: space-between; padding: 6px 0;">
-                <span>Monitored Target:</span>
-                <code style="color: #a5b4fc; font-size: 11px;">knowledge_base/_uploads/</code>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-}
+        ${gatesPanel(overview.gates || [])}
+      </div>`;
+  },
+};

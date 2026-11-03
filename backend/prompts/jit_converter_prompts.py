@@ -138,6 +138,7 @@ Output JSON:
         {
             "step_number": 1,
             "sop_step_description": "Verify endpoint network connectivity before performing remote diagnostics.",
+            "source_quote": "Verify connectivity to <ComputerName> via Test-Connection",
             "step_type": "command",
             "step_reasoning": "Step 1 connectivity check using Test-Connection with {{entities.hostname}}.",
             "platform": null,
@@ -154,6 +155,7 @@ Output JSON:
         {
             "step_number": 2,
             "sop_step_description": "Query IFEO registry key to check if application is blocked by a Debugger entry.",
+            "source_quote": "Query registry at HKLM for Debugger property",
             "step_type": "command",
             "step_reasoning": "Diagnostic check inspecting registry. Gated on endpoint reachability.",
             "platform": null,
@@ -170,6 +172,7 @@ Output JSON:
         {
             "step_number": 3,
             "sop_step_description": "Remove IFEO Debugger registry value or full key to unblock execution.",
+            "source_quote": "If Debugger is present, delete it",
             "step_type": "command",
             "step_reasoning": "Corrective remediation gated on variables.ifeo_blocked == true. Includes full key delete fallback.",
             "platform": null,
@@ -186,6 +189,7 @@ Output JSON:
         {
             "step_number": 4,
             "sop_step_description": "Refresh local Group Policy to apply unblock changes immediately.",
+            "source_quote": "Run gpupdate /force",
             "step_type": "command",
             "step_reasoning": "Mandatory policy refresh following registry modification.",
             "platform": null,
@@ -202,6 +206,7 @@ Output JSON:
         {
             "step_number": 5,
             "sop_step_description": "Verify IFEO block removal by re-querying the target registry key.",
+            "source_quote": "Verify removal by querying registry again",
             "step_type": "command",
             "step_reasoning": "Automated verification step to confirm Debugger entry is gone.",
             "platform": null,
@@ -218,6 +223,14 @@ Output JSON:
     ]
 }
 ```
+
+## SOURCE QUOTE MANDATE (TRACEABILITY):
+- Every object in "steps" MUST include "source_quote": 5 to 25 words copied WORD-FOR-WORD from the SOP text inside <untrusted_document_payload> that this step is based on.
+- Copy the text exactly as written: same words, same order, same spelling. Do NOT paraphrase, summarize, translate, merge two sentences, or reuse your own "sop_step_description".
+- Quote only the SOP's own text, never an image analysis report or anything you wrote yourself.
+- If one document sentence drives several steps, quote the relevant part of it in each of those steps.
+- If the document has no text that supports a step, do NOT invent a quote. Leave that step out.
+- Each quote is later searched for in the document. A quote that cannot be found marks the step as unverified.
 
 ## JSON SYNTAX AND INTEGRITY MANDATE:
 - Return ONLY valid, parseable, complete JSON inside the ```json codeblock.
@@ -306,6 +319,7 @@ Output JSON:
         {
             "step_number": 1,
             "sop_step_description": "Search user in Auth0 to check account lock status.",
+            "source_quote": "Search the user in Auth0 to check whether the account is locked",
             "step_type": "tool_call",
             "step_reasoning": "Gate 1-4 PASS: Auth0 function 'search_user' maps to search step with required 'user_id'.",
             "platform": "auth0",
@@ -324,6 +338,7 @@ Output JSON:
         {
             "step_number": 2,
             "sop_step_description": "Unlock user account and generate temporary password in Auth0.",
+            "source_quote": "Unlock the account and generate a temporary password",
             "step_type": "tool_call",
             "step_reasoning": "Gate 1-4 PASS: 'unlock_user_account' performs unlock. Gated on variables.account_status == 'Locked'.",
             "platform": "auth0",
@@ -342,6 +357,7 @@ Output JSON:
         {
             "step_number": 3,
             "sop_step_description": "Send confirmation email to user containing their temporary password.",
+            "source_quote": "Email the temporary password to the user",
             "step_type": "tool_call",
             "step_reasoning": "Gate 1-4 PASS: Email platform 'send_email' function sends notification with chained temporary password from Step 2.",
             "platform": "email",
@@ -362,6 +378,14 @@ Output JSON:
     ]
 }
 ```
+
+## SOURCE QUOTE MANDATE (TRACEABILITY):
+- Every object in "steps" MUST include "source_quote": 5 to 25 words copied WORD-FOR-WORD from the SOP text inside <untrusted_document_payload> that this step is based on.
+- Copy the text exactly as written: same words, same order, same spelling. Do NOT paraphrase, summarize, translate, merge two sentences, or reuse your own "sop_step_description".
+- Quote only the SOP's own text, never an image analysis report or anything you wrote yourself.
+- If one document sentence drives several steps, quote the relevant part of it in each of those steps.
+- If the document has no text that supports a step, do NOT invent a quote. Leave that step out.
+- Each quote is later searched for in the document. A quote that cannot be found marks the step as unverified.
 
 ## JSON SYNTAX AND INTEGRITY MANDATE:
 - Return ONLY valid, parseable, complete JSON inside the ```json codeblock.
@@ -449,6 +473,7 @@ Output JSON:
         {
             "step_number": 1,
             "sop_step_description": "Query Windows Application Event Log for recent crash Event ID 1000.",
+            "source_quote": "Query the application event log",
             "step_type": "command",
             "step_reasoning": "CLI command: queries local event log on target hostname.",
             "platform": null,
@@ -465,6 +490,7 @@ Output JSON:
         {
             "step_number": 2,
             "sop_step_description": "Create an incident ticket in Solandra with the extracted crash logs.",
+            "source_quote": "Create an incident ticket in Solandra with the crash logs",
             "step_type": "tool_call",
             "step_reasoning": "API tool: Solandra 'create_incident_ticket' populated with crash_log variable from Step 1.",
             "platform": "solandra",
@@ -485,6 +511,7 @@ Output JSON:
         {
             "step_number": 3,
             "sop_step_description": "Send notification email to user with the generated ticket ID.",
+            "source_quote": "Send the ticket number to the user by email",
             "step_type": "tool_call",
             "step_reasoning": "API tool: Email platform sends ticket notification containing dynamic ticket_id from Step 2.",
             "platform": "email",
@@ -505,6 +532,14 @@ Output JSON:
     ]
 }
 ```
+
+## SOURCE QUOTE MANDATE (TRACEABILITY):
+- Every object in "steps" MUST include "source_quote": 5 to 25 words copied WORD-FOR-WORD from the SOP text inside <untrusted_document_payload> that this step is based on.
+- Copy the text exactly as written: same words, same order, same spelling. Do NOT paraphrase, summarize, translate, merge two sentences, or reuse your own "sop_step_description".
+- Quote only the SOP's own text, never an image analysis report or anything you wrote yourself.
+- If one document sentence drives several steps, quote the relevant part of it in each of those steps.
+- If the document has no text that supports a step, do NOT invent a quote. Leave that step out.
+- Each quote is later searched for in the document. A quote that cannot be found marks the step as unverified.
 
 ## JSON SYNTAX AND INTEGRITY MANDATE:
 - Return ONLY valid, parseable, complete JSON inside the ```json codeblock.
@@ -532,6 +567,14 @@ Below are the registered IT Tool Platforms available in the system:
 DYNAMIC TOOL INSPECTION RULES:
 - `get_platform_tools(platform_name=...)`: Fetch exact functions, parameters, and response schemas.
 - `list_available_platforms()`: Get registered platforms.
+
+## SOURCE QUOTE MANDATE (TRACEABILITY):
+- Every object in "steps" MUST include "source_quote": 5 to 25 words copied WORD-FOR-WORD from the SOP text inside <untrusted_document_payload> that this step is based on.
+- Copy the text exactly as written: same words, same order, same spelling. Do NOT paraphrase, summarize, translate, merge two sentences, or reuse your own "sop_step_description".
+- Quote only the SOP's own text, never an image analysis report or anything you wrote yourself.
+- If one document sentence drives several steps, quote the relevant part of it in each of those steps.
+- If the document has no text that supports a step, do NOT invent a quote. Leave that step out.
+- Each quote is later searched for in the document. A quote that cannot be found marks the step as unverified.
 
 ## OUTPUT JSON SCHEMA MANDATE
 ```json
@@ -564,6 +607,7 @@ DYNAMIC TOOL INSPECTION RULES:
         {{
             "step_number": 1,
             "sop_step_description": "Detailed step objective",
+            "source_quote": "5-25 words copied word-for-word from the SOP text for this step",
             "step_type": "tool_call | command",
             "step_reasoning": "Gate 1-4 result and why tool_call/command was chosen.",
             "platform": "platform name from REGISTERED API TOOLS CATALOG (only for tool_call, else null)",
