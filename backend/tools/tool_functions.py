@@ -33,13 +33,20 @@ def get_platform_tools(platform_name: str) -> Dict[str, Any]:
     if schema:
         return schema
 
-    available = list(DETAILED_TOOL_SCHEMAS.keys())
+    valid_platforms = get_all_valid_platform_names()
     return {
-        "error": f"Platform '{platform_name}' not found.",
-        "available_platforms": available,
-        "hint": f"Please choose from: {', '.join(available)}"
+        "found": False,
+        "platform": platform_name,
+        "error": f"Platform '{platform_name}' is not available in the tool catalog.",
+        "available_platforms": valid_platforms,
+        "directive": (
+            f"No registered platform tool exists for '{platform_name}'. "
+            "Do NOT invent or hallucinate tool calls in 'steps'. "
+            f"Record any action requiring '{platform_name}' under 'source_action_coverage' as "
+            "'unsupported_required' with step_number=null and a clear reason explaining that "
+            f"no platform tool is available for '{platform_name}'."
+        ),
     }
 
 
 DYNAMIC_CATALOG_TOOLS = [get_platform_tools, list_available_platforms]
-

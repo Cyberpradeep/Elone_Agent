@@ -44,7 +44,7 @@ Return raw valid JSON only:
 {
     "classification": "command | tool_call | hybrid | unactionable",
     "target_os": "windows | cross-platform",
-    "detected_platforms": ["auth0", "solandra", "coreid", "email", "airretailer", "mock"],
+    "detected_platforms": ["candidate_platform_name"],
     "requires_shell": true,
     "is_executable": true,
     "unexecutable_reason": null,
@@ -241,6 +241,46 @@ Output JSON:
         }
     ]
 }
+
+## IN-CONTEXT TOOL CALL EXEMPLAR 2 (UNSUPPORTED TOOL GAP REPORTING):
+Raw SOP: "Create an incident in Jira and send a Slack message to the ops channel. Step 1: Open Jira and create issue with summary and project key. Step 2: Post notification to Slack channel."
+
+Output JSON:
+```json
+{
+    "sop_id": "SOP-L1-UNSUPPORTED-001",
+    "title": "Incident Escalation via Jira and Slack",
+    "platform": "cross-platform",
+    "category": "incident_management",
+    "target_os": "cross-platform",
+    "description": "Procedure to log an incident in Jira and notify operations via Slack.",
+    "confidence_score": 0.0,
+    "confidence_level": "Low",
+    "confidence_reason": "No registered platform tools available for Jira or Slack in current catalog.",
+    "is_executable": false,
+    "unexecutable_reason": "Missing required platform tools: Jira and Slack integrations are not available in the tool catalog.",
+    "automation_status": "needs_review",
+    "required_entities": ["issue_summary", "project_key", "slack_channel"],
+    "trigger_words": ["jira", "slack", "incident", "ticket"],
+    "source_action_coverage": [
+        {
+            "source_action": "Create issue in Jira",
+            "coverage": "unsupported_required",
+            "step_number": null,
+            "tool": null,
+            "reason": "No registered platform tool found for 'Jira'. Action cannot be automated."
+        },
+        {
+            "source_action": "Post notification to Slack channel",
+            "coverage": "unsupported_required",
+            "step_number": null,
+            "tool": null,
+            "reason": "No registered platform tool found for 'Slack'. Action cannot be automated."
+        }
+    ],
+    "steps": []
+}
+```
 ```
 
 ## SOURCE QUOTE MANDATE (TRACEABILITY):
@@ -307,9 +347,19 @@ You MUST follow these 6 reasoning stages in exact numerical order:
 ## AGENT-NATIVE SOURCE COVERAGE CONTRACT
 - Produce executable `steps` ONLY for registered tools. Do not emit human, GUI, verbal, ticket-reading, or empty placeholder steps.
 - CRITICAL: The 'steps' array MUST contain ONLY executable steps where "step_type" is strictly "tool_call". NEVER emit "step_type": "manual_ui_omitted" in 'steps'. Explanations of omitted UI or human actions belong EXCLUSIVELY inside 'source_action_coverage'.
-- Add `source_action_coverage` for every meaningful source action. Use `tool_covered` when a registered tool reaches the same operational outcome, even if the SOP describes UI clicks; use `manual_ui_omitted` for intentionally non-executable human/UI instructions; use `unsupported_required` only when a required action has no registered tool.
-- For operating-system branches, create a conditional tool step when a registered tool exists, using an explicit condition such as `entities.os == 'mac'`.
-- Set `automation_status` to `fully_automated`, `partially_automated`, or `needs_review`. Do not claim `fully_automated` when `unsupported_required` entries exist.
+- ZERO-HALLUCINATION MISSING TOOL MANDATE:
+  * When an SOP action requires an external platform or API that is NOT registered in our catalog (e.g. Jira, ServiceNow, Slack, AWS, Datadog):
+  * You must NEVER invent, fabricate, or hallucinate tool names in the 'steps' array (e.g. NEVER add "platform": "jira" to 'steps' if Jira is not in the catalog).
+  * If a platform tool is not available in our catalog, do NOT emit an executable step for it.
+  * In 'source_action_coverage', record the missing action with:
+      "source_action": "<Exact action described in SOP>",
+      "coverage": "unsupported_required",
+      "step_number": null,
+      "tool": null,
+      "reason": "No registered platform tool available for '<Platform>'. Action cannot be automated."
+  * Set "automation_status" to "partially_automated" (if other steps are automated) or "needs_review".
+  * If all or core required actions cannot be automated due to missing tools, set "is_executable": false and explain the missing tool gap in "unexecutable_reason".
+- Add `source_action_coverage` for every meaningful source action. Use `tool_covered` when a registered tool reaches the same operational outcome; use `manual_ui_omitted` for intentionally non-executable human/UI instructions; use `unsupported_required` only when a required action has no registered tool.
 
 ## IN-CONTEXT TOOL CALL EXEMPLAR:
 Raw SOP: "Account Unlock Procedure. Step 1: Open Auth0 and search for user by user_id. Step 2: If status is Locked, click Unlock Account and generate a temporary password. Step 3: Send temporary password to user's email via Email service."
@@ -396,6 +446,63 @@ Output JSON:
         }
     ]
 }
+
+## IN-CONTEXT HYBRID EXEMPLAR 2 (PARTIAL TOOL GAP REPORTING):
+Raw SOP: "IIS Web Service Restart with Jira Ticket. Step 1: Run iisreset in PowerShell to restart web services. Step 2: Create a tracking ticket in Jira with the restart timestamp."
+
+Output JSON:
+```json
+{
+    "sop_id": "SOP-L1-HYBRID-002",
+    "title": "IIS Web Service Restart with Incident Tracking",
+    "platform": "system",
+    "category": "software",
+    "target_os": "windows",
+    "description": "Restarts local IIS web services via PowerShell and notes tracking ticket requirement.",
+    "confidence_score": 0.75,
+    "confidence_level": "Medium",
+    "confidence_reason": "PowerShell restart step is automated; Jira ticket creation is flagged as unsupported tool gap.",
+    "is_executable": false,
+    "unexecutable_reason": "Missing required platform tool integration: Jira (Tracking ticket creation).",
+    "automation_status": "partially_automated",
+    "required_entities": ["hostname"],
+    "trigger_words": ["iisreset", "web", "jira", "restart"],
+    "source_action_coverage": [
+        {
+            "source_action": "Run iisreset in PowerShell",
+            "coverage": "command_covered",
+            "step_number": 1,
+            "reason": "PowerShell command executes local IIS service restart."
+        },
+        {
+            "source_action": "Create a tracking ticket in Jira",
+            "coverage": "unsupported_required",
+            "step_number": null,
+            "tool": null,
+            "reason": "No registered platform tool found for 'Jira'. Action cannot be automated."
+        }
+    ],
+    "steps": [
+        {
+            "step_number": 1,
+            "sop_step_description": "Restart local IIS web service via PowerShell.",
+            "source_quote": "Run iisreset in PowerShell",
+            "step_type": "command",
+            "step_reasoning": "CLI command: restarts local IIS server services.",
+            "platform": null,
+            "function_name": null,
+            "comm_inputs": null,
+            "command": "iisreset",
+            "shell": "powershell",
+            "fallback_command": null,
+            "fallback_sop_id": null,
+            "parse_instruction": "If exit code is 0, set variables.iis_restarted = true, else set variables.iis_restarted = false",
+            "execute_if": null,
+            "timeout_seconds": 60
+        }
+    ]
+}
+```
 ```
 
 ## SOURCE QUOTE MANDATE (TRACEABILITY):
@@ -461,6 +568,15 @@ You MUST follow these 8 reasoning stages in exact numerical order:
 
 ## AGENT-NATIVE SOURCE COVERAGE CONTRACT
 - The playbook is for agent execution, not a human SOP transcript. Keep `steps` restricted to registered tools and approved commands.
+- ZERO-HALLUCINATION MISSING TOOL MANDATE:
+  * When an SOP requires an external platform tool not in our catalog (e.g. Jira, ServiceNow, Slack, AWS), NEVER invent or emit fake tool calls in 'steps'.
+  * Omit unsupported tool actions from 'steps' and record them in 'source_action_coverage' with:
+      "source_action": "<Action>",
+      "coverage": "unsupported_required",
+      "step_number": null,
+      "tool": null,
+      "reason": "No registered platform tool available for '<Platform>'. Action cannot be automated."
+  * Set "automation_status" to "partially_automated" or "needs_review". If required actions are missing, set "is_executable": false.
 - Add `source_action_coverage` for each meaningful source action using `tool_covered`, `command_covered`, `manual_ui_omitted`, or `unsupported_required`.
 - A registered tool covers a source UI workflow when it achieves the same operational outcome. Include conditional OS-specific tools with conditions such as `entities.os == 'mac'`.
 - Set `automation_status` to `fully_automated`, `partially_automated`, or `needs_review`.

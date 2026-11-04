@@ -78,7 +78,7 @@ _DEFAULT_CONFIG: Dict[str, Any] = {
         "unlimited_daily_calls": True,
         "sop_scan_interval_minutes": 10,
     },
-    "execution_mode": "command_only",
+    "execution_mode": "auto",
 }
 
 
@@ -254,7 +254,7 @@ class PipelineSettings:
 
     @property
     def execution_mode(self) -> str:
-        return str(self._cached_config.get("execution_mode", "command_only")).strip().lower()
+        return str(self._cached_config.get("execution_mode", "auto")).strip().lower()
 
 
 # Global singleton instance

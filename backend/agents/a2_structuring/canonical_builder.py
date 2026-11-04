@@ -214,7 +214,7 @@ def build_canonical_sop_from_draft(
             quote = doc_excerpt if doc_excerpt else action
 
 
-        canonical_steps.append({
+        canonical_step = {
             "n": idx,
             "action": action,
             "input": inp,
@@ -226,7 +226,18 @@ def build_canonical_sop_from_draft(
             "source_lines": line_range,
             "quote": quote,
             "verified": False,
-        })
+        }
+        if s.get("step_type") == "tool_call":
+            canonical_step["step_type"] = "tool_call"
+            canonical_step["platform"] = s.get("platform")
+            canonical_step["function_name"] = s.get("function_name")
+            canonical_step["comm_inputs"] = s.get("comm_inputs") or {}
+        else:
+            canonical_step["step_type"] = s.get("step_type", "command")
+            if s.get("shell"):
+                canonical_step["shell"] = s.get("shell")
+
+        canonical_steps.append(canonical_step)
 
     verified_quotes_count = 0
     if source_lines:

@@ -247,6 +247,42 @@ def test_plan_validator_missing_required_input():
     is_valid, errors = validate_plan_faithfulness_and_linkage("short", plan)
     assert is_valid is False
     assert any("missing required input parameter" in e.lower() for e in errors)
+
+def test_plan_validator_missing_tool_gap_reporting():
+    """Test that Layer 1 validates transparent reporting of missing tools via unsupported_required."""
+    print("\n[TEST] Plan Validator Layer 1 (Missing Tool Gap Reporting)...")
+    from agents.a4_verification import validate_plan_faithfulness_and_linkage
+
+    plan = {
+        "automation_status": "partially_automated",
+        "is_executable": False,
+        "source_action_coverage": [
+            {
+                "source_action": "Restart IIS web service",
+                "coverage": "command_covered",
+                "step_number": 1,
+            },
+            {
+                "source_action": "Create tracking ticket in Jira",
+                "coverage": "unsupported_required",
+                "step_number": None,
+                "reason": "No registered platform tool found for 'Jira'. Action cannot be automated.",
+            }
+        ],
+        "steps": [
+            {
+                "step_number": 1,
+                "step_type": "command",
+                "command": "iisreset",
+                "shell": "powershell",
+            }
+        ]
+    }
+    is_valid, errors = validate_plan_faithfulness_and_linkage("short", plan)
+    assert is_valid is True, f"Expected valid, got errors: {errors}"
+    assert len(errors) == 0
+    print("  [PASS] Missing tool gap cleanly documented in source_action_coverage without fake steps.")
+
 def test_plan_validator_variable_linkage_success():
     """Test that Layer 1 passes when execute_if correctly references variables extracted in preceding steps."""
     print("\n[TEST] Plan Validator Layer 1 (Variable Linkage Success)...")
@@ -580,8 +616,12 @@ def test_gemini_monitor_cost_and_quota():
     )
     usage_after = get_today_usage()
     assert usage_after["total_calls"] >= 1
-    assert usage_after["max_daily_calls"] >= 50
-    assert usage_after["calls_remaining"] == usage_after["max_daily_calls"] - usage_after["total_calls"]
+    if isinstance(usage_after["max_daily_calls"], int):
+        assert usage_after["max_daily_calls"] >= 50
+        assert usage_after["calls_remaining"] == usage_after["max_daily_calls"] - usage_after["total_calls"]
+    else:
+        assert str(usage_after["max_daily_calls"]).lower() == "unlimited"
+        assert str(usage_after["calls_remaining"]).lower() == "unlimited"
     print(f"  [PASS] Daily call tracking logged successfully (Calls: {usage_after['total_calls']}/{usage_after['max_daily_calls']}).")
 
     # 4. Test Banner Print Output (should not raise)
@@ -1060,6 +1100,7 @@ def run_all():
         test_plan_validator_unregistered_platform,
         test_plan_validator_cross_platform_boundary,
         test_plan_validator_missing_required_input,
+        test_plan_validator_missing_tool_gap_reporting,
         test_plan_validator_variable_linkage_success,
         test_plan_validator_variable_linkage_failure,
         test_plan_validator_tool_call_response_schema_linkage,
