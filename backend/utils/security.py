@@ -187,7 +187,7 @@ def calculate_shannon_entropy(data: str) -> float:
 
 
 def clean_unicode_and_zero_width(text: str) -> str:
-    """Normalizes Unicode text and strips zero-width / bidirectional formatting characters."""
+    """Normalize Unicode text and strips zero-width / bidirectional formatting characters."""
     if not text:
         return ""
     # Strip known zero-width and invisible control characters
