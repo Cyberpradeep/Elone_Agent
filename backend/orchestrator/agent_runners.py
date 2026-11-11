@@ -457,6 +457,21 @@ def run_a4_verification(task: TaskMessage, bus: Any) -> ResultMessage:
     if isinstance(canonical_data.get("exceptions"), list):
         for e in canonical_data["exceptions"]:
             metadata_fields.append(f"{e.get('condition', '')} {e.get('action', '')}" if isinstance(e, dict) else str(e))
+    for source_dict in [frontmatter, canonical_data]:
+        if isinstance(source_dict, dict):
+            for k, v in source_dict.items():
+                if k in ("steps", "source_action_coverage"):
+                    continue
+                if isinstance(v, (str, int, float)):
+                    metadata_fields.append(str(v))
+                elif isinstance(v, list):
+                    for item in v:
+                        if isinstance(item, (str, int, float)):
+                            metadata_fields.append(str(item))
+                        elif isinstance(item, dict):
+                            for sub_v in item.values():
+                                if isinstance(sub_v, (str, int, float)):
+                                    metadata_fields.append(str(sub_v))
 
     total_non_blank, mapped_source_lines, mapped_indices = compute_source_line_coverage(
         raw_lines=raw_lines,

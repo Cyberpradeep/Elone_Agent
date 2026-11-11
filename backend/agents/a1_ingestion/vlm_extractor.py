@@ -20,6 +20,10 @@ from utils.security import validate_and_sanitize_image_bytes
 from utils.cancellation import check_cancelled
 # pyrefly: ignore [missing-import]
 from prompts.vlm_prompts import VLM_SUPPORT_PROMPT
+try:
+    from utils.pipeline_logger import log_info, log_warning, log_error
+except ImportError:
+    from backend.utils.pipeline_logger import log_info, log_warning, log_error
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 KB_DIR = os.getenv("ELONE_KB_DIR", os.path.join(BASE_DIR, "knowledge_base"))

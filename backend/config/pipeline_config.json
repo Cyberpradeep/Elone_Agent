@@ -29,14 +29,14 @@
   },
   "llm_models": {
     "execution_planning": {
-      "provider": "groq",
-      "model": "qwen/qwen3.8-27b",
-      "temperature": 0.0
+      "provider": "mistral",
+      "model": "codestral-latest",
+      "temperature": 0
     },
     "planning_validation": {
-      "provider": "zai",
-      "model": "glm-4.7-flash",
-      "temperature": 0.0
+      "provider": "mistral",
+      "model": "codestral-latest",
+      "temperature": 0
     },
     "vlm_image_analysis": {
       "provider": "nvidia",
@@ -56,10 +56,10 @@
     ]
   },
   "governance": {
-    "min_passing_score": 80.0,
-    "max_daily_calls": 0,
+    "min_passing_score": 80,
+    "max_daily_calls": 110,
     "unlimited_daily_calls": true,
     "sop_scan_interval_minutes": 10
   },
-  "execution_mode": "command_only"
+  "execution_mode": "auto"
 }

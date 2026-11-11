@@ -26,13 +26,26 @@ DETAILED_TOOL_SCHEMAS: Dict[str, Dict[str, Any]] = {
 # ---------------------------------------------------------------------------
 # Dynamically Derived Lightweight Summaries for LLM Prompts
 # ---------------------------------------------------------------------------
-PLATFORM_SUMMARIES: List[Dict[str, str]] = [
-    {
-        "platform": schema["platform"],
-        "description": schema["description"]
-    }
-    for schema in DETAILED_TOOL_SCHEMAS.values()
-]
+def get_dynamic_catalog_summary() -> List[Dict[str, Any]]:
+    """Generically extracts platform names, aliases, descriptions, and available
+    functions from all registered schemas in DETAILED_TOOL_SCHEMAS.
+    """
+    catalog = []
+    for schema in DETAILED_TOOL_SCHEMAS.values():
+        catalog.append({
+            "platform": schema.get("platform", ""),
+            "aliases": schema.get("aliases", []),
+            "description": schema.get("description", ""),
+            "functions": [
+                f"{fn['function_name']}: {fn.get('description', '')}"
+                for fn in schema.get("functions", [])
+                if isinstance(fn, dict) and "function_name" in fn
+            ],
+        })
+    return catalog
+
+
+PLATFORM_SUMMARIES: List[Dict[str, Any]] = get_dynamic_catalog_summary()
 
 
 def _normalize_name(name: str) -> str:

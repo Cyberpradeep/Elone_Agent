@@ -36,6 +36,22 @@ MALICIOUS_COMMAND_PATTERNS = [
 ]
 
 
+def _canonicalize_tool_name(tool_str: str) -> str:
+    """Resolves any platform alias (e.g. 'coreid.search_user') to its
+    canonical platform name ('solandra.search_user').
+    """
+    if not tool_str or "." not in tool_str:
+        return tool_str
+    try:
+        plat_part, fn_part = tool_str.split(".", 1)
+        schema = find_platform_schema(plat_part)
+        if schema and "platform" in schema:
+            return f"{schema['platform']}.{fn_part}"
+    except Exception:
+        pass
+    return tool_str
+
+
 def _validate_source_action_coverage(execution_plan: Dict[str, Any]) -> List[str]:
     """Validate links between source-action accounting and executable steps.
 
@@ -85,10 +101,15 @@ def _validate_source_action_coverage(execution_plan: Dict[str, Any]) -> List[str
                     errors.append(
                         f"Layer 1 Coverage Error: '{source_action}' must reference a tool_call and canonical tool name."
                     )
-                elif actual_tool != expected_tool:
-                    errors.append(
-                        f"Layer 1 Coverage Error: '{source_action}' maps to '{expected_tool}' but step {step_number} uses '{actual_tool}'."
-                    )
+                else:
+                    can_actual = _canonicalize_tool_name(actual_tool)
+                    can_expected = _canonicalize_tool_name(expected_tool)
+                    if can_actual != can_expected:
+                        errors.append(
+                            f"Layer 1 Coverage Error: '{source_action}' maps to '{expected_tool}' but step {step_number} uses '{actual_tool}'."
+                        )
+                    else:
+                        item["tool"] = can_expected
             elif step.get("step_type") != "command" or not step.get("command"):
                 errors.append(
                     f"Layer 1 Coverage Error: '{source_action}' must reference a non-empty command step."

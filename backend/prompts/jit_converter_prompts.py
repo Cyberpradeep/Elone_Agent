@@ -16,23 +16,26 @@ TRIAGE_ROUTER_PROMPT = """You are an IT Automation Triage Classifier and Workflo
 
 Your task is to analyze a raw human SOP document, inspect available IT platform tools if relevant, and classify its execution paradigm and technical executability.
 
+REGISTERED IT PLATFORMS & CAPABILITIES CATALOG:
+{registered_platforms_catalog}
+
 DYNAMIC TOOL CALLING:
 You have callable dynamic tools:
-- `list_available_platforms()`: Get registered platforms (e.g. 'solandra', 'auth0', 'airretailer', 'email', 'mock').
-- `get_platform_tools(platform_name=...)`: Fetch available API functions, input parameters, and capabilities for a specific platform.
+- `list_available_platforms()`: Get full registered platforms catalog, aliases, and descriptions.
+- `get_platform_tools(platform_name=...)`: Fetch detailed function schemas, input parameters, and capabilities for a specific platform.
 
 DECISION PROTOCOL (Follow in strict order):
 1. First, check if the SOP is a pure Windows OS command procedure ('command'):
    - If ALL procedural steps are native Windows operating system commands (PowerShell, Windows Registry queries/deletes, CMD, gpupdate, ping, taskkill, Test-Connection, event logs) with ZERO cloud platforms or external APIs, immediately classify as 'command'. You do NOT need to call any tools.
    - MANDATE: A procedure is 'command' ONLY if its PRIMARY procedural workflow consists of native Windows OS commands. If the primary workflow is manual Web browser / Admin Console navigation (e.g. Okta, Azure, AWS web console), do NOT classify as 'command' even if an appendix or troubleshooting note mentions curl or CLI scripts.
 2. If NOT a pure command procedure:
-   - Call `get_platform_tools(platform_name=...)` for candidate platforms mentioned in the SOP (e.g. 'solandra', 'coreid', 'auth0', 'airretailer', 'email').
-   - Inspect the returned functions and parameters to see if our tool catalog supports the operations described in the SOP (e.g. user search, caller verification, password reset, ticketing, VPN connection).
-   - If matching platform tools exist and no native local shell commands are needed: Classify as 'tool_call' with `is_executable: true`.
+   - Check the REGISTERED IT PLATFORMS & CAPABILITIES CATALOG above. Match candidate platforms or platform aliases (see `aliases` in each catalog entry) against the application or vendor mentioned in the SOP.
+   - If needed, call `get_platform_tools(platform_name=...)` to inspect exact functions and parameter schemas.
+   - If matching platform tools or registered aliases exist and no native local shell commands are needed: Classify as 'tool_call' with `is_executable: true`.
    - If matching platform tools exist AND native Windows PowerShell commands are ALSO needed: Classify as 'hybrid' with `is_executable: true`.
-   - If NO matching tools exist for the platform in our catalog and no shell commands can execute it (or the document has zero automatable IT operations): Classify as 'unactionable' with `is_executable: false` and state the missing capability in `unexecutable_reason`.
+   - If NO matching tools or aliases exist for the platform in our catalog and no shell commands can execute it (or the document has zero automatable IT operations): Classify as 'unactionable' with `is_executable: false` and state the missing capability in `unexecutable_reason`.
 3. Manual Web GUI / SaaS Admin Console Navigation ('unactionable'):
-   - If the SOP's PRIMARY workflow describes human manual navigation inside a Web GUI / Admin Console (e.g. Okta Admin Console, AWS Management Console, Microsoft 365 Admin Center, Azure Portal) using clicks, browser menus, visual log inspection, and form inputs, AND there are no registered API tools for that platform in our catalog:
+   - If the SOP's PRIMARY workflow describes human manual navigation inside a Web GUI / Admin Console (e.g. Okta Admin Console, AWS Management Console, Microsoft 365 Admin Center, Azure Portal) using clicks, browser menus, visual log inspection, and form inputs, AND there are no registered API tools or platform aliases in our catalog:
      Classify as 'unactionable' with `is_executable: false` and `unexecutable_reason: "Primary workflow is a manual Web Admin Console UI procedure; requires human operator execution or unsupported SaaS UI automation."`.
    - Under NO circumstances should you extract commands from secondary/legacy/emergency appendices (such as "Appendix A: CLI fallback if console unavailable") to force automation when the primary procedure is manual Web UI navigation.
 4. Non-IT or Informational Documents ('unactionable'):

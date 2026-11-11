@@ -304,6 +304,21 @@ def build_canonical_sop_from_draft(
         coverage_meta.append(p["text"])
     for e in canonical_exceptions:
         coverage_meta.append(e["condition"])
+    for source_dict in [frontmatter_dict, draft]:
+        if isinstance(source_dict, dict):
+            for k, v in source_dict.items():
+                if k in ("steps", "source_action_coverage"):
+                    continue
+                if isinstance(v, (str, int, float)):
+                    coverage_meta.append(str(v))
+                elif isinstance(v, list):
+                    for item in v:
+                        if isinstance(item, (str, int, float)):
+                            coverage_meta.append(str(item))
+                        elif isinstance(item, dict):
+                            for sub_v in item.values():
+                                if isinstance(sub_v, (str, int, float)):
+                                    coverage_meta.append(str(sub_v))
 
     total_non_blank, mapped_count, _ = compute_source_line_coverage(
         raw_lines=source_lines,

@@ -47,7 +47,7 @@ ENTITY_KEY_MAP = {
 }
 
 
-ENABLE_TOOL_INSPECTION_DEFAULT = os.getenv("ELONE_ENABLE_TOOL_INSPECTION", "0").lower() in ("1", "true", "yes")
+ENABLE_TOOL_INSPECTION_DEFAULT = os.getenv("ELONE_ENABLE_TOOL_INSPECTION", "1").lower() in ("1", "true", "yes")
 
 
 def run_triage_router(
@@ -64,7 +64,22 @@ def run_triage_router(
         enable_tool_inspection = ENABLE_TOOL_INSPECTION_DEFAULT
 
     log_info("Triage Router", f"Analyzing execution paradigm (tool_inspection={'enabled' if enable_tool_inspection else 'fast-path'})...")
-    triage_prompt = TRIAGE_ROUTER_PROMPT.replace("{raw_sop_text}", enriched_sop_text[:5000])
+    try:
+        from tools.platforms import get_dynamic_catalog_summary
+        catalog_summary = get_dynamic_catalog_summary()
+    except Exception:
+        try:
+            from backend.tools.platforms import get_dynamic_catalog_summary
+            catalog_summary = get_dynamic_catalog_summary()
+        except Exception:
+            catalog_summary = []
+
+    catalog_text = json.dumps(catalog_summary, indent=2) if catalog_summary else "No platforms registered."
+    triage_prompt = (
+        TRIAGE_ROUTER_PROMPT
+        .replace("{registered_platforms_catalog}", catalog_text)
+        .replace("{raw_sop_text}", enriched_sop_text[:5000])
+    )
     llm = get_llm("execution_planning", temperature=0.0)
     messages = [HumanMessage(content=triage_prompt)]
     content = ""
@@ -109,7 +124,25 @@ def run_triage_router(
                     raise q_err
 
             check_cancelled()
-            res = llm_with_tools.invoke(messages)
+            try:
+                res = llm_with_tools.invoke(messages)
+            except Exception as invoke_err:
+                log_warning("Triage Router", f"Tool invocation error ({invoke_err}). Falling back to direct evaluation without tools...")
+                fallback_prompt = (
+                    "Tool inspection phase complete or encountered an API error. "
+                    "Analyze the SOP directly using known IT platform capabilities and classify into "
+                    "'command', 'tool_call', 'hybrid', or 'unactionable'. Output the final triage JSON now."
+                )
+                try:
+                    fallback_res = llm.invoke(messages + [HumanMessage(content=fallback_prompt)])
+                    raw_c = fallback_res.content if hasattr(fallback_res, "content") else str(fallback_res)
+                    if isinstance(raw_c, list):
+                        content = "".join([b.get("text", "") if isinstance(b, dict) else str(b) for b in raw_c])
+                    else:
+                        content = str(raw_c)
+                except Exception as fb_err:
+                    log_warning("Triage Router", f"Direct evaluation fallback failed: {fb_err}")
+                break
 
             in_tok = 0
             out_tok = 0

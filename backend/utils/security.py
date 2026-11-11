@@ -128,8 +128,8 @@ VENDOR_API_KEY_PATTERNS = [
 
 # Contextual Key-Value Patterns (Matches `api_key = "..."`, `Authorization: Bearer ...`)
 CONTEXTUAL_SECRET_PATTERNS = [
-    re.compile(r"""(?i)\b(api[_-]?key|access[_-]?token|secret[_-]?key|client[_-]?secret|auth[_-]?token|bearer)\s*[:=\-]+\s*["']?([A-Za-z0-9_\-\.]{16,})["']?"""),
-    re.compile(r"""(?i)\b(password|pwd|secret|passphrase)\s*[:=\-]+\s*["']?([^\s"']{4,})["']?"""),
+    re.compile(r"""(?i)(?<![\w\-])(api[_-]?key|access[_-]?token|secret[_-]?key|client[_-]?secret|auth[_-]?token|bearer)\s*[:=]+[-]?\s*["']?([A-Za-z0-9_\-\.]{16,})["']?"""),
+    re.compile(r"""(?i)(?<![\w\-])(password|pwd|secret|passphrase)\s*[:=]+[-]?\s*["']?([^\s"\']{4,})["']?"""),
 ]
 
 # Personal Contact Patterns (Real Email & Formatted Phone Numbers)
@@ -159,7 +159,7 @@ DOCUMENTATION_TEMPLATE_DOMAINS = {
 DOCUMENTATION_SECRET_PLACEHOLDERS = {
     "your_api_key", "your-api-key", "insert_", "<token>", "<insert",
     "placeholder", "dummy", "example", "changeme", "admin123", "password123",
-    "todo", "replace_me", "my_secret", "yourapikey", "your_secret"
+    "todo", "replace_me", "my_secret", "yourapikey", "your_secret", "reset", "change", "policy", "management", "rotation"
 }
 
 # Safe filesystem paths and document extensions that should NOT be treated as high-entropy secrets

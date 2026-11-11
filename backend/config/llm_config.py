@@ -37,11 +37,11 @@ load_dotenv()
 #   VALIDATION_PROVIDER / VALIDATION_MODEL
 # ---------------------------------------------------------------------------
 
-_PLANNING_PROVIDER = os.environ.get("PLANNING_PROVIDER", "groq").lower()
-_PLANNING_MODEL = os.environ.get("PLANNING_MODEL", "qwen/qwen3.8-27b")
+_PLANNING_PROVIDER = os.environ.get("PLANNING_PROVIDER", "mistral").lower()
+_PLANNING_MODEL = os.environ.get("PLANNING_MODEL", "codestral-latest")
 
-_VALIDATION_PROVIDER = os.environ.get("VALIDATION_PROVIDER", "groq").lower()
-_VALIDATION_MODEL = os.environ.get("VALIDATION_MODEL", "qwen/qwen3.8-27b")
+_VALIDATION_PROVIDER = os.environ.get("VALIDATION_PROVIDER", "mistral").lower()
+_VALIDATION_MODEL = os.environ.get("VALIDATION_MODEL", "codestral-latest")
 
 _VLM_PROVIDER = os.environ.get("VLM_PROVIDER", "nvidia").lower()
 _VLM_MODEL = os.environ.get("VLM_MODEL", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning")
@@ -52,24 +52,26 @@ ROLE_PROVIDER_MAP = {
     "execution_planning": {
         "provider": _PLANNING_PROVIDER,
         "model": _PLANNING_MODEL,
-        # "fallbacks": [
-        #     {"provider": "gemini", "model": "gemini-2.5-flash"},
-        # ],
+        "fallbacks": [
+            {"provider": "groq", "model": _GROQ_MODEL},
+            # {"provider": "gemini", "model": "gemini-2.5-flash"},
+        ],
     },
     "planning_validation": {
         "provider": _VALIDATION_PROVIDER,
         "model": _VALIDATION_MODEL,
-        # "fallbacks": [
-        #     {"provider": "gemini", "model": "gemini-2.5-flash"},
-        # ],
+        "fallbacks": [
+            {"provider": "groq", "model": _GROQ_MODEL},
+            # {"provider": "gemini", "model": "gemini-2.5-flash"},
+        ],
     },
     "vlm_image_analysis": {
         "provider": _VLM_PROVIDER,
         "model": _VLM_MODEL,
         "fallbacks": [
-            {"provider": "gemini", "model": "gemini-2.5-flash"},
             {"provider": "openrouter", "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"},
             {"provider": "nvidia", "model": "meta/llama-3.2-11b-vision-instruct"},
+            # {"provider": "gemini", "model": "gemini-2.5-flash"},
         ],
     },
 }
@@ -97,12 +99,34 @@ def _build_gemini_client(model: str, temperature: float = 0.2):
 
 
 def _build_mistral_client(model: str, temperature: float = 0.1):
+    """
+    Builds a LangChain chat model client for Mistral with multi-key fallback rotation.
+    Rotates automatically across MISTRAL_API_KEY, MISTRAL_API_KEY2, MISTRAL_API_KEY3.
+    """
     from langchain_mistralai import ChatMistralAI
 
-    api_key = os.environ.get("MISTRAL_API_KEY")
-    if not api_key:
+    raw_keys = [
+        os.environ.get("MISTRAL_API_KEY"),
+        os.environ.get("MISTRAL_API_KEY2"),
+        os.environ.get("MISTRAL_API_KEY3"),
+    ]
+    seen = set()
+    keys = []
+    for k in raw_keys:
+        if k and k not in seen:
+            seen.add(k)
+            keys.append(k)
+
+    if not keys:
         raise RuntimeError("MISTRAL_API_KEY not set in environment (.env)")
-    return ChatMistralAI(model=model, mistral_api_key=api_key, temperature=temperature)
+
+    clients = [
+        ChatMistralAI(model=model, mistral_api_key=k, temperature=temperature)
+        for k in keys
+    ]
+    if len(clients) > 1:
+        return clients[0].with_fallbacks(clients[1:])
+    return clients[0]
 
 
 def _build_mistral_client2(model: str, temperature: float = 0.2):
@@ -166,7 +190,8 @@ def _build_groq_client(model: str, temperature: float = 0.2):
             api_key=k,
             base_url="https://api.groq.com/openai/v1",
             temperature=temperature,
-            max_tokens=8192,
+            max_tokens=2048,
+            max_retries=2,
         )
         for k in keys
     ]
@@ -207,7 +232,7 @@ def _build_zai_glm_client(model: str = "glm-4.7-flash", temperature: float = 0.2
         api_key=api_key,
         base_url=base_url,
         temperature=temperature,
-        max_tokens=8192,
+        max_tokens=2048,
     )
 
     # If requested model is glm-4.7-flash, attach automatic fallback to glm-4.5-flash
@@ -217,7 +242,7 @@ def _build_zai_glm_client(model: str = "glm-4.7-flash", temperature: float = 0.2
             api_key=api_key,
             base_url=base_url,
             temperature=temperature,
-            max_tokens=8192,
+            max_tokens=2048,
         )
         return primary_client.with_fallbacks([fallback_client])
 

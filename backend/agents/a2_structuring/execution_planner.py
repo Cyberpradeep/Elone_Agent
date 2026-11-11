@@ -19,6 +19,7 @@ from utils.cancellation import check_cancelled
 from config.llm_config import get_llm
 # pyrefly: ignore [missing-import]
 from tools.tool_functions import DYNAMIC_CATALOG_TOOLS
+from tools.platforms import find_platform_schema
 # pyrefly: ignore [missing-import]
 from agents.a4_verification.plan_validator import validate_plan_faithfulness_and_linkage
 from utils.security import escape_prompt_delimiters
@@ -107,13 +108,25 @@ def plan_okf_from_raw(
     raw_filename_base = os.path.splitext(os.path.basename(raw_filepath))[0]
     sop_slug = re.sub(r"[^A-Za-z0-9]+", "-", raw_filename_base).strip("-").upper()[:20]
 
-    parser_type = "pre_extracted"
-    if pre_extracted_text and len(pre_extracted_text.strip()) >= 10:
+    source_parser_type, source_segments = extract_ordered_sop_content(raw_filepath)
+    image_segments = [s for s in source_segments if isinstance(s, dict) and s.get("type") == "image"]
+    has_images = len(image_segments) > 0
+    total_images_found = len(image_segments)
+
+    if has_images:
+        max_images_allowed = get_max_images_per_sop()
+        log_info("JIT Converter", f"Detected {total_images_found} embedded image(s) in {os.path.basename(raw_filepath)}. Engaging VLM inspection (limit: {max_images_allowed})...")
+        parser_type = source_parser_type
+        segments = source_segments
+        raw_text = pre_extracted_text if (pre_extracted_text and len(pre_extracted_text.strip()) >= 10) else "\n\n".join(s["content"] for s in segments if s["type"] == "text")
+    elif pre_extracted_text and len(pre_extracted_text.strip()) >= 10:
+        parser_type = "pre_extracted"
         raw_text = pre_extracted_text
         segments = [{"type": "text", "content": pre_extracted_text}]
-        log_info("JIT Converter", f"Reusing pre-extracted artifact text ({len(raw_text)} chars). Skipping redundant VLM OCR / re-extraction.")
+        log_info("JIT Converter", f"Reusing pre-extracted artifact text ({len(raw_text)} chars). No embedded images found.")
     else:
-        parser_type, segments = extract_ordered_sop_content(raw_filepath)
+        parser_type = source_parser_type
+        segments = source_segments
         raw_text = "\n\n".join(s["content"] for s in segments if s["type"] == "text")
         if not raw_text or len(raw_text.strip()) < 10:
             raise ValueError(f"Could not extract text from raw file: {raw_filepath}")
@@ -152,7 +165,8 @@ def plan_okf_from_raw(
     # -------------------------------------------------------------------------
     # STAGE 1: Triage Router (Preserved in triage_router.py; toggleable via ELONE_ENABLE_TRIAGE=1)
     # -------------------------------------------------------------------------
-    enable_triage = os.getenv("ELONE_ENABLE_TRIAGE", "0").lower() in ("1", "true", "yes")
+    default_triage = "0" if get_execution_mode() == "command_only" else "1"
+    enable_triage = os.getenv("ELONE_ENABLE_TRIAGE", default_triage).lower() in ("1", "true", "yes")
     triage_res = {}
     if enable_triage:
         triage_res = run_triage_router(enriched_sop_text, sop_slug, override_sop_id)
@@ -192,6 +206,13 @@ def plan_okf_from_raw(
     # -------------------------------------------------------------------------
     # STAGE 2: Specialized Converter Selection
     # -------------------------------------------------------------------------
+    detected_plats = triage_res.get("detected_platforms", []) if isinstance(triage_res, dict) else []
+    pre_injected_schemas = []
+    for p in detected_plats:
+        s = find_platform_schema(p)
+        if s:
+            pre_injected_schemas.append(f"### Platform '{p}' Functions:\n" + json.dumps(s.get("functions", []), indent=2))
+
     if not enable_triage or get_execution_mode() == "command_only":
         classification = "command"
         base_template = COMMAND_COT_PROMPT
@@ -205,12 +226,12 @@ def plan_okf_from_raw(
             log_info("Converter Dispatch", "Selected 'COMMAND_COT_PROMPT' (0 tools bound | Pure PowerShell focus)")
         elif classification == "tool_call":
             base_template = TOOL_COT_PROMPT
-            use_tools = True
-            log_info("Converter Dispatch", "Selected 'TOOL_COT_PROMPT' (Dynamic Tool Calling enabled)")
+            use_tools = not bool(pre_injected_schemas)
+            log_info("Converter Dispatch", f"Selected 'TOOL_COT_PROMPT' ({'Dynamic Tool Calling enabled' if use_tools else 'Pre-Discovered Tool Schemas Bound'})")
         else:
             base_template = HYBRID_COT_PROMPT
-            use_tools = True
-            log_info("Converter Dispatch", "Selected 'HYBRID_COT_PROMPT' (Cross-Paradigm Bridge)")
+            use_tools = not bool(pre_injected_schemas)
+            log_info("Converter Dispatch", f"Selected 'HYBRID_COT_PROMPT' ({'Cross-Paradigm Bridge' if use_tools else 'Pre-Discovered Tool Schemas Bound'})")
 
     max_retries = 3
     feedback_history = list(feedback_override) if feedback_override else []
@@ -223,6 +244,8 @@ def plan_okf_from_raw(
         llm = get_llm("execution_planning", temperature=temp)
 
         retry_sop_text = enriched_sop_text
+        if pre_injected_schemas and "## DISCOVERED PLATFORM SCHEMAS" not in retry_sop_text:
+            retry_sop_text += "\n\n## DISCOVERED PLATFORM SCHEMAS (FROM TRIAGE STAGE):\n" + "\n\n".join(pre_injected_schemas)
         if feedback_history:
             retry_sop_text += "\n\n## PREVIOUS ATTEMPT ERRORS (MUST FIX ON THIS RETRY):\n" + "\n".join(feedback_history)
 
@@ -248,7 +271,17 @@ def plan_okf_from_raw(
                     raise q_err
 
             check_cancelled()
-            res = llm_with_tools.invoke(messages)
+            try:
+                res = llm_with_tools.invoke(messages)
+            except Exception as inv_err:
+                log_warning("Converter Tool Invoke", f"Tool invocation error: {inv_err}. Requesting final JSON...")
+                final_res = llm.invoke(messages + [HumanMessage(content="Tool inspection phase complete. Output the final OKF Playbook JSON now.")])
+                raw_c = final_res.content if hasattr(final_res, "content") else str(final_res)
+                if isinstance(raw_c, list):
+                    content = "".join([b.get("text", "") if isinstance(b, dict) else str(b) for b in raw_c])
+                else:
+                    content = str(raw_c)
+                break
             messages.append(res)
 
             in_tok = 0
