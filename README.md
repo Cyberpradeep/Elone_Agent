@@ -229,7 +229,7 @@ Run the full end-to-end trace with stage-by-stage console observability and an i
 .\venv\Scripts\python.exe backend/trace_pipeline.py --file "path/to/sop.pdf"
 
 # Auto-approve mode (non-interactive, for automation or CI/CD)
-.\venv\Scripts\python.exe backend/trace_pipeline.py --sample windows_kill --auto-approve
+.\venv\Scripts\python.exe backend/trace_pipeline.py --sample password_reset --auto-approve
 ```
 
 ### 2. FastAPI Backend Server

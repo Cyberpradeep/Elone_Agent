@@ -517,16 +517,17 @@ def trace_e2e_sop(sop_filepath: str, auto_approve: bool = False, tenant_id: str 
 def main():
     parser = argparse.ArgumentParser(description="Trace an SOP through all 6 agents end-to-end under msg/1.0 protocol")
     parser.add_argument("--file", type=str, help="Path to SOP file (.pdf, .docx, .txt)")
-    parser.add_argument("--sample", type=str, choices=["windows_kill", "password_reset", "vpn", "custom"], help="Quick sample selector")
+    parser.add_argument("--sample", type=str, choices=["password_reset", "service_restart", "vpn", "custom"], help="Quick sample selector")
     parser.add_argument("--auto-approve", action="store_true", help="Automatically approve without prompt")
     parser.add_argument("--tenant", type=str, default="tenant-default", help="Tenant ID for multi-tenant isolation")
 
     args = parser.parse_args()
 
+    golden_happy_dir = os.path.join(BASE_DIR, "tests", "golden_set", "happy_path")
     samples = {
-        "windows_kill": os.path.join(UPLOADS_DIR, "SOP_Kill_Hang_Application_Windows.pdf"),
-        "password_reset": os.path.join(UPLOADS_DIR, "solndra_password_reset.docx"),
-        "vpn": os.path.join(UPLOADS_DIR, "ARVpndetails.docx"),
+        "password_reset": os.path.join(golden_happy_dir, "sop_01_password_reset.txt"),
+        "service_restart": os.path.join(golden_happy_dir, "sop_02_service_restart.txt"),
+        "vpn": os.path.join(golden_happy_dir, "sop_03_vpn_troubleshooting.txt"),
     }
 
     sop_file = None
@@ -536,15 +537,15 @@ def main():
         sop_file = samples[args.sample]
     else:
         print("\nSelect an SOP to trace end-to-end:\n")
-        print("  1. Windows Kill Hang Application (PDF)       -> [Command Workflow]")
-        print("  2. Solandra User Password Reset (DOCX)       -> [API Tool Call Workflow]")
-        print("  3. AirRetailer VPN Connection (DOCX)         -> [VPN / Network Workflow]")
-        print("  4. Quick In-Memory Text SOP                  -> [Instant Test]")
+        print("  1. Active Directory Password Reset (Golden TXT)   -> [Command Workflow]")
+        print("  2. Production Web Service Restart (Golden TXT)    -> [Systemd Workflow]")
+        print("  3. Remote Access VPN Remediation (Golden TXT)     -> [VPN / Network Workflow]")
+        print("  4. Quick In-Memory Text SOP                       -> [Instant Test]")
         print("  5. Specify a Custom File Path")
 
         choice = input("\nEnter choice (1-5, default 1): ").strip()
         if choice == "2":
-            sop_file = samples["password_reset"]
+            sop_file = samples["service_restart"]
         elif choice == "3":
             sop_file = samples["vpn"]
         elif choice == "4":
@@ -560,7 +561,7 @@ def main():
         elif choice == "5":
             sop_file = input("Enter full path to SOP file: ").strip()
         else:
-            sop_file = samples["windows_kill"]
+            sop_file = samples["password_reset"]
 
     if not os.path.exists(sop_file):
         log_error("CLI", f"SOP file '{sop_file}' does not exist.")

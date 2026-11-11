@@ -124,13 +124,17 @@ temp/
 *.log.*
 logs/
 **/logs/
-knowledge_base/logs/
-knowledge_base/patterns/logs/
+!knowledge_base/logs/
+knowledge_base/logs/*
+!knowledge_base/logs/.gitkeep
+knowledge_base/patterns/*
+!knowledge_base/patterns/.gitkeep
+knowledge_base/sops/*
+!knowledge_base/sops/.gitkeep
+knowledge_base/separate/
+backend/knowledge_base/
 knowledge_base/_uploads/*
 !knowledge_base/_uploads/.gitkeep
-!knowledge_base/_uploads/SOP_Kill_Hang_Application_Windows.pdf
-!knowledge_base/_uploads/solndra_password_reset.docx
-!knowledge_base/_uploads/ARVpndetails.docx
 
 # Staged unapproved drafts, trash, quarantine & governance runtime state
 **/_drafts/
@@ -155,5 +159,6 @@ quick_trace_*.txt
 # PDF Processing Tools & Local Documentation
 # -----------------------------------------------------------------------------
 .pdf_tools/
+doc/
 docs/
 /docs

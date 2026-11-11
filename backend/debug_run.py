@@ -42,7 +42,7 @@ def main():
         "--file", "-f",
         type=str,
         required=True,
-        help="Path to the raw SOP file to test (e.g. knowledge_base/_uploads/sop_software_application_unblock_request_ifeo.pdf)"
+        help="Path to the raw SOP file to test (e.g. backend/tests/golden_set/happy_path/sop_01_password_reset.txt)"
     )
     parser.add_argument(
         "--sop-id",

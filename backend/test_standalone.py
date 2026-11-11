@@ -91,8 +91,11 @@ def test_knowledge_base_structure():
         path = os.path.join(base, d)
         assert os.path.isdir(path), f"Missing directory: {path}"
 
+    sops_gitkeep = os.path.join(base, "sops", ".gitkeep")
     index_path = os.path.join(base, "sops", "index.md")
-    assert os.path.isfile(index_path), f"Missing index: {index_path}"
+    assert os.path.isfile(sops_gitkeep) or os.path.isfile(index_path), (
+        f"Missing sops/.gitkeep or sops/index.md under {base}"
+    )
 
     print(f"  [PASS] All knowledge_base directories exist.")
 

@@ -52,17 +52,17 @@ python server.py
 ```
 
 ### CLI Runners
-* **Process a single SOP:**
+* **Trace a single SOP through governed agents A1-A6:**
   ```bash
-  python backend/run.py --file knowledge_base/_uploads/my_sop.pdf
+  python backend/trace_pipeline.py --file backend/tests/golden_set/happy_path/sop_01_password_reset.txt
   ```
-* **Run full ingestion scan cycle:**
+* **Read-only dry-run preview (no disk commit):**
   ```bash
-  python backend/run.py --scan
+  python backend/debug_run.py --file backend/tests/golden_set/happy_path/sop_01_password_reset.txt
   ```
-* **Start background watcher:**
+* **Check model/scheduler status (`run.py --file`/`--scan`/`--watch` disabled under C1):**
   ```bash
-  python backend/run.py --watch
+  python backend/run.py --status
   ```
 * **Launch MCP Server:**
   ```bash
