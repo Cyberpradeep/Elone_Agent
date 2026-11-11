@@ -18,6 +18,8 @@ from agents.a3_security.confidentiality_engine import (
     TIER_LABELS,
 )
 from agents.a3_security.ast_sandbox import (
+    scan_commands_for_ast_threats,
+    scan_raw_sop_for_ast_threats,
     validate_command_sandbox,
 )
 
@@ -28,5 +30,7 @@ __all__ = [
     "score_to_tier",
     "TIER_ORDER",
     "TIER_LABELS",
+    "scan_commands_for_ast_threats",
+    "scan_raw_sop_for_ast_threats",
     "validate_command_sandbox",
 ]

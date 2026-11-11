@@ -14,7 +14,10 @@ from utils.cancellation import check_cancelled
 # pyrefly: ignore [missing-import]
 from schemas import JITFaithfulnessInspectionResult
 # pyrefly: ignore [missing-import]
-from utils.security import enforce_entity_double_quotes
+try:
+    from utils.security import enforce_entity_double_quotes, escape_prompt_delimiters
+except ImportError:
+    from backend.utils.security import enforce_entity_double_quotes, escape_prompt_delimiters
 try:
     from utils.pipeline_logger import log_validation_audit, log_info, log_warning, log_error
 except ImportError:
@@ -351,15 +354,16 @@ def validate_plan_faithfulness_and_linkage(
     log_info("PlanValidator Layer 2", "Layer 1 passed. Running LLM Faithfulness & Prompt Injection Inspection...")
     try:
         llm = get_llm("planning_validation", temperature=0)
-        prompt = (
-            JIT_VALIDATOR_COT_SYSTEM_PROMPT
-            .replace("{raw_sop_text}", raw_sop_text)
-            .replace("{converted_okf_steps}", json.dumps(steps, indent=2))
-            .replace(
-                "{source_action_coverage}",
-                json.dumps(execution_plan.get("source_action_coverage") or [], indent=2),
-            )
-        )
+        safe_raw_sop = escape_prompt_delimiters(raw_sop_text)
+        replacements = {
+            "{raw_sop_text}": safe_raw_sop,
+            "{converted_okf_steps}": json.dumps(steps, indent=2),
+            "{source_action_coverage}": json.dumps(
+                execution_plan.get("source_action_coverage") or [], indent=2
+            ),
+        }
+        placeholder_re = re.compile("|".join(re.escape(k) for k in replacements))
+        prompt = placeholder_re.sub(lambda m: replacements[m.group(0)], JIT_VALIDATOR_COT_SYSTEM_PROMPT)
         try:
             # pyrefly: ignore [missing-import]
             from gemini_monitor.monitor import check_daily_limit, record_call

@@ -86,6 +86,21 @@ def extract_full_text(filepath: str) -> Tuple[str, str]:
         _log_parsed_text(filepath, "security_validation_rejected", f"SECURITY ERROR: {err_msg}")
         raise SOPInputValidationError(filename, validation_err, meta)
 
+    ext = os.path.splitext(filepath)[1].lower()
+
+    # Read plain text / Markdown as strict UTF-8 before MarkItDown so charset heuristics
+    # cannot mojibake zero-width obfuscation characters into codepage bytes before Stage-2 inspection.
+    if ext in [".txt", ".md"]:
+        try:
+            with open(filepath, "r", encoding="utf-8-sig") as f:
+                utf8_text = f.read()
+            if _is_valid_text_quality(utf8_text):
+                log_info("DocumentParser", f"[UTF-8 Text Engine] Extracted text from: {filename}")
+                _log_parsed_text(filepath, "txt_fallback", utf8_text)
+                return "txt_fallback", utf8_text
+        except UnicodeDecodeError:
+            pass
+
     try:
         from markitdown import MarkItDown
         md = MarkItDown()
@@ -96,8 +111,6 @@ def extract_full_text(filepath: str) -> Tuple[str, str]:
             return "markitdown_parser", result.text_content
     except Exception as md_err:
         log_warning("DocumentParser", f"MarkItDown engine failed for {filename}: {md_err}")
-
-    ext = os.path.splitext(filepath)[1].lower()
 
     if ext in [".txt", ".md", ".json", ".csv", ".html"]:
         with open(filepath, "r", encoding="utf-8", errors="ignore") as f:

@@ -12,6 +12,10 @@ import json
 from typing import Dict, Any, Optional
 from langchain_core.messages import HumanMessage, ToolMessage
 from utils.cancellation import check_cancelled
+try:
+    from utils.security import escape_prompt_delimiters
+except ImportError:
+    from backend.utils.security import escape_prompt_delimiters
 
 # pyrefly: ignore [missing-import]
 from config.llm_config import get_llm
@@ -75,10 +79,15 @@ def run_triage_router(
             catalog_summary = []
 
     catalog_text = json.dumps(catalog_summary, indent=2) if catalog_summary else "No platforms registered."
-    triage_prompt = (
-        TRIAGE_ROUTER_PROMPT
-        .replace("{registered_platforms_catalog}", catalog_text)
-        .replace("{raw_sop_text}", enriched_sop_text[:5000])
+    safe_raw_sop = escape_prompt_delimiters((enriched_sop_text or "")[:5000])
+    triage_replacements = {
+        "{registered_platforms_catalog}": catalog_text,
+        "{raw_sop_text}": safe_raw_sop,
+    }
+    triage_placeholder_re = re.compile("|".join(re.escape(k) for k in triage_replacements))
+    triage_prompt = triage_placeholder_re.sub(
+        lambda m: triage_replacements[m.group(0)],
+        TRIAGE_ROUTER_PROMPT,
     )
     llm = get_llm("execution_planning", temperature=0.0)
     messages = [HumanMessage(content=triage_prompt)]

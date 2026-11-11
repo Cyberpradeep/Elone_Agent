@@ -36,7 +36,7 @@ from agents.a2_structuring.canonical_builder import build_canonical_sop_from_dra
 from agents.a2_structuring.text_cleaner import clean_and_normalize_text
 from agents.a3_security.secret_scanner import scan_for_secrets
 from utils.security import redact_sensitive_dlp
-from agents.a3_security.ast_sandbox import scan_commands_for_ast_threats
+from agents.a3_security.ast_sandbox import scan_commands_for_ast_threats, scan_raw_sop_for_ast_threats
 from agents.a3_security.confidentiality_engine import compute_confidentiality_score
 from agents.a4_verification.plan_validator import validate_plan_faithfulness_and_linkage
 from agents.a4_verification.quality_engine import compute_quality_score
@@ -212,9 +212,8 @@ def run_a3_security(task: TaskMessage, bus: Any) -> ResultMessage:
         crit_secrets = sum(redaction_counts.get(k, 0) for k in ("passwords", "api_keys", "private_keys")) if isinstance(redaction_counts, dict) else 0
         total_redacted = sum(redaction_counts.values()) if isinstance(redaction_counts, dict) else (redaction_counts or 0)
 
-        # 2. AST Sandbox scan for candidate commands
-        sample_cmds = [line.strip() for line in raw_text.splitlines() if line.strip().startswith(("rm ", "del ", "taskkill", "powershell", "systemctl", "curl"))]
-        threats = scan_commands_for_ast_threats(sample_cmds) if sample_cmds else []
+        # 2. Broad Stage-2 AST Sandbox scan across raw SOP prose and commands
+        threats = scan_raw_sop_for_ast_threats(raw_text)
 
         findings_payload = {
             "total_secrets_detected": crit_secrets,
@@ -232,22 +231,32 @@ def run_a3_security(task: TaskMessage, bus: Any) -> ResultMessage:
         )
         bus.artifact_store.put(findings_art)
 
-        # Secret Gate Policy: If live credential detected, terminal quarantine (Section 10)
-        is_blocked = crit_secrets > 0 or task.requested_operation.get("strict_quarantine_on_secret", False)
+        # Security Gate Policy: Live credential quarantine OR Stage-2 AST threat halts pipeline (0 LLM calls)
+        strict_secret = bool(task.requested_operation.get("strict_quarantine_on_secret", False))
+        is_secret_blocked = crit_secrets > 0 or strict_secret
+        is_ast_blocked = len(threats) > 0
+        is_blocked = is_secret_blocked or is_ast_blocked
+        error_code = (
+            "secret_detected"
+            if is_secret_blocked
+            else ("ast_threat_detected" if is_ast_blocked else None)
+        )
 
         return ResultMessage(
             task_id=task.task_id,
             correlation_id=task.correlation_id,
             agent_id="A3",
             status="blocked" if is_blocked else "success",
-            error_code="secret_detected" if is_blocked else None,
+            error_code=error_code,
             output_artifact_reference=findings_art.artifact_id,
             structured_findings={
                 "total_secrets_detected": crit_secrets,
                 "total_redacted_count": total_redacted,
                 "redaction_counts": redaction_counts,
                 "ast_threats_count": len(threats),
-                "is_quarantined": is_blocked,
+                "is_quarantined": is_secret_blocked,
+                "is_ast_blocked": is_ast_blocked,
+                "is_blocked": is_blocked,
             },
             processing_metrics={"latency_ms": int((time.time() - t0) * 1000), "tools_used": ["scan.secrets", "scan.ast"]},
         )

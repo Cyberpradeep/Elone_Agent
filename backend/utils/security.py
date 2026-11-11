@@ -539,21 +539,17 @@ def validate_and_sanitize_image_bytes(
 # =============================================================================
 
 def escape_prompt_delimiters(payload_text: str) -> str:
-    """Escapes XML sandbox delimiters in untrusted raw text to prevent prompt injection breakouts."""
+    """Escapes XML sandbox delimiters in untrusted raw text to prevent prompt injection breakouts.
+
+    Handles case, whitespace, and optional XML attributes while remaining idempotent.
+    """
     if not payload_text:
         return ""
-    # Case-insensitive replacement of opening and closing sandbox tags
-    sanitized = re.sub(
-        r"(?i)</untrusted_document_payload>",
-        "&lt;/untrusted_document_payload&gt;",
-        payload_text
+    return re.sub(
+        r"(?is)<(/?untrusted_document_payload\b[^>]*)>",
+        r"&lt;\1&gt;",
+        payload_text,
     )
-    sanitized = re.sub(
-        r"(?i)<untrusted_document_payload>",
-        "&lt;untrusted_document_payload&gt;",
-        sanitized
-    )
-    return sanitized
 
 
 # =============================================================================
@@ -739,7 +735,7 @@ def enforce_entity_double_quotes(command: str) -> str:
     return result
 
 
-# Re-export AST scanner for pipeline convenience
+# Re-export AST scanners for pipeline convenience
 def scan_commands_for_ast_threats(commands: List[str]) -> List[Dict[str, str]]:
     """Scans command strings against deterministic LOLBin and injection patterns."""
     try:
@@ -747,6 +743,15 @@ def scan_commands_for_ast_threats(commands: List[str]) -> List[Dict[str, str]]:
         return _scan(commands)
     except Exception:
         return []
+
+
+def scan_raw_sop_for_ast_threats(raw_text: str) -> List[Dict[str, Any]]:
+    """Broadly scans raw SOP prose and embedded commands against deterministic LOLBin and injection patterns."""
+    try:
+        from agents.a3_security.ast_sandbox import scan_raw_sop_for_ast_threats as _scan_raw
+    except ImportError:
+        from backend.agents.a3_security.ast_sandbox import scan_raw_sop_for_ast_threats as _scan_raw
+    return _scan_raw(raw_text)
 
 def sanitize_json_text(text: str) -> str:
     """Pre-sanitizes LLM-generated JSON strings before standard json.loads.

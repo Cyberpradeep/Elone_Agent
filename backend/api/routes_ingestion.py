@@ -28,7 +28,7 @@ from api.context import (
     read_manifest,
     parse_yaml_frontmatter,
 )
-from utils.security import sanitize_filename, redact_sensitive_dlp
+from utils.security import sanitize_filename, redact_sensitive_dlp, scan_raw_sop_for_ast_threats
 from utils.cancellation import IngestionCancelled, bind_cancel, reset_cancel
 from config.settings import get_max_file_size_bytes, get_max_file_size_mb
 from agents.a1_ingestion import (
@@ -608,6 +608,49 @@ async def api_ingest_single(request: Request):
                 "incident": incident.__dict__,
             }, status_code=403)
 
+        # Stage 2 AST Sandbox Check (Section 10 parity with CLI runner — halts before any AI calls)
+        ast_threats = scan_raw_sop_for_ast_threats(raw_text)
+        if ast_threats:
+            unique_descs = list(dict.fromkeys(
+                t.get("description", "Malicious command or injection payload")
+                for t in ast_threats
+            ))
+            block_reason = (
+                f"AST Sandbox blocked Stage 2 ingestion ({len(ast_threats)} threat(s)): "
+                + "; ".join(unique_descs[:3])
+            )
+            governance_ledger.transition_state(
+                job_id,
+                "blocked",
+                actor="A3_ast_sandbox",
+                reason=block_reason,
+                details={"ast_threats": ast_threats},
+            )
+            try:
+                cur_manifest = read_manifest()
+                cur_manifest[safe_name] = {
+                    "status": "failed",
+                    "error_code": "ast_threat_detected",
+                    "reason": block_reason,
+                    "error": block_reason,
+                    "job_id": job.job_id,
+                    "sop_id": sop_id,
+                    "sha256": content_hash,
+                    "processed_at": datetime.datetime.now().isoformat(),
+                }
+                with open(MANIFEST_PATH, "w", encoding="utf-8") as mf:
+                    json.dump(cur_manifest, mf, indent=2)
+            except Exception:
+                pass
+            return JSONResponse({
+                "success": False,
+                "status": "blocked",
+                "error_code": "ast_threat_detected",
+                "job_id": job.job_id,
+                "ast_threats": ast_threats,
+                "error": f"{block_reason}. 0 AI calls made.",
+            }, status_code=403)
+
         governance_ledger.transition_state(job_id, "structuring")
 
         draft = await _run_cancellable(ctl, jit_converter.plan_okf_from_raw, target_path, override_sop_id=sop_id, pre_extracted_text=raw_text)
@@ -721,6 +764,7 @@ async def api_ingest_single(request: Request):
                 "",
                 "--- PHASE 2: SECURITY & DLP SCANNING (AGENT A3) ---",
                 f"  Detected Secrets:     {secrets_count}",
+                f"  AST Threats Detected: {len(ast_threats)}",
                 f"  DLP Statistics:       {json.dumps(dlp_stats)}",
                 "  Quarantine Status:    PASSED (Clean)",
                 "",
