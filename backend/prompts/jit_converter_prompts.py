@@ -1,7 +1,7 @@
 """
 JIT Converter Agent System Prompts (3-Stage Modular Architecture)
 ================================================================
-Modular, token-efficient prompt templates:
+Modular, token-efficient prompt template:
 1. TRIAGE_ROUTER_PROMPT: Stage 1 LLM Intent Classifier & Router.
 2. COMMAND_COT_PROMPT: Stage 2 Dedicated Windows PowerShell / CLI Converter.
 3. TOOL_COT_PROMPT: Stage 2 Dedicated Cloud / REST API Tool Converter.
