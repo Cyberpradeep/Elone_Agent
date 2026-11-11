@@ -65,22 +65,8 @@ registerActions({
   },
   'toggle-nav': () => document.body.classList.toggle('nav-open'),
   'retry-view': () => loadView(),
-  'run-scan': async el => {
-    const ok = await confirmDialog({
-      title: 'Run a full ingestion scan?',
-      message: 'Every pending file in the uploads folder will be processed. This calls the LLM providers and may take a few minutes.',
-      confirmLabel: 'Run scan',
-    });
-    if (!ok) return;
-    const done = busy(el);
-    try {
-      const res = await api.runScan();
-      toast('Scan cycle finished.', 'success');
-      if (res.summary) console.info('[scan summary]', res.summary);
-      await loadView({ silent: true });
-    } catch (err) {
-      toast(`Scan failed: ${err.message}`, 'error', 7000);
-    } finally { done(); }
+  'run-scan': () => {
+    toast('Batch scanning is disabled (C1). Use individual document Ingest so Agent A3–A6 governance and HITL review execute.', 'warning', 7000);
   },
 });
 

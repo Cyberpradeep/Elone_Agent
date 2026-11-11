@@ -36,7 +36,6 @@ from prompts.jit_converter_prompts import (
 from agents.a1_ingestion.document_extractor import extract_ordered_sop_content
 from agents.a1_ingestion.vlm_extractor import analyze_and_save_image
 from agents.a2_structuring.triage_router import run_triage_router, ENTITY_KEY_MAP
-from agents.a2_structuring.okf_builder import write_okf_playbook
 try:
     from utils.pipeline_logger import log_execution_plan, log_info, log_warning, log_error
 except ImportError:
@@ -695,21 +694,13 @@ def plan_okf_from_raw(
 
 
 def convert_raw_sop_to_okf(raw_filepath: str, override_sop_id: Optional[str] = None) -> Tuple[Optional[str], Dict[str, Any]]:
-    """One-shot ingestion: parses raw SOP, plans OKF, and writes playbook to disk."""
-    draft = plan_okf_from_raw(raw_filepath, override_sop_id=override_sop_id)
-    if draft.get("is_executable") is False or draft.get("frontmatter", {}).get("is_executable") is False:
-        unexec_reason = draft.get("unexecutable_reason") or draft.get("frontmatter", {}).get("unexecutable_reason") or "SOP is not actionable."
-        metadata = dict(draft.get("frontmatter", {}))
-        metadata["status"] = "unactionable"
-        metadata["reason"] = unexec_reason
-        return None, metadata
-
-    if not draft.get("is_valid", False):
-        err_details = draft.get("validation_errors", ["Plan validation failed"])
-        raise ValueError(f"Ingestion blocked: Playbook failed validation: {err_details}")
-
-    okf_file_path = write_okf_playbook(draft, raw_filename=os.path.basename(raw_filepath))
-    return okf_file_path, draft["frontmatter"]
+    """Deprecated ungoverned one-shot writer — blocked to enforce A1-A6 governance & HITL review."""
+    raise ValueError(
+        "Ingestion blocked (C1): direct write via convert_raw_sop_to_okf() is disabled because it "
+        "bypasses Agent A3 secret/AST quarantine, Agent A4 canonical scoring, Agent A5 dual-custody "
+        "HITL review, and Agent A6 publication gates. Use POST /api/uploads/ingest or trace_pipeline.py; "
+        "call plan_okf_from_raw() for a read-only draft preview without writing to knowledge_base/sops/."
+    )
 
 
 __all__ = [

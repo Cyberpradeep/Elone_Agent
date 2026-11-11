@@ -26,7 +26,6 @@ except (ImportError, AttributeError):
 
 # pyrefly: ignore [missing-import]
 from agents.a2_structuring import (
-    convert_raw_sop_to_okf,
     plan_okf_from_raw,
 )
 # pyrefly: ignore [missing-import]
@@ -39,8 +38,6 @@ from utils.security import verify_playbook_before_execution
 from config.tool_catalog import get_formatted_tools_summary
 # pyrefly: ignore [missing-import]
 from scheduler import (
-    start_sop_ingestion_scheduler,
-    run_ingestion_cycle,
     get_scheduler_status,
 )
 
@@ -80,46 +77,17 @@ def _resolve_sop_path(file_path: str) -> str:
 
 @mcp.tool()
 def ingest_sop(file_path: str, override_sop_id: Optional[str] = None) -> str:
-    """Converts a raw human SOP document (PDF, DOCX, TXT) into an execution-ready OKF Playbook.
-    
-    Runs multimodal parsing (text + VLM screenshots), 8-Stage CoT with 4 Verification Gates,
-    and 2-Layer Validation before committing the verified playbook to knowledge_base/sops/.
-    
-    Args:
-        file_path: Absolute or relative path (or bare filename in knowledge_base/_uploads/).
-        override_sop_id: Optional custom SOP ID (e.g. 'SOP-AUTH-001').
+    """Disabled (C1): direct MCP commits to knowledge_base/sops/ are blocked.
+
+    Use 'plan_sop' for a read-only preview or POST /api/uploads/ingest for governed
+    Agent A1-A6 processing with dual-custody HITL approval.
     """
-    resolved_path = _resolve_sop_path(file_path)
-    if not os.path.exists(resolved_path):
-        return f"[ERROR]: SOP file not found at '{file_path}' (resolved: '{resolved_path}')."
-
-    # Pre-ingestion security check: size <= 10MB, pages <= 10, format allowlist
-    is_valid, val_err, meta = validate_sop_file(resolved_path)
-    if not is_valid:
-        return f"[SECURITY REJECTION]: File '{os.path.basename(resolved_path)}' failed input validation: {val_err}"
-
-    try:
-        okf_path, frontmatter = convert_raw_sop_to_okf(
-            resolved_path,
-            override_sop_id=override_sop_id or None
-        )
-        steps = frontmatter.get("steps", [])
-        return (
-            f"[SUCCESS] SOP Conversion Succeeded!\n\n"
-            f"- SOP ID: `{frontmatter.get('sop_id')}`\n"
-            f"- Title: {frontmatter.get('title')}\n"
-            f"- Category: `{frontmatter.get('category')}`\n"
-            f"- Target OS: `{frontmatter.get('target_os')}`\n"
-            f"- Execution Steps: {len(steps)} verified steps\n"
-            f"- Playbook Location: `{okf_path}`\n\n"
-            f"### Verified Step Summary:\n" +
-            "\n".join([
-                f"  {s.get('step_number')}. [{s.get('step_type')}] {s.get('sop_step_description')}"
-                for s in steps
-            ])
-        )
-    except Exception as e:
-        return f"[FAILED] SOP Ingestion Failed: {e}"
+    return (
+        "[GOVERNANCE BLOCKED] Direct MCP ingestion via 'ingest_sop' is disabled (C1) because "
+        "it bypassed Agent A3 secret/AST quarantine, Agent A4 canonical scoring, Agent A5 dual-custody "
+        "HITL review, and Agent A6 publication gates. Use 'plan_sop' for a read-only preview or submit "
+        "through POST /api/uploads/ingest."
+    )
 
 
 @mcp.tool()
@@ -219,12 +187,17 @@ def get_registered_tool_catalog() -> str:
 
 @mcp.tool()
 def scan_uploads_now() -> str:
-    """Triggers an immediate scan of knowledge_base/_uploads/ for new or modified SOP files without waiting for the scheduler interval.
-    
-    Converts and commits any unprocessed SOP files to knowledge_base/sops/.
-    """
-    summary = run_ingestion_cycle()
-    return json.dumps(summary, indent=2, default=str)
+    """Disabled (C1): ungoverned batch directory scanning via MCP is blocked."""
+    return json.dumps({
+        "success": False,
+        "status": "GOVERNANCE BLOCKED",
+        "error_code": "UNGOVERNED_SCAN_DISABLED",
+        "message": (
+            "[GOVERNANCE BLOCKED] 'scan_uploads_now' is disabled (C1) because batch scheduler "
+            "commits bypassed Agent A3-A6 governance and HITL approval. Use POST /api/uploads/ingest "
+            "or read-only 'plan_sop'."
+        ),
+    }, indent=2)
 
 
 @mcp.tool()
@@ -273,19 +246,17 @@ def _run_cli_test_harness(test_file: Optional[str] = None):
     print(f"  Result: {sched_status}")
     print("  [PASS] get_ingestion_scheduler_status executed cleanly.")
 
-    default_candidates = [
-        f for f in os.listdir(UPLOADS_DIR)
-        if not f.startswith(("_", ".")) and f.endswith((".docx", ".pdf", ".txt"))
-    ] if os.path.exists(UPLOADS_DIR) else []
-    default_file = default_candidates[0] if default_candidates else "sample_account_unlock.txt"
-    target_sop = test_file or default_file
-    print(f"\n[MCP Test 5/5] Testing tool: 'ingest_sop' with file '{target_sop}'...")
+    target_sop = test_file or "governed_gate_check.txt"
+    print("\n[MCP Test 5/5] Verifying ungoverned write tools are blocked (C1)...")
     ingest_res = ingest_sop(target_sop)
+    scan_res = scan_uploads_now()
     print("\n" + "-" * 55)
     print(_safe_str(ingest_res))
+    print(_safe_str(scan_res))
     print("-" * 55)
-    assert "Succeeded" in ingest_res or "SUCCESS" in ingest_res, "Ingestion failed!"
-    print("  [PASS] ingest_sop executed cleanly.")
+    assert "GOVERNANCE BLOCKED" in ingest_res, "ingest_sop bypass was NOT blocked!"
+    assert "GOVERNANCE BLOCKED" in scan_res, "scan_uploads_now bypass was NOT blocked!"
+    print("  [PASS] Ungoverned write tools (ingest_sop, scan_uploads_now) verified blocked.")
 
     print("\n" + "=" * 65)
     print("  ALL MCP TOOLS VERIFIED SUCCESSFULLY!")
@@ -298,8 +269,7 @@ def main():
     parser.add_argument("--file", "-f", type=str, default=None, help="Target SOP file for test conversion in --test mode.")
     args, unknown = parser.parse_known_args()
 
-    # Automatically start background SOP uploads directory watcher
-    start_sop_ingestion_scheduler()
+    # Background ungoverned directory watcher intentionally disabled (C1 governance gate).
 
     if args.test:
         _run_cli_test_harness(test_file=args.file)

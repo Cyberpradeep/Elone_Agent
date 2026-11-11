@@ -39,7 +39,6 @@ from agents.a1_ingestion import (
 )
 import agents.a2_structuring.execution_planner as jit_converter
 from agents.a2_structuring.canonical_builder import build_canonical_sop_from_draft
-from scheduler import run_ingestion_cycle
 
 
 _FILE_SHA_CACHE = {}
@@ -859,15 +858,19 @@ async def api_ingest_single(request: Request):
 
 
 async def api_run_scan_cycle(request: Request):
-    try:
-        summary = run_ingestion_cycle()
-        return JSONResponse({
-            "success": True,
-            "summary": summary,
-            "timestamp": datetime.datetime.now().isoformat()
-        })
-    except Exception as e:
-        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+    return JSONResponse(
+        {
+            "success": False,
+            "error_code": "UNGOVERNED_SCAN_DISABLED",
+            "error": (
+                "Batch directory scan (/api/uploads/scan) is disabled because it bypassed "
+                "Agent A3 secret/AST quarantine, Agent A4 verification, and Agent A5 dual-custody "
+                "HITL review. Ingest individual SOP documents through POST /api/uploads/ingest."
+            ),
+            "use_endpoint": "/api/uploads/ingest",
+        },
+        status_code=410,
+    )
 
 
 async def api_plan_preview(request: Request):

@@ -67,12 +67,18 @@ function recentJobs(jobs) {
 }
 
 function schedulerPanel(s) {
+  const disabled = Boolean(s.disabled);
+  const badgeLabel = disabled ? 'DISABLED (GOVERNED)' : (s.running ? 'WATCHER ACTIVE' : 'STANDBY');
+  const badgeTone = disabled ? 'neutral' : (s.running ? 'success' : 'warning');
   return `
     <div class="panel">
       <div class="panel-header">
         <div class="panel-title">${icon('clock')}Background scheduler</div>
-        ${pill(s.running ? 'WATCHER ACTIVE' : 'STANDBY', s.running ? 'success' : 'warning')}
+        ${pill(badgeLabel, badgeTone)}
       </div>
+      ${disabled
+        ? `<div class="callout info" style="margin-bottom:12px">${icon('shield')}<div>${esc(s.disabled_reason || 'Batch scanning is disabled (C1). Use governed per-file ingestion.')}</div></div>`
+        : ''}
       <div class="kv-list">
         <div><span class="k">Scan interval</span><span class="v mono">${esc(s.interval_minutes ?? '—')} min</span></div>
         <div><span class="k">Last run</span><span class="v">${fmt.date(s.last_run_at)} <span class="muted tiny">${fmt.rel(s.last_run_at)}</span></span></div>
@@ -80,7 +86,9 @@ function schedulerPanel(s) {
         <div><span class="k">Total runs</span><span class="v mono">${fmt.num(s.total_runs || 0)}</span></div>
       </div>
       ${s.last_run_summary ? `<details class="accordion" style="margin-top:12px"><summary>Last run summary</summary><div class="acc-body">${jsonBlock(s.last_run_summary)}</div></details>` : ''}
-      <button class="btn btn-secondary" style="margin-top:14px;width:100%" data-action="run-scan">${icon('refresh')}Run scan now</button>
+      ${disabled
+        ? `<a class="btn btn-secondary" style="margin-top:14px;width:100%" href="#/ingestion">${icon('upload')}Open governed ingestion</a>`
+        : `<button class="btn btn-secondary" style="margin-top:14px;width:100%" data-action="run-scan">${icon('refresh')}Run scan now</button>`}
     </div>`;
 }
 

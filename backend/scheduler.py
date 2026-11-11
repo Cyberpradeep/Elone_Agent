@@ -21,8 +21,6 @@ import time
 from typing import Optional
 
 # pyrefly: ignore [missing-import]
-from agents.a2_structuring import convert_raw_sop_to_okf
-# pyrefly: ignore [missing-import]
 from agents.a1_ingestion import ALLOWED_EXTENSIONS
 
 
@@ -48,6 +46,11 @@ DEFAULT_INTERVAL_MINUTES = int(os.environ.get("SOP_SCAN_INTERVAL_MINUTES", "10")
 # Module-level state exposed to the status endpoint.
 _scheduler_state = {
     "running": False,
+    "disabled": True,
+    "disabled_reason": (
+        "Disabled (C1): background directory scanning bypassed Agent A3-A6 governance "
+        "and HITL review. Use governed single-file ingestion via POST /api/uploads/ingest."
+    ),
     "interval_minutes": DEFAULT_INTERVAL_MINUTES,
     "last_run_at": None,
     "next_run_at": None,
@@ -90,89 +93,14 @@ def _save_manifest(manifest: dict):
 # ---------------------------------------------------------------------------
 
 def run_ingestion_cycle() -> dict:
-    """One full scan-and-convert pass over the uploads folder."""
-    os.makedirs(UPLOADS_DIR, exist_ok=True)
-
-    raw_files = [
-        f for f in os.listdir(UPLOADS_DIR)
-        if os.path.isfile(os.path.join(UPLOADS_DIR, f))
-        and f.lower().endswith(SUPPORTED_EXTENSIONS)
-        and not f.startswith("_")  # skip manifest and other internal files
-    ]
-
-    if not raw_files:
-        _log("[SOP Scheduler] No raw SOP files found in _uploads/. Nothing to process.")
-        return {"processed": 0, "skipped": 0, "failed": 0, "details": []}
-
-    manifest = _load_manifest()
-    processed = 0
-    skipped = 0
-    failed = 0
-    details = []
-
-    for filename in sorted(raw_files):
-        filepath = os.path.join(UPLOADS_DIR, filename)
-        file_mtime = os.path.getmtime(filepath)
-
-        # Check manifest: skip if already processed and file hasn't changed.
-        # Skip if already successfully processed or marked unactionable with same modification time.
-        existing = manifest.get(filename)
-        if existing and existing.get("status") in {"success", "unactionable"} and existing.get("mtime") == file_mtime:
-            skipped += 1
-            continue
-
-        # Also skip if previously failed AND file hasn't been modified since.
-        if existing and existing.get("status") == "failed" and existing.get("mtime") == file_mtime:
-            skipped += 1
-            continue
-
-        # New or modified file -> convert.
-        _log(f"\n[SOP Scheduler] Processing new/modified SOP: {filename} ...")
-        try:
-            okf_path, metadata = convert_raw_sop_to_okf(filepath)
-            
-            if not okf_path or metadata.get("status") == "unactionable":
-                reason = metadata.get("reason") or "SOP is not understandable as an automated procedure."
-                _log(f"[SOP Scheduler] Skipped '{filename}': {reason}")
-                manifest[filename] = {
-                    "status": "unactionable",
-                    "mtime": file_mtime,
-                    "reason": reason,
-                    "checked_at": datetime.datetime.now().isoformat(),
-                }
-                skipped += 1
-                details.append({"file": filename, "status": "unactionable", "reason": reason})
-                continue
-
-            sop_id = metadata.get("sop_id", "UNKNOWN")
-            _log(f"[SOP Scheduler] Successfully converted '{filename}' -> {os.path.basename(okf_path)} (SOP ID: {sop_id})")
-
-            manifest[filename] = {
-                "status": "success",
-                "mtime": file_mtime,
-                "sop_id": sop_id,
-                "okf_path": okf_path,
-                "converted_at": datetime.datetime.now().isoformat(),
-            }
-            processed += 1
-            details.append({"file": filename, "status": "success", "sop_id": sop_id})
-
-        except Exception as err:
-            _log(f"[SOP Scheduler] Failed to convert '{filename}': {err}")
-            manifest[filename] = {
-                "status": "failed",
-                "mtime": file_mtime,
-                "error": str(err),
-                "failed_at": datetime.datetime.now().isoformat(),
-            }
-            failed += 1
-            details.append({"file": filename, "status": "failed", "error": str(err)})
-
-    _save_manifest(manifest)
-
-    summary = {"processed": processed, "skipped": skipped, "failed": failed, "details": details}
-    _log(f"[SOP Scheduler] Cycle complete — Processed: {processed}, Skipped: {skipped}, Failed: {failed}")
-    return summary
+    """Blocked (C1): ungoverned batch scan-and-commit cycle is disabled pending A1-A6 queue wiring."""
+    msg = (
+        "Ungoverned scheduler ingestion cycle is disabled (C1) because it bypassed "
+        "Agent A3 secret/AST quarantine, Agent A4 verification, Agent A5 dual-custody "
+        "HITL review, and Agent A6 publication gates. Use POST /api/uploads/ingest or trace_pipeline.py."
+    )
+    _log(f"[SOP Scheduler] [GOVERNANCE BLOCKED] {msg}")
+    raise RuntimeError(msg)
 
 
 # ---------------------------------------------------------------------------
@@ -213,29 +141,13 @@ def _scheduler_loop(interval_minutes: int):
 
 
 def start_sop_ingestion_scheduler(interval_minutes: Optional[int] = None):
-    """Start the SOP ingestion scheduler as a background daemon thread.
-
-    Safe to call multiple times — only the first call starts the thread.
-    """
-    interval = interval_minutes or DEFAULT_INTERVAL_MINUTES
-
+    """Disabled (C1): refuses to start an ungoverned background watcher thread."""
     with _scheduler_lock:
-        if _scheduler_state["running"]:
-            _log("[SOP Scheduler] Already running. Ignoring duplicate start request.")
-            return
-        _scheduler_state["running"] = True
-        _scheduler_state["interval_minutes"] = interval
-
-    _log(f"[SOP Scheduler] Starting background worker. Scanning every {interval} minutes.")
-    _log(f"[SOP Scheduler] Watching folder: {UPLOADS_DIR}")
-
-    thread = threading.Thread(
-        target=_scheduler_loop,
-        args=(interval,),
-        daemon=True,
-        name="sop-ingestion-scheduler",
-    )
-    thread.start()
+        _scheduler_state["running"] = False
+        _scheduler_state["disabled"] = True
+        status = dict(_scheduler_state)
+    _log(f"[SOP Scheduler] [GOVERNANCE BLOCKED] {status['disabled_reason']}")
+    return status
 
 
 def get_scheduler_status() -> dict:

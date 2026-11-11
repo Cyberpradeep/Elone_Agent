@@ -332,7 +332,7 @@ export default {
               <div class="chips" role="group" aria-label="Filter files">
                 ${[['all', 'All'], ['ready', 'Ready'], ['rejected', 'Rejected'], ['processed', 'Processed']].map(([k, l]) => `<button class="chip ${filter === k ? 'active' : ''}" data-action="ing-filter" data-filter="${k}">${l} <span class="count">${count[k]}</span></button>`).join('')}
               </div>
-              <button class="btn btn-secondary btn-sm" data-action="run-scan">${icon('refresh')}Scan all</button>
+              <button class="btn btn-secondary btn-sm" disabled title="Batch scan disabled (C1): use per-file Ingest so A3-A6 governance runs">${icon('shield')}Governed mode only</button>
             </div>
           </div>
           ${filesTable(files)}

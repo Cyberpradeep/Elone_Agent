@@ -156,13 +156,26 @@ def main():
             return
 
         # pyrefly: ignore [missing-import]
-        from agents.a2_structuring import convert_raw_sop_to_okf
-        okf_path, metadata = convert_raw_sop_to_okf(target_path, override_sop_id=args.sop_id)
+        from agents.a2_structuring import plan_okf_from_raw
+        draft = plan_okf_from_raw(target_path, override_sop_id=args.sop_id)
+        metadata = dict(draft.get("frontmatter", {}))
+        if draft.get("is_executable") is False or metadata.get("is_executable") is False:
+            reason = draft.get("unexecutable_reason") or metadata.get("unexecutable_reason") or "SOP is not actionable."
+            print("\n" + "=" * 70)
+            print("  [DRY-RUN RESULT] DOCUMENT MARKED UNACTIONABLE")
+            print("=" * 70)
+            print(f"  Reason:             {reason}")
+            print(f"  Complete Log Saved: {log_filepath}")
+            print("=" * 70 + "\n")
+            return
+        if not draft.get("is_valid", False):
+            raise ValueError(f"Playbook validation failed: {draft.get('validation_errors', [])}")
 
         print("\n" + "=" * 70)
-        print("  INGESTION & VALIDATION COMPLETED SUCCESSFULLY")
+        print("  DRY-RUN PLANNING & VALIDATION COMPLETED (NO DISK COMMIT)")
         print("=" * 70)
-        print(f"  Generated Playbook: {okf_path}")
+        print("  [Governance] Read-only preview only; nothing written to knowledge_base/sops/.")
+        print("  [Governance] Run 'python trace_pipeline.py --file ...' for governed A1-A6 approval.")
         print(f"  SOP ID:             {metadata.get('sop_id', 'N/A')}")
         print(f"  Category:           {metadata.get('category', 'N/A')}")
         print(f"  Confidence:         {metadata.get('confidence_score', 'N/A')} ({metadata.get('confidence_level', 'N/A')})")

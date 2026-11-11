@@ -65,121 +65,35 @@ Examples:
         _print_status()
 
 
-def _process_single_file(filepath: str, override_sop_id: str = None):
-    """Convert a single raw SOP file into an OKF Playbook."""
-    # pyrefly: ignore [missing-import]
-    from agents.a2_structuring import convert_raw_sop_to_okf
-
-    if not os.path.exists(filepath):
-        print(f"[ERROR] File not found: {filepath}")
-        sys.exit(1)
-
+def _governance_block(mode_label: str) -> None:
     print(f"\n{'='*60}")
-    print(f"  SOP Ingestion Pipeline — Single File Processing")
+    print(f"  [GOVERNANCE BLOCKED] {mode_label} DISABLED (C1)")
     print(f"{'='*60}")
-    print(f"  Input:  {os.path.abspath(filepath)}")
+    print(
+        "  Ungoverned direct ingestion is disabled because it bypasses Agent A3\n"
+        "  secret/AST quarantine, Agent A4 verification, Agent A5 dual-custody HITL\n"
+        "  review, and Agent A6 publication gates.\n\n"
+        "  Use the governed runner instead:\n"
+        "    python trace_pipeline.py --file <path>\n"
+        "  or submit via Governance Hub API: POST /api/uploads/ingest"
+    )
     print(f"{'='*60}\n")
+    sys.exit(1)
 
-    try:
-        okf_path, metadata = convert_raw_sop_to_okf(filepath, override_sop_id=override_sop_id)
-        print(f"\n{'='*60}")
-        print(f"  INGESTION COMPLETE")
-        print(f"{'='*60}")
-        print(f"  SOP ID:    {metadata.get('sop_id', 'N/A')}")
-        print(f"  Title:     {metadata.get('title', 'N/A')}")
-        print(f"  Category:  {metadata.get('category', 'N/A')}")
-        print(f"  Output:    {okf_path}")
-        print(f"  Confidence:{metadata.get('confidence_score', 'N/A')} ({metadata.get('confidence_level', 'N/A')})")
-        if metadata.get('confidence_reason'):
-            print(f"  Reason:    {metadata.get('confidence_reason')}")
-        print(f"  Entities:  {metadata.get('required_entities', [])}")
-        print(f"  Triggers:  {metadata.get('trigger_words', [])}")
-        print(f"  Steps:     {len(metadata.get('steps', []))}")
-        print(f"{'='*60}\n")
 
-        # Print Gemini & Vision Monitor Daily Usage Report
-        try:
-            # pyrefly: ignore [missing-import]
-            from gemini_monitor.monitor import print_daily_usage_banner
-            print_daily_usage_banner()
-        except Exception:
-            pass
-
-    except Exception as e:
-        # pyrefly: ignore [missing-import]
-        from agents.a1_ingestion import SOPInputValidationError
-
-        print("\n" + "=" * 60)
-        if isinstance(e, SOPInputValidationError):
-            print("  [SECURITY REJECTION] INGESTION BLOCKED")
-            print("=" * 60)
-            print(f"  Source File:  {e.filename}")
-            print(f"  Status:       REJECTED (Pre-Ingestion Gate)")
-            print(f"  Reason:       {e.reason}")
-            if e.metadata:
-                ext = e.metadata.get('extension')
-                size_mb = e.metadata.get('size_mb')
-                pages = e.metadata.get('page_count')
-                if ext:
-                    print(f"  Detected Ext: {ext}")
-                if size_mb is not None:
-                    print(f"  File Size:    {size_mb} MB (Max allowed: 10.0 MB)")
-                if pages is not None:
-                    print(f"  Page Count:   {pages} pages (Max allowed: 10 pages)")
-            print("=" * 60)
-            print("\n  [Audit Note] Pipeline halted before parsing/LLM execution. Zero tokens consumed.\n")
-        elif isinstance(e, ValueError):
-            print(f"  [VALIDATION ERROR]: {e}")
-            print("=" * 60 + "\n")
-        else:
-            safe_err = str(e).encode("ascii", "replace").decode("ascii")
-            print(f"  [UNEXPECTED ERROR]: {safe_err}")
-            print("=" * 60)
-            import traceback
-            traceback.print_exc()
-            print()
-        sys.exit(1)
+def _process_single_file(filepath: str, override_sop_id: str = None):
+    """Blocked (C1): use trace_pipeline.py or POST /api/uploads/ingest."""
+    _governance_block("run.py --file")
 
 
 def _run_scan_cycle():
-    """Run one full ingestion scan cycle."""
-    # pyrefly: ignore [missing-import]
-    from scheduler import run_ingestion_cycle
-
-    print(f"\n{'='*60}")
-    print(f"  SOP Ingestion Pipeline — Full Scan Cycle")
-    print(f"{'='*60}\n")
-
-    summary = run_ingestion_cycle()
-    print(f"\n{'='*60}")
-    print(f"  SCAN CYCLE COMPLETE")
-    print(f"{'='*60}")
-    print(json.dumps(summary, indent=2))
-    print(f"{'='*60}\n")
+    """Blocked (C1): batch ungoverned scan is disabled."""
+    _governance_block("run.py --scan")
 
 
 def _start_watcher(interval_minutes: int = None):
-    """Start background watcher that runs forever."""
-    # pyrefly: ignore [missing-import]
-    from scheduler import start_sop_ingestion_scheduler
-
-    interval = interval_minutes or int(os.environ.get("SOP_SCAN_INTERVAL_MINUTES", "10"))
-
-    print(f"\n{'='*60}")
-    print(f"  SOP Ingestion Pipeline — Background Watcher")
-    print(f"  Scan interval: {interval} minutes")
-    print(f"  Press Ctrl+C to stop")
-    print(f"{'='*60}\n")
-
-    start_sop_ingestion_scheduler(interval_minutes=interval)
-
-    # Keep main thread alive
-    try:
-        while True:
-            import time
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("\n[SOP Scheduler] Watcher stopped by user.")
+    """Blocked (C1): background ungoverned watcher is disabled."""
+    _governance_block("run.py --watch")
 
 
 def _print_status():
