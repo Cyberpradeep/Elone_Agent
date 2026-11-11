@@ -117,7 +117,7 @@ def write_okf_playbook(draft: Dict[str, Any], raw_filename: str = "(reviewed dra
 
     # 6. Dual Export: Save Canonical SOP JSON 1.0 (Section 16) alongside OKF Playbook
     try:
-        canonical_data = build_canonical_sop_from_draft(draft, raw_text=draft.get("raw_text", ""))
+        canonical_data = build_canonical_sop_from_draft(draft, raw_text=draft.get("raw_text", ""), vlm_reports=draft.get("vlm_reports"))
         write_canonical_sop_json(canonical_data, category=category)
     except Exception as e:
         log_warning("OKF Builder", f"Dual export canonical JSON generation failed: {e}")

@@ -19,13 +19,19 @@ const lineRange = r => (Array.isArray(r) && r.length >= 2 ? (r[0] === r[1] ? `li
 
 function evidencePill(item) {
   if (typeof item?.verified !== 'boolean') return '';
+  if (item.verified && item.evidence_source === 'visual_inspection') {
+    return pill('FOUND IN SCREENSHOT', 'success');
+  }
   return item.verified ? pill('FOUND IN DOCUMENT', 'success') : pill('NOT FOUND IN DOCUMENT', 'danger');
 }
 
 function quoteBlock(item) {
   if (!item?.quote) return '';
   const where = lineRange(item.source_lines);
-  return `<blockquote class="quote ${item.verified === false ? 'quote-bad' : ''}">“${esc(item.quote)}”${where ? `<div class="tiny muted" style="margin-top:4px">${esc(where)} of the source document</div>` : ''}</blockquote>`;
+  const loc = (item?.verified && item?.evidence_source === 'visual_inspection')
+    ? `From ${item.image_ref || 'embedded screenshot'} · high-confidence visual inspection`
+    : (where ? `${where} of the source document` : '');
+  return `<blockquote class="quote ${item.verified === false ? 'quote-bad' : ''}">“${esc(item.quote)}”${loc ? `<div class="tiny muted" style="margin-top:4px">${esc(loc)}</div>` : ''}</blockquote>`;
 }
 
 function stepCard(s, i) {
@@ -170,7 +176,10 @@ let editDirty = false;
 function editCard(s, i, canonicalStep) {
   const isTool = s.step_type === 'tool_call';
   const ev = canonicalStep && typeof canonicalStep.verified === 'boolean'
-    ? (canonicalStep.verified ? pill('QUOTE FOUND', 'success') : pill('QUOTE NOT FOUND', 'danger')) : '';
+    ? (canonicalStep.verified
+        ? pill(canonicalStep.evidence_source === 'visual_inspection' ? 'QUOTE FOUND (SCREENSHOT)' : 'QUOTE FOUND', 'success')
+        : pill('QUOTE NOT FOUND', 'danger'))
+    : '';
   return `
     <article class="sop-step-card edit-card" data-ref="${s.step_number ?? ''}" data-type="${esc(s.step_type || 'command')}">
       <div class="step-card-header">

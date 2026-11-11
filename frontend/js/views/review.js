@@ -20,6 +20,7 @@ const TASK_STATUS = {
   approve: ['APPROVED', 'success'], approved: ['APPROVED', 'success'],
   changes_requested: ['CHANGES REQUESTED', 'warning'],
   reject: ['REJECTED', 'danger'], rejected: ['REJECTED', 'danger'],
+  superseded: ['SUPERSEDED', 'neutral'],
 };
 export function taskStatus(status) {
   const [label, tone] = TASK_STATUS[status] || [String(status).toUpperCase(), 'neutral'];

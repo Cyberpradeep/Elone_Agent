@@ -105,18 +105,27 @@ class OrchestratorLedger:
         content_sha256: str,
         uploaded_by: str,
         version: int = 1,
+        allow_supersede: bool = False,
     ) -> JobRecord:
         """Initializes a new ingestion job in 'received' state.
-        Detects duplicates (same SHA-256 + same tenant); if found, immediately marks duplicate.
+        Detects duplicates (same SHA-256 + same tenant); if found, immediately marks duplicate
+        unless allow_supersede=True supersedes unpublished awaiting_review/approved drafts.
         """
         with self._lock:
-            # Check for existing processed record with same SHA-256 and tenant (Section 8)
-            for existing in self._jobs.values():
+            # Check for existing active/processed record with same SHA-256 and tenant (Section 8)
+            blocking_matches = [
+                existing
+                for existing in self._jobs.values()
                 if (
                     existing.tenant_id == tenant_id
                     and existing.content_sha256 == content_sha256
                     and existing.current_state in {STATE_APPROVED, STATE_PUBLISHED, STATE_AWAITING_REVIEW}
-                ):
+                )
+            ]
+            if blocking_matches:
+                has_published = any(m.current_state == STATE_PUBLISHED for m in blocking_matches)
+                if not allow_supersede or has_published:
+                    first = next((m for m in blocking_matches if m.current_state == STATE_PUBLISHED), blocking_matches[0])
                     dup_record = JobRecord(
                         job_id=job_id,
                         sop_id=sop_id,
@@ -131,11 +140,34 @@ class OrchestratorLedger:
                         "to_state": STATE_DUPLICATE,
                         "timestamp": _utc_now_iso(),
                         "actor": "orchestrator",
-                        "reason": f"Duplicate document detected (matches {existing.sop_id} with SHA-256 {content_sha256[:12]}...)",
+                        "reason": f"Duplicate document detected (matches {first.sop_id} with SHA-256 {content_sha256[:12]}...)",
                     })
                     self._jobs[job_id] = dup_record
                     self._save_unlocked()
                     return dup_record
+
+                # Explicitly supersede unpublished awaiting_review / approved jobs while preserving history
+                for existing in blocking_matches:
+                    if existing.current_state == STATE_APPROVED:
+                        self.transition_state(
+                            existing.job_id,
+                            STATE_AWAITING_REVIEW,
+                            actor="orchestrator",
+                            reason=f"Superseded by re-ingestion job {job_id}.",
+                        )
+                    if existing.current_state == STATE_AWAITING_REVIEW:
+                        if existing.review_task:
+                            existing.review_task["status"] = "superseded"
+                            prev_notes = (existing.review_task.get("notes") or "").strip()
+                            suffix = f"[Superseded by {job_id}]"
+                            existing.review_task["notes"] = f"{prev_notes} {suffix}".strip()
+                            existing.review_task["completed_at"] = _utc_now_iso()
+                        self.transition_state(
+                            existing.job_id,
+                            STATE_REJECTED,
+                            actor="orchestrator",
+                            reason=f"Superseded by re-ingestion job {job_id}.",
+                        )
 
             job = JobRecord(
                 job_id=job_id,

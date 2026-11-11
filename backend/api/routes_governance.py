@@ -38,6 +38,7 @@ from agents.a6_hub.publisher import (
     evaluate_publication_gates,
     write_okf_playbook,
 )
+from agents.a5_review.draft_store import purge_staged_draft
 from agents.a1_ingestion import extract_ordered_sop_content
 from agents.a2_structuring.canonical_builder import (
     build_canonical_sop_from_draft,
@@ -142,6 +143,40 @@ async def api_governance_record_decision(request: Request):
             # Not taken on trust from the client: whoever last edited the draft cannot approve it.
             last_editor=body.get("last_editor") or _draft_last_editor(target_job.sop_id),
         )
+        # Keep _processed_manifest.json synchronized with review decisions
+        try:
+            m = read_manifest()
+            _, d_data = _read_draft(target_job.sop_id)
+            target_fn = (d_data or {}).get("raw_filename")
+            if not target_fn or target_fn not in m:
+                for k, v in m.items():
+                    if v.get("job_id") == target_job.job_id or v.get("sop_id") == target_job.sop_id:
+                        target_fn = k
+                        break
+            if target_fn:
+                status_map = {
+                    "approve": "approved",
+                    "changes_requested": "changes_requested",
+                    "reject": "rejected",
+                    "rejected": "rejected",
+                }
+                entry = dict(m.get(target_fn) or {})
+                entry.update({
+                    "status": status_map.get(dec.decision, target_job.current_state),
+                    "sop_id": target_job.sop_id,
+                    "job_id": target_job.job_id,
+                    "task_id": task_id,
+                    "sha256": target_job.content_sha256,
+                    "processed_at": datetime.datetime.now().isoformat(),
+                })
+                if notes:
+                    entry["reason"] = notes
+                m[target_fn] = entry
+                with open(MANIFEST_PATH, "w", encoding="utf-8") as mf:
+                    json.dump(m, mf, indent=2)
+        except Exception:
+            pass
+
         return JSONResponse({
             "status": "success",
             "decision": dec.decision,
@@ -168,11 +203,7 @@ async def api_governance_publish_sop(request: Request):
     except Exception:
         body = {}
 
-    target_job = None
-    for job in list(governance_ledger._jobs.values()):
-        if job.sop_id == sop_id:
-            target_job = job
-            break
+    target_job = _job_for_sop(sop_id, preferred_states={"approved"})
 
     if not target_job:
         return JSONResponse({"error": f"Job for SOP '{sop_id}' not found."}, status_code=404)
@@ -202,6 +233,7 @@ async def api_governance_publish_sop(request: Request):
         # Commit unapproved draft from _drafts to knowledge_base/sops/ upon human publication
         draft_file = os.path.join(DRAFTS_DIR, f"{sop_id}.draft.json")
         saved_playbook_path = None
+        safe_name = None
         if os.path.exists(draft_file):
             try:
                 with open(draft_file, "r", encoding="utf-8") as df:
@@ -210,6 +242,14 @@ async def api_governance_publish_sop(request: Request):
                 if not canonical_sop:
                     canonical_sop = saved_draft_data.get("canonical_draft")
                 safe_name = saved_draft_data.get("raw_filename", f"{sop_id}.txt")
+                if isinstance(draft_content, dict) and not draft_content.get("raw_text") and safe_name:
+                    src_upload = os.path.join(UPLOADS_DIR, os.path.basename(safe_name))
+                    if os.path.exists(src_upload):
+                        try:
+                            _, segs = extract_ordered_sop_content(src_upload)
+                            draft_content["raw_text"] = "\n\n".join(s["content"] for s in segs if s.get("type") == "text")
+                        except Exception:
+                            pass
 
                 saved_playbook_path = write_okf_playbook(draft_content, raw_filename=safe_name)
             except Exception as e:
@@ -233,8 +273,18 @@ async def api_governance_publish_sop(request: Request):
                     "classification": {"level": "L1", "score": 25},
                     "steps": [],
                 }
-        if canonical_sop.get("lifecycle", {}).get("state") != "published":
-            canonical_sop["lifecycle"] = {"state": "published"}
+        canonical_sop.setdefault("lifecycle", {})["state"] = "published"
+        canonical_sop.setdefault("source", {}).setdefault("file_sha256", target_job.content_sha256)
+
+        if saved_playbook_path:
+            pub_category = os.path.basename(os.path.dirname(saved_playbook_path)) or "general"
+            write_canonical_sop_json(canonical_sop, category=pub_category)
+            purge_staged_draft(sop_id)
+            if os.path.exists(draft_file):
+                try:
+                    os.remove(draft_file)
+                except Exception:
+                    pass
 
         indexed = retrieval_index.index_published_sop(canonical_sop)
         citation = indexed.citation if hasattr(indexed, "citation") else str(indexed)
@@ -243,16 +293,18 @@ async def api_governance_publish_sop(request: Request):
         try:
             pub_sop_id = canonical_sop.get("sop_id") or target_job.sop_id
             m = read_manifest()
-            target_fn = safe_name if "safe_name" in locals() and safe_name else None
+            target_fn = safe_name if safe_name else None
             if not target_fn:
                 for k, v in m.items():
-                    if v.get("sop_id") in (sop_id, pub_sop_id):
+                    if v.get("job_id") == target_job.job_id or v.get("sop_id") in (sop_id, pub_sop_id):
                         target_fn = k
                         break
             if target_fn:
                 m[target_fn] = {
                     "status": "success",
                     "sop_id": pub_sop_id,
+                    "job_id": target_job.job_id,
+                    "sha256": target_job.content_sha256,
                     "published": True,
                     "published_at": datetime.datetime.now().isoformat(),
                     "playbook_path": saved_playbook_path,
@@ -439,11 +491,31 @@ def _draft_last_editor(sop_id: str):
         return None
 
 
-def _job_for_sop(sop_id: str):
-    for job in list(governance_ledger._jobs.values()):
-        if job.sop_id == sop_id:
-            return job
-    return None
+def _job_for_sop(sop_id: str, preferred_states=None):
+    matches = [job for job in list(governance_ledger._jobs.values()) if job.sop_id == sop_id]
+    if not matches:
+        return None
+    if preferred_states:
+        pref = [j for j in matches if j.current_state in preferred_states]
+        if pref:
+            pref.sort(key=lambda j: (j.updated_at or j.created_at or ""), reverse=True)
+            return pref[0]
+    priority = {
+        "awaiting_review": 4,
+        "approved": 4,
+        "changes_requested": 3,
+        "published": 3,
+        "assessing": 2,
+        "structuring": 2,
+        "scanning": 2,
+        "extracting": 2,
+        "received": 2,
+    }
+    matches.sort(
+        key=lambda j: (priority.get(j.current_state, 0), j.updated_at or j.created_at or ""),
+        reverse=True,
+    )
+    return matches[0]
 
 
 async def api_governance_get_draft(request: Request):
@@ -452,7 +524,7 @@ async def api_governance_get_draft(request: Request):
     path, data = _read_draft(sop_id)
     if not data:
         return JSONResponse({"error": f"No draft found for '{sop_id}'."}, status_code=404)
-    job = _job_for_sop(sop_id)
+    job = _job_for_sop(sop_id, preferred_states={"awaiting_review"})
     state = job.current_state if job else None
     editable = state == "awaiting_review"
     fm = (data.get("draft") or {}).get("frontmatter") or data.get("draft") or {}
@@ -580,15 +652,20 @@ def _apply_step_edits(path: str, data: dict, steps_in: list, actor: str, canonic
 
     fm["steps"] = new_steps
     old = data.get("canonical_draft") or {}
+    if not draft.get("raw_text"):
+        draft["raw_text"] = raw_text
     rebuilt = build_canonical_sop_from_draft(
         draft, raw_text=raw_text,
         tenant_id=old.get("tenant_id", "tn_northwind"),
         uploaded_by=(old.get("lifecycle") or {}).get("uploaded_by", "author@corp.com"),
+        vlm_reports=draft.get("vlm_reports"),
     )
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
     old["steps"] = rebuilt["steps"]
     old["quality"] = rebuilt["quality"]
     old["issues"] = rebuilt.get("issues", old.get("issues", []))
+    if rebuilt.get("media"):
+        old["media"] = rebuilt["media"]
     if canonical_extra:
         _merge_document_sections(old, fm, canonical_extra, raw_text)
     old.setdefault("lifecycle", {}).update({"last_editor": actor, "last_edited_at": now})
@@ -619,7 +696,7 @@ async def api_governance_update_draft_steps(request: Request):
     path, data = _read_draft(sop_id)
     if not data:
         return JSONResponse({"error": f"No draft found for '{sop_id}'."}, status_code=404)
-    job = _job_for_sop(sop_id)
+    job = _job_for_sop(sop_id, preferred_states={"awaiting_review"})
     if not job or job.current_state != "awaiting_review":
         return JSONResponse({"error": "Steps can only be edited while the SOP is awaiting review."}, status_code=409)
 
@@ -659,7 +736,7 @@ async def api_governance_update_draft_canonical(request: Request):
     path, data = _read_draft(sop_id)
     if not data:
         return JSONResponse({"error": f"No draft found for '{sop_id}'."}, status_code=404)
-    job = _job_for_sop(sop_id)
+    job = _job_for_sop(sop_id, preferred_states={"awaiting_review"})
     if not job or job.current_state != "awaiting_review":
         return JSONResponse({"error": "The JSON can only be edited while the SOP is awaiting review."}, status_code=409)
 

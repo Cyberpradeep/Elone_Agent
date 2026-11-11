@@ -12,6 +12,7 @@ Enforces:
 """
 
 import os
+import copy
 import time
 import json
 import hashlib
@@ -39,7 +40,7 @@ from agents.a3_security.ast_sandbox import scan_commands_for_ast_threats
 from agents.a3_security.confidentiality_engine import compute_confidentiality_score
 from agents.a4_verification.plan_validator import validate_plan_faithfulness_and_linkage
 from agents.a4_verification.quality_engine import compute_quality_score
-from agents.a4_verification.quote_tracer import compute_source_line_coverage
+from agents.a4_verification.quote_tracer import compute_source_line_coverage, verify_canonical_quotes
 from agents.a5_review.draft_store import stage_unapproved_draft, commit_draft_to_playbook
 from agents.a5_review.task_manager import create_review_task
 from agents.a5_review.sod_policy import (
@@ -339,6 +340,7 @@ def run_a2_structuring(task: TaskMessage, bus: Any) -> ResultMessage:
         # Reuses already-extracted text from Agent A1 to prevent duplicate VLM OCR
         draft = plan_okf_from_raw(
             filepath,
+            override_sop_id=task.sop_id or None,
             feedback_override=feedback_errors if feedback_errors else None,
             pre_extracted_text=cleaned_text or raw_text,
         )
@@ -362,7 +364,10 @@ def run_a2_structuring(task: TaskMessage, bus: Any) -> ResultMessage:
             uploaded_by=task.requested_operation.get("uploaded_by", "author@corp.com"),
             source_metadata=source_meta,
             transformations=transformations,
+            vlm_reports=draft.get("vlm_reports"),
         )
+        cleaned_art.data["vlm_reports"] = draft.get("vlm_reports") or []
+        cleaned_art.data["enriched_text"] = draft.get("enriched_text") or cleaned_text
     except Exception as conv_err:
         return ResultMessage(
             task_id=task.task_id,
@@ -380,6 +385,8 @@ def run_a2_structuring(task: TaskMessage, bus: Any) -> ResultMessage:
         "sop_id": canonical_dict.get("sop_id"),
         "title": canonical_dict.get("title"),
         "cleaned_artifact_reference": cleaned_art.artifact_id,
+        "vlm_reports": draft.get("vlm_reports") or [],
+        "enriched_text": draft.get("enriched_text") or cleaned_text,
     }
     canonical_art = Artifact.create(
         tenant_id=task.tenant_id,
@@ -423,11 +430,24 @@ def run_a4_verification(task: TaskMessage, bus: Any) -> ResultMessage:
     okf_draft = canonical_art.data.get("okf_draft", {})
     frontmatter = okf_draft.get("frontmatter", okf_draft)
 
+    vlm_reports = (
+        canonical_art.data.get("vlm_reports")
+        or okf_draft.get("vlm_reports")
+        or cleaned_art.data.get("vlm_reports")
+        or []
+    )
+    validation_text = (
+        canonical_art.data.get("enriched_text")
+        or okf_draft.get("enriched_text")
+        or cleaned_art.data.get("enriched_text")
+        or cleaned_text
+    )
+
     # 1. Faithfulness & Schema Linkage Validation
-    is_faithful, faith_errors = validate_plan_faithfulness_and_linkage(cleaned_text, frontmatter)
+    is_faithful, faith_errors = validate_plan_faithfulness_and_linkage(validation_text, frontmatter)
 
     # 2. Quality Formula: Q = 0.4C + 0.4T + 20 - 5B (with real line coverage accounting)
-    raw_lines = cleaned_text.splitlines()
+    raw_lines = [ln.strip() for ln in cleaned_text.splitlines() if ln.strip()]
     steps = canonical_data.get("steps") or frontmatter.get("steps") or []
     coverage_items = frontmatter.get("source_action_coverage") or []
     metadata_fields = [
@@ -460,7 +480,7 @@ def run_a4_verification(task: TaskMessage, bus: Any) -> ResultMessage:
     for source_dict in [frontmatter, canonical_data]:
         if isinstance(source_dict, dict):
             for k, v in source_dict.items():
-                if k in ("steps", "source_action_coverage"):
+                if k in ("steps", "source_action_coverage", "media", "transformations", "source", "lifecycle", "provenance", "raw_text", "enriched_text", "vlm_reports", "knowledge_base_ref", "frontmatter"):
                     continue
                 if isinstance(v, (str, int, float)):
                     metadata_fields.append(str(v))
@@ -479,8 +499,19 @@ def run_a4_verification(task: TaskMessage, bus: Any) -> ResultMessage:
         coverage_items=coverage_items,
         metadata_fields=metadata_fields,
     )
-    total_quotes = max(1, len(steps))
-    verified_quotes = total_quotes if is_faithful else max(0, total_quotes - len(faith_errors))
+    steps_copy = copy.deepcopy(steps)
+    for st in steps_copy:
+        if isinstance(st, dict) and not st.get("quote") and st.get("source_quote"):
+            st["quote"] = st["source_quote"]
+
+    total_quotes, verified_quotes, unverified_quotes = verify_canonical_quotes(
+        steps_copy,
+        raw_lines,
+        vlm_reports=vlm_reports,
+    )
+    if total_quotes == 0:
+        total_quotes = max(1, len(steps_copy))
+        verified_quotes = 0 if len(steps_copy) > 0 else total_quotes
 
     q_res = compute_quality_score(
         total_non_blank_lines=total_non_blank,
@@ -490,10 +521,22 @@ def run_a4_verification(task: TaskMessage, bus: Any) -> ResultMessage:
         schema_valid=is_faithful,
         blocking_issues_count=len(faith_errors),
     )
+    q_res["total_quotes"] = total_quotes
+    q_res["verified_quotes"] = verified_quotes
+
+    all_errors = list(faith_errors)
+    for uq in unverified_quotes:
+        all_errors.append(
+            f"Quote traceability miss in step '{uq.get('action', 'Unknown')}': \"{uq.get('quote', '')}\" not found in document or high-confidence screenshots."
+        )
+    if len(steps_copy) > 0 and q_res["traceability"] < 90.0:
+        gate3_msg = f"Gate 3 Traceability Failure: {q_res['traceability']:.1f}% ({verified_quotes}/{total_quotes} quotes verified) is below required 90.0%."
+        if gate3_msg not in all_errors:
+            all_errors.append(gate3_msg)
 
     quality_report = {
         "is_faithful": is_faithful,
-        "validation_errors": faith_errors,
+        "validation_errors": all_errors,
         "completeness": q_res["completeness"],
         "traceability": q_res["traceability"],
         "quality_score": q_res["quality_score"],
@@ -511,8 +554,9 @@ def run_a4_verification(task: TaskMessage, bus: Any) -> ResultMessage:
     )
     bus.artifact_store.put(qr_art)
 
-    # Determine status per Section 12: if errors exist -> needs_review
-    status = "success" if (is_faithful and len(faith_errors) == 0 and q_res["quality_score"] >= 75.0) else "needs_review"
+    # Determine status per Section 12 & Gate 3: if errors or traceability < 90% -> needs_review
+    traceability_ok = (len(steps_copy) == 0) or (q_res["traceability"] >= 90.0)
+    status = "success" if (is_faithful and len(all_errors) == 0 and traceability_ok and q_res["quality_score"] >= 75.0) else "needs_review"
 
     return ResultMessage(
         task_id=task.task_id,
@@ -521,7 +565,7 @@ def run_a4_verification(task: TaskMessage, bus: Any) -> ResultMessage:
         status=status,
         output_artifact_reference=qr_art.artifact_id,
         structured_findings=q_res,
-        unresolved_issues=[{"error": e, "severity": "high"} for e in faith_errors],
+        unresolved_issues=[{"error": e, "severity": "high"} for e in all_errors],
         processing_metrics={"latency_ms": int((time.time() - t0) * 1000), "tools_used": ["schema.validate", "trace.quotes", "coverage.lines"]},
     )
 
@@ -737,18 +781,25 @@ def run_a6_hub(task: TaskMessage, bus: Any) -> ResultMessage:
             processing_metrics={"latency_ms": int((time.time() - t0) * 1000)},
         )
 
-    # 2. Commit draft to production sops/
+    # 2. Commit draft to production sops/ and persist published canonical JSON in the same category folder
+    if "lifecycle" not in canonical_data:
+        canonical_data["lifecycle"] = {}
+    canonical_data["lifecycle"]["state"] = "published"
     published_okf_path = commit_draft_to_playbook(sop_id)
-    canonical_json_path = write_canonical_sop_json(canonical_data)
+    pub_category = "general"
+    if published_okf_path:
+        pub_category = os.path.basename(os.path.dirname(published_okf_path)) or "general"
+    else:
+        dept = canonical_data.get("department")
+        if isinstance(dept, dict) and dept.get("value"):
+            pub_category = str(dept["value"]).lower().strip() or "general"
+    canonical_json_path = write_canonical_sop_json(canonical_data, category=pub_category)
 
     # 3. Validate HMAC signature
     is_verified, v_msg, _fm = validate_sop_hmac_file(published_okf_path)
 
     # 4. Update Downstream Clearance Retrieval Index
     retrieval_index = get_retrieval_index()
-    if "lifecycle" not in canonical_data:
-        canonical_data["lifecycle"] = {}
-    canonical_data["lifecycle"]["state"] = "published"
     indexed_sop = retrieval_index.index_published_sop(canonical_data)
 
     pub_payload = {

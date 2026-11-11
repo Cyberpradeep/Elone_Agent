@@ -38,6 +38,7 @@ class DocumentSourceModel(BaseModel):
 
     filename: str
     sha256: str
+    file_sha256: Optional[str] = None
     size: int
     detected_type: str
     pages: int = 1
@@ -69,6 +70,8 @@ class CanonicalStepModel(BaseModel):
     source_lines: List[int] = Field(default_factory=list, description="Source lines [start, end]")
     quote: str = Field(..., description="5-25 word verbatim quote from source")
     verified: bool = False
+    evidence_source: Optional[Literal["document", "visual_inspection"]] = None
+    image_ref: Optional[str] = None
 
 
 class ExceptionModel(BaseModel):
@@ -99,6 +102,10 @@ class MediaModel(BaseModel):
     label: str
     description: str
     source_line: int
+    image_path: Optional[str] = None
+    report_path: Optional[str] = None
+    confidence_score: Optional[float] = None
+    confidence_level: Optional[str] = None
 
 
 class IssueModel(BaseModel):

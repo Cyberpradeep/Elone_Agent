@@ -90,6 +90,39 @@ def _locate_quote(quote: str, raw_lines: List[str], max_span: int = 3) -> List[i
     return [best_start, best_end]
 
 
+def _build_media_entries(vlm_reports: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """Converts structured VLM inspection reports into Canonical MediaModel entries."""
+    media_entries: List[Dict[str, Any]] = []
+    for idx, rep in enumerate(vlm_reports or [], start=1):
+        if not isinstance(rep, dict):
+            continue
+        label = str(rep.get("label") or f"Image {rep.get('image_index', idx)}")
+        rep_text = str(rep.get("report_text") or "").strip()
+        desc = rep.get("description") or (rep_text[:300] if rep_text else label)
+        try:
+            src_line = max(1, int(rep.get("anchor_line") or 1))
+        except (TypeError, ValueError):
+            src_line = 1
+        entry: Dict[str, Any] = {
+            "label": label,
+            "description": str(desc),
+            "source_line": src_line,
+        }
+        if rep.get("image_path"):
+            entry["image_path"] = str(rep["image_path"])
+        if rep.get("report_path"):
+            entry["report_path"] = str(rep["report_path"])
+        if rep.get("confidence_score") is not None:
+            try:
+                entry["confidence_score"] = float(rep["confidence_score"])
+            except (TypeError, ValueError):
+                pass
+        if rep.get("confidence_level"):
+            entry["confidence_level"] = str(rep["confidence_level"])
+        media_entries.append(entry)
+    return media_entries
+
+
 def _extract_document_sections(raw_text: str) -> Dict[str, str]:
     """Extracts standard SOP sections (Purpose, Scope, Notes, Owner, Review Date, Platform) from raw text."""
     sections: Dict[str, str] = {}
@@ -148,9 +181,11 @@ def build_canonical_sop_from_draft(
     uploaded_by: str = "author@corp.com",
     source_metadata: Optional[Dict[str, Any]] = None,
     transformations: Optional[List[Dict[str, Any]]] = None,
+    vlm_reports: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Constructs a Canonical SOP JSON Schema 1.0 dictionary from a draft OKF playbook (Section 16)."""
     frontmatter_dict = draft.get("frontmatter", draft)
+    effective_vlm_reports = vlm_reports if vlm_reports is not None else (draft.get("vlm_reports") or [])
     sop_id = frontmatter_dict.get("sop_id") or "SOP-DYN-001"
     title = frontmatter_dict.get("title") or "Automated Standard Operating Procedure"
     category = frontmatter_dict.get("category") or "general"
@@ -240,8 +275,12 @@ def build_canonical_sop_from_draft(
         canonical_steps.append(canonical_step)
 
     verified_quotes_count = 0
-    if source_lines:
-        total_quotes, verified_quotes_count, _ = verify_canonical_quotes(canonical_steps, source_lines)
+    if source_lines or effective_vlm_reports:
+        total_quotes, verified_quotes_count, _ = verify_canonical_quotes(
+            canonical_steps,
+            source_lines,
+            vlm_reports=effective_vlm_reports,
+        )
 
     canonical_notes = []
     raw_notes = []
@@ -307,7 +346,7 @@ def build_canonical_sop_from_draft(
     for source_dict in [frontmatter_dict, draft]:
         if isinstance(source_dict, dict):
             for k, v in source_dict.items():
-                if k in ("steps", "source_action_coverage"):
+                if k in ("steps", "source_action_coverage", "raw_text", "enriched_text", "vlm_reports", "knowledge_base_ref", "frontmatter"):
                     continue
                 if isinstance(v, (str, int, float)):
                     coverage_meta.append(str(v))
@@ -394,7 +433,7 @@ def build_canonical_sop_from_draft(
         "exceptions": canonical_exceptions,
         "notes": canonical_notes,
         "references": [],
-        "media": [],
+        "media": _build_media_entries(effective_vlm_reports),
         "issues": [],
         "classification": {
             "level": conf_res["level"],

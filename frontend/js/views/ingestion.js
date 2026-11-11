@@ -17,23 +17,26 @@ let filter = 'all';
 // Table
 // ---------------------------------------------------------------------------
 
+const isProcessed = f => Boolean(f.playbook_exists || f.status === 'success');
+const isInReview = f => f.status === 'awaiting_review' || f.status === 'approved' || f.status === 'changes_requested';
+
 function statusOf(f) {
-  if (f.status === 'success') return pill('PROCESSED', 'success');
-
+  if (isProcessed(f)) return pill('PROCESSED', 'success');
   if (f.status === 'awaiting_review') return pill('AWAITING REVIEW', 'warning');
+  if (f.status === 'changes_requested') return pill('CHANGES REQUESTED', 'warning');
+  if (f.status === 'approved') return pill('APPROVED', 'info');
+  if (f.status === 'rejected') return pill('REJECTED', 'danger');
+  if (f.status === 'quarantined') return pill('QUARANTINED', 'danger');
   if (f.status === 'failed') return pill('FAILED', 'danger');
-  if (f.status === 'unactionable') return pill('UNACTIONABLE', 'muted');
-
+  if (f.status === 'unactionable') return pill('UNACTIONABLE', 'neutral');
   return pill('NOT PROCESSED', 'neutral');
 }
 
 function filterFiles(files) {
   return files.filter(f => {
-
-    if (filter === 'ready') return f.gate1_passed && f.status !== 'success' && f.status !== 'awaiting_review';
-
-    if (filter === 'rejected') return !f.gate1_passed;
-    if (filter === 'processed') return f.status === 'success';
+    if (filter === 'ready') return f.gate1_passed && !isProcessed(f) && !isInReview(f);
+    if (filter === 'rejected') return !f.gate1_passed || f.status === 'rejected' || f.status === 'quarantined';
+    if (filter === 'processed') return isProcessed(f);
     return true;
   });
 }
@@ -57,21 +60,24 @@ function filesTable(files) {
                 ${f.gate1_passed ? pill('PASSED', 'success') : pill('REJECTED', 'danger')}
                 ${f.gate1_error ? `<div class="cell-sub text-danger">${esc(f.gate1_error)}</div>` : ''}
               </td>
-              <td>${statusOf(f)}${f.processed_at ? `<div class="cell-sub">${fmt.date(f.processed_at)}</div>` : ''}</td>
+              <td style="max-width:260px">${statusOf(f)}${f.processed_at ? `<div class="cell-sub">${fmt.date(f.processed_at)}</div>` : ''}${f.reason ? `<div class="cell-sub muted" title="${esc(f.reason)}">${esc(String(f.reason).slice(0, 72))}${String(f.reason).length > 72 ? '…' : ''}</div>` : ''}</td>
 
-              <td>${f.sop_id ? `<a href="#/playbooks" class="id-cell" title="View in Playbooks">${esc(f.sop_id)}</a>` : '<span class="muted">—</span>'}</td>
+              <td>${f.sop_id ? (isProcessed(f) ? `<a href="#/playbooks" class="id-cell" title="View in Playbooks">${esc(f.sop_id)}</a>` : f.task_id ? `<a href="#/review/${esc(f.task_id)}" class="id-cell" title="Open review task">${esc(f.sop_id)}</a>` : `<span class="id-cell muted">${esc(f.sop_id)}</span>`) : '<span class="muted">—</span>'}</td>
               <td class="nowrap"><div class="mono tiny">${fmt.date(f.modified)}</div><div class="cell-sub">${fmt.rel(f.modified)}</div></td>
               <td>
                 <div class="row-actions">
-                  ${f.status === 'success'
+                  ${isProcessed(f)
                     ? `<a class="btn btn-sm btn-secondary" href="#/playbooks" title="View published playbook in OKF Hub">${icon('book')}Playbook</a>
                        <button class="btn btn-sm btn-outline" data-action="dry-run" data-file="${esc(f.filename)}" title="Preview the plan without saving anything">Dry run</button>`
-                    : f.status === 'awaiting_review'
-                    ? `<a class="btn btn-sm btn-secondary" href="#/review" title="Open review queue">${icon('review')}Review</a>
+                    : isInReview(f)
+                    ? `<a class="btn btn-sm btn-secondary" href="#/${f.task_id ? `review/${esc(f.task_id)}` : 'review'}" title="${f.status === 'approved' ? 'Ready to publish in Lifecycle jobs' : 'Open review task'}">${icon(f.status === 'approved' ? 'check' : 'review')}${f.status === 'approved' ? 'Publish' : 'Review'}</a>
+                       <button class="btn btn-sm btn-outline" data-action="ingest-file" data-file="${esc(f.filename)}" data-reingest="1" data-status="${esc(f.status)}" title="Supersede current draft and re-run ingestion">${icon('refresh')}Re-ingest</button>
                        <button class="btn btn-sm btn-outline" data-action="dry-run" data-file="${esc(f.filename)}" title="Preview the plan without saving anything">Dry run</button>`
+                    : (f.status === 'rejected' || f.status === 'quarantined' || f.status === 'failed' || f.status === 'unactionable')
+                    ? `<button class="btn btn-sm btn-primary" data-action="ingest-file" data-file="${esc(f.filename)}" data-reingest="1" data-status="${esc(f.status)}" ${f.gate1_passed ? '' : 'disabled title="Fails Gate 1 checks"'}>${icon('refresh')}Re-ingest</button>
+                       <button class="btn btn-sm btn-outline" data-action="dry-run" data-file="${esc(f.filename)}" ${f.gate1_passed ? '' : 'disabled'} title="Preview the plan without saving anything">Dry run</button>`
                     : `<button class="btn btn-sm btn-primary" data-action="ingest-file" data-file="${esc(f.filename)}" ${f.gate1_passed ? '' : 'disabled title="Fails Gate 1 checks"'}>${icon('play')}Ingest</button>
                        <button class="btn btn-sm btn-outline" data-action="dry-run" data-file="${esc(f.filename)}" ${f.gate1_passed ? '' : 'disabled'} title="Preview the plan without saving anything">Dry run</button>`}
-
                 </div>
               </td>
             </tr>`).join('')}
@@ -87,12 +93,18 @@ function filesTable(files) {
 registerActions({
   'ingest-file': el => {
     const file = el.dataset.file;
+    const reingest = el.dataset.reingest === '1';
+    const prevStatus = el.dataset.status || '';
+    const supersedeNote = (prevStatus === 'awaiting_review' || prevStatus === 'approved' || prevStatus === 'changes_requested')
+      ? `<div class="callout warn">${icon('alert')}<div>This will supersede the current <b>${esc(fmt.words(prevStatus))}</b> draft and create a fresh review task. Prior ledger history is preserved.</div></div>`
+      : '';
     openModal({
-      title: 'Ingest document',
+      title: reingest ? 'Re-ingest document' : 'Ingest document',
       size: 'md',
       body: `
-        <form id="ingest-form" class="stack" data-file="${esc(file)}">
+        <form id="ingest-form" class="stack" data-file="${esc(file)}" data-reingest="${reingest ? '1' : '0'}">
           <div class="meta-item"><div class="meta-label">Document</div><div class="meta-value mono">${esc(file)}</div></div>
+          ${supersedeNote}
           <div class="callout">${icon('info')}<div>Runs extraction, secret scanning, LLM structuring and quality assessment. It can take a minute or two and uses LLM quota. <b>Nothing is published</b> until someone else reviews and approves it.</div></div>
           <div class="form-grid">
             <div class="field"><label for="ing-uploader">Uploaded by</label><input id="ing-uploader" class="input" value="${esc(store.get('uploader', 'analyst@example.com'))}" autocomplete="username"><span class="field-hint">The reviewer must be someone else.</span></div>
@@ -101,7 +113,7 @@ registerActions({
           <div class="field"><label for="ing-sopid">SOP ID <span class="muted" style="text-transform:none">(optional)</span></label><input id="ing-sopid" class="input mono" placeholder="Generated from the file hash if left empty"></div>
         </form>`,
       footer: `<button class="btn btn-outline" data-action="close-modal">Cancel</button>
-               <button class="btn btn-primary" data-action="ingest-run">${icon('play')}Start ingestion</button>`,
+               <button class="btn btn-primary" data-action="ingest-run">${icon(reingest ? 'refresh' : 'play')}${reingest ? 'Start re-ingestion' : 'Start ingestion'}</button>`,
     });
   },
 
@@ -112,6 +124,7 @@ registerActions({
       uploadedBy: form.querySelector('#ing-uploader').value.trim(),
       tenantId: form.querySelector('#ing-tenant').value.trim(),
       sopId: form.querySelector('#ing-sopid').value.trim(),
+      reingest: form.dataset.reingest === '1',
     };
     store.set('uploader', opts.uploadedBy); store.set('tenant', opts.tenantId);
 
@@ -217,17 +230,23 @@ function resultModal(res, file) {
     return { body: `<div class="callout warn">${icon('alert')}<div><b>Already being processed.</b> ${esc(res.error || '')} Wait for it to finish, or stop it first.</div></div>`, footer: close };
   }
   if (status === 'duplicate') {
-    return { body: `<div class="callout warn">${icon('alert')}<div><b>Duplicate document.</b> ${esc(res.message || 'This exact file has already been processed.')}</div></div>`, footer: close };
+    return {
+      body: `<div class="stack"><div class="callout warn">${icon('alert')}<div><b>Duplicate document.</b> ${esc(res.message || 'This exact file has already been processed.')}</div></div>${res.sop_id ? `<p class="small muted">Published playbook <b>${esc(res.sop_id)}</b> is live in Playbooks. Delete it from Playbooks before re-ingesting.</p>` : ''}</div>`,
+      footer: close,
+    };
   }
   if (status === 'unactionable') {
-    return { body: `<div class="callout warn">${icon('alert')}<div><b>Not actionable as an automated procedure.</b><div style="margin-top:4px">${esc(res.reason || '')}</div></div></div>`, footer: close };
+    return {
+      body: `<div class="callout warn">${icon('alert')}<div><b>Not actionable as an automated procedure.</b><div style="margin-top:4px">${esc(res.reason || '')}</div></div></div>`,
+      footer: `${close}<button class="btn btn-outline" data-action="ingest-file" data-file="${esc(file)}" data-reingest="1">${icon('refresh')}Re-ingest</button>`,
+    };
   }
   if (status === 'REJECTED_GATE_1') {
     return { body: `<div class="callout danger">${icon('alert')}<div><b>Rejected at Gate 1.</b> ${esc(res.reason || '')}</div></div>`, footer: close };
   }
   return {
     body: `<div class="callout danger">${icon('alert')}<div><b>Ingestion failed.</b><div style="margin-top:4px">${esc(res.error || res.reason || res.message || 'Unknown error')}</div></div></div>`,
-    footer: close,
+    footer: `${close}<button class="btn btn-primary" data-action="ingest-file" data-file="${esc(file)}" data-reingest="1">${icon('refresh')}Retry ingestion</button>`,
   };
 }
 
@@ -281,9 +300,9 @@ export default {
     const allowed = data.allowed_extensions || [];
     const count = {
       all: files.length,
-      ready: files.filter(f => f.gate1_passed && f.status !== 'success').length,
-      rejected: files.filter(f => !f.gate1_passed).length,
-      processed: files.filter(f => f.status === 'success').length,
+      ready: files.filter(f => f.gate1_passed && !isProcessed(f) && !isInReview(f)).length,
+      rejected: files.filter(f => !f.gate1_passed || f.status === 'rejected' || f.status === 'quarantined').length,
+      processed: files.filter(f => isProcessed(f)).length,
     };
     return `
       <div class="view-stack">

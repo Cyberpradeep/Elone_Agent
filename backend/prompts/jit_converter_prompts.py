@@ -288,11 +288,13 @@ Output JSON:
 
 ## SOURCE QUOTE MANDATE (TRACEABILITY):
 - Every object in "steps" MUST include "source_quote": 5 to 25 words copied WORD-FOR-WORD from the SOP text inside <untrusted_document_payload> that this step is based on.
+- Prefer exact written SOP prose whenever written text supports the step.
+- When a procedural step or UI parameter comes from a Visual Inspection Report inside <untrusted_document_payload> that carries a `[HIGH CONFIDENCE` tag (score >= 0.85), you MAY copy a 5 to 25 word verbatim phrase directly from its `UI ACTION:`, `VISIBLE ENTITIES:`, or `SCREEN / CONTEXT:` fields.
+- NEVER quote from `[MEDIUM CONFIDENCE` or `[LOW CONFIDENCE` visual reports, NEVER quote the confidence lines themselves, and NEVER quote error messages.
 - Copy the text exactly as written: same words, same order, same spelling. Do NOT paraphrase, summarize, translate, merge two sentences, or reuse your own "sop_step_description".
-- Quote only the SOP's own text, never an image analysis report or anything you wrote yourself.
-- If one document sentence drives several steps, quote the relevant part of it in each of those steps.
-- If the document has no text that supports a step, do NOT invent a quote. Leave that step out.
-- Each quote is later searched for in the document. A quote that cannot be found marks the step as unverified.
+- If one document sentence or high-confidence visual observation drives several steps, quote the relevant part of it in each of those steps.
+- If neither the written document nor a `[HIGH CONFIDENCE` visual report supports a step, do NOT invent a quote. Leave that step out.
+- Each quote is later searched for in the written document and high-confidence Visual Inspection Reports. A quote that cannot be found marks the step as unverified.
 
 ## JSON SYNTAX AND INTEGRITY MANDATE:
 - Return ONLY valid, parseable, complete JSON inside the ```json codeblock.
@@ -510,11 +512,13 @@ Output JSON:
 
 ## SOURCE QUOTE MANDATE (TRACEABILITY):
 - Every object in "steps" MUST include "source_quote": 5 to 25 words copied WORD-FOR-WORD from the SOP text inside <untrusted_document_payload> that this step is based on.
+- Prefer exact written SOP prose whenever written text supports the step.
+- When a procedural step or UI parameter comes from a Visual Inspection Report inside <untrusted_document_payload> that carries a `[HIGH CONFIDENCE` tag (score >= 0.85), you MAY copy a 5 to 25 word verbatim phrase directly from its `UI ACTION:`, `VISIBLE ENTITIES:`, or `SCREEN / CONTEXT:` fields.
+- NEVER quote from `[MEDIUM CONFIDENCE` or `[LOW CONFIDENCE` visual reports, NEVER quote the confidence lines themselves, and NEVER quote error messages.
 - Copy the text exactly as written: same words, same order, same spelling. Do NOT paraphrase, summarize, translate, merge two sentences, or reuse your own "sop_step_description".
-- Quote only the SOP's own text, never an image analysis report or anything you wrote yourself.
-- If one document sentence drives several steps, quote the relevant part of it in each of those steps.
-- If the document has no text that supports a step, do NOT invent a quote. Leave that step out.
-- Each quote is later searched for in the document. A quote that cannot be found marks the step as unverified.
+- If one document sentence or high-confidence visual observation drives several steps, quote the relevant part of it in each of those steps.
+- If neither the written document nor a `[HIGH CONFIDENCE` visual report supports a step, do NOT invent a quote. Leave that step out.
+- Each quote is later searched for in the written document and high-confidence Visual Inspection Reports. A quote that cannot be found marks the step as unverified.
 
 ## JSON SYNTAX AND INTEGRITY MANDATE:
 - Return ONLY valid, parseable, complete JSON inside the ```json codeblock.
@@ -673,11 +677,13 @@ Output JSON:
 
 ## SOURCE QUOTE MANDATE (TRACEABILITY):
 - Every object in "steps" MUST include "source_quote": 5 to 25 words copied WORD-FOR-WORD from the SOP text inside <untrusted_document_payload> that this step is based on.
+- Prefer exact written SOP prose whenever written text supports the step.
+- When a procedural step or UI parameter comes from a Visual Inspection Report inside <untrusted_document_payload> that carries a `[HIGH CONFIDENCE` tag (score >= 0.85), you MAY copy a 5 to 25 word verbatim phrase directly from its `UI ACTION:`, `VISIBLE ENTITIES:`, or `SCREEN / CONTEXT:` fields.
+- NEVER quote from `[MEDIUM CONFIDENCE` or `[LOW CONFIDENCE` visual reports, NEVER quote the confidence lines themselves, and NEVER quote error messages.
 - Copy the text exactly as written: same words, same order, same spelling. Do NOT paraphrase, summarize, translate, merge two sentences, or reuse your own "sop_step_description".
-- Quote only the SOP's own text, never an image analysis report or anything you wrote yourself.
-- If one document sentence drives several steps, quote the relevant part of it in each of those steps.
-- If the document has no text that supports a step, do NOT invent a quote. Leave that step out.
-- Each quote is later searched for in the document. A quote that cannot be found marks the step as unverified.
+- If one document sentence or high-confidence visual observation drives several steps, quote the relevant part of it in each of those steps.
+- If neither the written document nor a `[HIGH CONFIDENCE` visual report supports a step, do NOT invent a quote. Leave that step out.
+- Each quote is later searched for in the written document and high-confidence Visual Inspection Reports. A quote that cannot be found marks the step as unverified.
 
 ## JSON SYNTAX AND INTEGRITY MANDATE:
 - Return ONLY valid, parseable, complete JSON inside the ```json codeblock.
@@ -713,11 +719,13 @@ DYNAMIC TOOL INSPECTION RULES:
 
 ## SOURCE QUOTE MANDATE (TRACEABILITY):
 - Every object in "steps" MUST include "source_quote": 5 to 25 words copied WORD-FOR-WORD from the SOP text inside <untrusted_document_payload> that this step is based on.
+- Prefer exact written SOP prose whenever written text supports the step.
+- When a procedural step or UI parameter comes from a Visual Inspection Report inside <untrusted_document_payload> that carries a `[HIGH CONFIDENCE` tag (score >= 0.85), you MAY copy a 5 to 25 word verbatim phrase directly from its `UI ACTION:`, `VISIBLE ENTITIES:`, or `SCREEN / CONTEXT:` fields.
+- NEVER quote from `[MEDIUM CONFIDENCE` or `[LOW CONFIDENCE` visual reports, NEVER quote the confidence lines themselves, and NEVER quote error messages.
 - Copy the text exactly as written: same words, same order, same spelling. Do NOT paraphrase, summarize, translate, merge two sentences, or reuse your own "sop_step_description".
-- Quote only the SOP's own text, never an image analysis report or anything you wrote yourself.
-- If one document sentence drives several steps, quote the relevant part of it in each of those steps.
-- If the document has no text that supports a step, do NOT invent a quote. Leave that step out.
-- Each quote is later searched for in the document. A quote that cannot be found marks the step as unverified.
+- If one document sentence or high-confidence visual observation drives several steps, quote the relevant part of it in each of those steps.
+- If neither the written document nor a `[HIGH CONFIDENCE` visual report supports a step, do NOT invent a quote. Leave that step out.
+- Each quote is later searched for in the written document and high-confidence Visual Inspection Reports. A quote that cannot be found marks the step as unverified.
 
 ## OUTPUT JSON SCHEMA MANDATE
 ```json

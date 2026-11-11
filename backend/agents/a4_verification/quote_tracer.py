@@ -50,9 +50,73 @@ def verify_quote_trace(
     return False, window_text
 
 
+def _normalize_trace_text(text: str) -> str:
+    norm = re.sub(r"[^\w\s]", " ", (text or "").lower())
+    return re.sub(r"\s+", " ", norm).strip()
+
+
+def _extract_vlm_searchable_lines(report_text: str) -> List[str]:
+    """Extracts non-metadata lines from a VLM Visual Inspection Report (stripping confidence lines)."""
+    clean_lines: List[str] = []
+    for raw_line in (report_text or "").splitlines():
+        stripped = re.sub(r"^\s*[-*•]?\s*", "", raw_line.strip())
+        if not stripped:
+            continue
+        plain = stripped.replace("**", "").replace("__", "").strip()
+        upper = plain.upper()
+        if upper.startswith(("CONFIDENCE SCORE:", "CONFIDENCE LEVEL:", "CONFIDENCE REASON:")):
+            continue
+        if plain:
+            clean_lines.append(plain)
+    return clean_lines
+
+
+def verify_quote_against_vlm_reports(
+    vlm_reports: List[Dict[str, Any]],
+    quote: str,
+) -> Tuple[bool, Optional[Dict[str, Any]]]:
+    """Verifies a verbatim quote against high-confidence (>= 0.85) VLM Visual Inspection Reports."""
+    norm_quote = _normalize_trace_text(quote)
+    if not norm_quote or not vlm_reports:
+        return False, None
+
+    quote_tokens = [tok for tok in norm_quote.split() if len(tok) > 1]
+
+    for rep in vlm_reports:
+        if not isinstance(rep, dict):
+            continue
+        try:
+            conf = float(rep.get("confidence_score") or 0.0)
+        except (TypeError, ValueError):
+            conf = 0.0
+        if conf < 0.85:
+            continue
+
+        clean_lines = _extract_vlm_searchable_lines(str(rep.get("report_text") or ""))
+        if not clean_lines:
+            continue
+
+        norm_full = _normalize_trace_text(" ".join(clean_lines))
+        if norm_quote in norm_full:
+            return True, rep
+
+        if quote_tokens:
+            candidates = list(clean_lines)
+            for idx in range(len(clean_lines) - 1):
+                candidates.append(f"{clean_lines[idx]} {clean_lines[idx + 1]}")
+            for cand in candidates:
+                cand_tokens = set(_normalize_trace_text(cand).split())
+                overlap = sum(1 for tok in quote_tokens if tok in cand_tokens)
+                if (overlap / len(quote_tokens)) >= 0.90:
+                    return True, rep
+
+    return False, None
+
+
 def verify_canonical_quotes(
     items: List[Dict[str, Any]],
     raw_lines: List[str],
+    vlm_reports: Optional[List[Dict[str, Any]]] = None,
 ) -> Tuple[int, int, List[Dict[str, Any]]]:
     """Batch verifies quote citations across steps, preconditions, and purpose items."""
     total = 0
@@ -60,23 +124,61 @@ def verify_canonical_quotes(
     unverified = []
 
     for item in items:
-        quote = item.get("quote", "").strip()
+        quote = (item.get("quote") or "").strip()
         lines = item.get("source_lines") or []
-        if not quote or len(lines) < 2:
+        if not quote:
             continue
 
-        total += 1
-        is_ok, context = verify_quote_trace(raw_lines, lines[0], lines[1], quote)
-        item["verified"] = is_ok
-        if is_ok:
-            verified += 1
-        else:
+        if len(lines) >= 2:
+            total += 1
+            is_ok, context = verify_quote_trace(raw_lines, lines[0], lines[1], quote)
+            if is_ok:
+                item["verified"] = True
+                item["evidence_source"] = "document"
+                item.pop("image_ref", None)
+                verified += 1
+                continue
+
+            if vlm_reports:
+                vlm_ok, matched_rep = verify_quote_against_vlm_reports(vlm_reports, quote)
+                if vlm_ok and matched_rep is not None:
+                    img_label = matched_rep.get("label") or f"Image {matched_rep.get('image_index', 1)}"
+                    item["verified"] = True
+                    item["evidence_source"] = "visual_inspection"
+                    item["source_lines"] = []
+                    item["image_ref"] = img_label
+                    verified += 1
+                    continue
+
+            item["verified"] = False
+            item["evidence_source"] = "document"
+            item.pop("image_ref", None)
             unverified.append({
                 "action": item.get("action") or item.get("text", "Unknown"),
                 "quote": quote,
                 "source_lines": lines,
                 "window_context": context,
             })
+        elif vlm_reports:
+            total += 1
+            vlm_ok, matched_rep = verify_quote_against_vlm_reports(vlm_reports, quote)
+            if vlm_ok and matched_rep is not None:
+                img_label = matched_rep.get("label") or f"Image {matched_rep.get('image_index', 1)}"
+                item["verified"] = True
+                item["evidence_source"] = "visual_inspection"
+                item["source_lines"] = []
+                item["image_ref"] = img_label
+                verified += 1
+            else:
+                item["verified"] = False
+                item["evidence_source"] = "document"
+                item.pop("image_ref", None)
+                unverified.append({
+                    "action": item.get("action") or item.get("text", "Unknown"),
+                    "quote": quote,
+                    "source_lines": lines,
+                    "window_context": "",
+                })
 
     return total, verified, unverified
 
@@ -140,8 +242,10 @@ def compute_source_line_coverage(
     ]
     structural_re = re.compile("|".join(f"(?:{p})" for p in structural_patterns), re.IGNORECASE)
 
-    # 3. Direct cited line ranges from steps
+    # 3. Direct cited line ranges from steps (skip screenshot-verified steps)
     for s in steps:
+        if s.get("evidence_source") == "visual_inspection":
+            continue
         lines = s.get("source_lines")
         if isinstance(lines, list) and len(lines) >= 2:
             try:
@@ -220,6 +324,7 @@ def compute_source_line_coverage(
 
 __all__ = [
     "verify_quote_trace",
+    "verify_quote_against_vlm_reports",
     "verify_canonical_quotes",
     "compute_source_line_coverage",
 ]

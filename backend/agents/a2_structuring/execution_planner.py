@@ -132,11 +132,15 @@ def plan_okf_from_raw(
             raise ValueError(f"Could not extract text from raw file: {raw_filepath}")
 
     knowledge_base_ref = []
+    vlm_reports = []
     enriched_parts = []
     image_index = 0
+    written_line_count = 0
     for seg in segments:
         if seg["type"] == "text":
-            enriched_parts.append(seg["content"])
+            seg_content = seg.get("content", "")
+            enriched_parts.append(seg_content)
+            written_line_count += sum(1 for ln in seg_content.splitlines() if ln.strip())
         else:
             image_index += 1
             max_sop_images = get_max_images_per_sop()
@@ -146,6 +150,7 @@ def plan_okf_from_raw(
             label = seg.get("label", f"Image {image_index}")
             report_text, image_ref = analyze_and_save_image(seg["bytes"], seg["mime_type"], label, sop_slug, image_index)
             conf_score = float(image_ref.get("confidence_score", 0.90))
+            conf_level = image_ref.get("confidence_level") or ("High" if conf_score >= 0.85 else ("Medium" if conf_score >= 0.60 else "Low"))
 
             if conf_score >= 0.85:
                 directive = f"[HIGH CONFIDENCE: {conf_score:.2f} — Fully trust and extract visible UI buttons, IDs, and parameters]"
@@ -156,6 +161,16 @@ def plan_okf_from_raw(
 
             enriched_parts.append(f"### Visual Inspection Report ({label}) {directive}:\n{report_text}")
             knowledge_base_ref.append(image_ref)
+            vlm_reports.append({
+                "image_index": image_index,
+                "label": label,
+                "image_path": image_ref.get("image_path", ""),
+                "report_path": image_ref.get("file_path", ""),
+                "confidence_score": conf_score,
+                "confidence_level": conf_level,
+                "anchor_line": max(1, written_line_count),
+                "report_text": report_text,
+            })
 
     raw_combined_text = "\n\n".join(enriched_parts)
     enriched_sop_text = escape_prompt_delimiters(raw_combined_text)
@@ -173,8 +188,9 @@ def plan_okf_from_raw(
         if not triage_res.get("is_executable", True) or triage_res.get("classification") == "unactionable":
             unexec_reason = triage_res.get("unexecutable_reason") or "Purely informational document with no actionable automated commands."
             log_info("JIT Converter", f"Stage 1 Early Exit: Document identified as unactionable: {unexec_reason}")
+            effective_sop_id = override_sop_id or f"SOP-{sop_slug}-001"
             frontmatter_dict = {
-                "sop_id": f"SOP-{sop_slug}-001",
+                "sop_id": effective_sop_id,
                 "title": sop_slug.replace("-", " ").title(),
                 "platform": "system",
                 "category": "system",
@@ -190,7 +206,7 @@ def plan_okf_from_raw(
                 "steps": [],
             }
             return {
-                "sop_id": f"SOP-{sop_slug}-001",
+                "sop_id": effective_sop_id,
                 "frontmatter": frontmatter_dict,
                 "steps": [],
                 "confidence_score": 0.0,
@@ -201,6 +217,9 @@ def plan_okf_from_raw(
                 "is_valid": True,
                 "validation_errors": [],
                 "knowledge_base_ref": knowledge_base_ref,
+                "raw_text": raw_text,
+                "vlm_reports": vlm_reports,
+                "enriched_text": enriched_sop_text,
             }
 
     # -------------------------------------------------------------------------
@@ -451,15 +470,17 @@ def plan_okf_from_raw(
                 data["is_executable"] = False
                 data["unexecutable_reason"] = unexec_reason
                 if not data.get("sop_id"):
-                    data["sop_id"] = f"SOP-{sop_slug}-001"
+                    data["sop_id"] = override_sop_id or f"SOP-{sop_slug}-001"
                 if not data.get("category"):
                     data["category"] = "system"
                 validated_model = OKFPlaybookModel.model_validate(data)
                 data = validated_model.model_dump()
+                effective_sop_id = override_sop_id or data.get("sop_id") or f"SOP-{sop_slug}-001"
                 return {
+                    "sop_id": effective_sop_id,
                     "frontmatter": {
                         "type": "Playbook",
-                        "sop_id": None,
+                        "sop_id": override_sop_id or None,
                         "title": data.get("title", os.path.basename(raw_filepath)),
                         "platform": data.get("platform") or "system",
                         "category": (data.get("category") or "other").lower().strip(),
@@ -484,6 +505,10 @@ def plan_okf_from_raw(
                     "confidence_reason": unexec_reason,
                     "is_valid": True,
                     "validation_errors": [],
+                    "knowledge_base_ref": knowledge_base_ref,
+                    "raw_text": raw_text,
+                    "vlm_reports": vlm_reports,
+                    "enriched_text": enriched_sop_text,
                 }
 
             validated_model = OKFPlaybookModel.model_validate(data)
@@ -530,10 +555,12 @@ def plan_okf_from_raw(
                         if fn_only in tool_to_step:
                             item["step_number"] = tool_to_step[fn_only]
 
-        # Faithfulness & Linkage Validation
+        # Faithfulness & Linkage Validation (include VLM reports when screenshots exist)
+        validation_source_text = enriched_sop_text if vlm_reports else raw_text
         is_valid, validation_errors = validate_plan_faithfulness_and_linkage(
-            raw_text,
+            validation_source_text,
             {
+                "sop_id": override_sop_id or data.get("sop_id"),
                 "steps": steps,
                 "required_entities": data.get("required_entities") or [],
                 "source_action_coverage": data.get("source_action_coverage") or [],
@@ -648,6 +675,7 @@ def plan_okf_from_raw(
     }
 
     return {
+        "sop_id": sop_id,
         "frontmatter": frontmatter_dict,
         "is_executable": True,
         "unexecutable_reason": None,
@@ -659,6 +687,10 @@ def plan_okf_from_raw(
         "confidence_reason": confidence_reason,
         "is_valid": is_valid,
         "validation_errors": validation_errors or [],
+        "knowledge_base_ref": knowledge_base_ref,
+        "raw_text": raw_text,
+        "vlm_reports": vlm_reports,
+        "enriched_text": enriched_sop_text,
     }
 
 

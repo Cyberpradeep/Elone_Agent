@@ -72,7 +72,7 @@ export const api = {
     return request('/api/uploads/upload', { method: 'POST', form });
   },
   /** Resolves with the pipeline body even for 400/403/409 outcomes (check `.status`). */
-  ingestSingle: (filename, { sopId, tenantId, uploadedBy } = {}) => request('/api/uploads/ingest', {
+  ingestSingle: (filename, { sopId, tenantId, uploadedBy, reingest } = {}) => request('/api/uploads/ingest', {
     method: 'POST',
     soft: true,
     json: {
@@ -80,6 +80,7 @@ export const api = {
       ...(sopId ? { sop_id: sopId } : {}),
       ...(tenantId ? { tenant_id: tenantId } : {}),
       ...(uploadedBy ? { uploaded_by: uploadedBy } : {}),
+      ...(reingest ? { reingest: true } : {}),
     },
   }),
   /** Ask a running ingestion to stop. It ends at its next checkpoint; nothing is saved. */
