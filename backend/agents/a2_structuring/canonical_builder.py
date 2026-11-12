@@ -371,11 +371,18 @@ def build_canonical_sop_from_draft(
         coverage_items=frontmatter_dict.get("source_action_coverage") or [],
         metadata_fields=coverage_meta,
     )
+    vlm_text = "\n".join(
+        str(r.get("report_text") or r.get("description") or "")
+        for r in effective_vlm_reports
+        if isinstance(r, dict)
+    ).strip()
+    conf_scan_text = "\n\n".join(p for p in (raw_text or title, vlm_text) if p)
+    effective_ai_advisory = ai_advisory if ai_advisory is not None else (draft.get("ai_advisory") if isinstance(draft, dict) else None)
     conf_res = compute_confidentiality_score(
-        raw_text or title,
+        conf_scan_text,
         dlp_stats=dlp_stats,
         is_ocr=effective_ocr,
-        ai_advisory=ai_advisory,
+        ai_advisory=effective_ai_advisory,
     )
     quality_res = compute_quality_score(
         total_non_blank_lines=total_non_blank,
@@ -452,7 +459,11 @@ def build_canonical_sop_from_draft(
             "rule_level": conf_res["rule_level"],
             "ai_suggested_level": conf_res["ai_suggested_level"],
             "conflict": bool(conf_res.get("conflict", False)),
-            "rationale": "Deterministic rule classification",
+            "rationale": (
+                str(effective_ai_advisory.get("rationale")).strip()
+                if isinstance(effective_ai_advisory, dict) and effective_ai_advisory.get("rationale")
+                else ("AI advisory + deterministic rule classification" if effective_ai_advisory else "Deterministic rule classification")
+            ),
             "confirmed": False,
         },
         "quality": {

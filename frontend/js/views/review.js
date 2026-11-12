@@ -146,11 +146,12 @@ export function classificationCard(c) {
   if (!c) return '';
   return `
     <div class="result-card">
-      <h5>Confidentiality ${tierBadge(c.level)}</h5>
+      <h5>Confidentiality ${tierBadge(c.level)} ${c.conflict ? pill('CONFLICT', 'warning') : ''}</h5>
       <div class="kv-list">
         <div><span class="k">Score</span><span class="v mono">${esc(c.score)}/100</span></div>
         <div><span class="k">Rule tier / AI suggestion</span><span class="v mono">${esc(c.rule_level || '—')} / ${esc(c.ai_suggested_level || '—')}</span></div>
         <div><span class="k">Confirmed by a human</span><span class="v">${c.confirmed ? pill('YES', 'success') : pill('NOT YET', 'warning')}</span></div>
+        ${c.override_reason ? `<div><span class="k">Reviewer note</span><span class="v small">${esc(c.override_reason)}</span></div>` : ''}
       </div>
       ${(c.evidence_categories || []).length ? `<div class="row" style="margin-top:8px">${c.evidence_categories.map(e => `<span class="badge-tag">${esc(fmt.words(e))}</span>`).join('')}</div>` : ''}
     </div>`;
@@ -184,12 +185,27 @@ registerActions({
     const decision = decisionEl ? decisionEl.value : 'approve';
     const notes = form.querySelector('#dec-notes').value.trim();
     const confirmed = form.querySelector('#dec-classif').checked;
+    const adjustedLevel = form.querySelector('#dec-tier')?.value || '';
+    const initialLevel = form.dataset.tier || '';
+    const hasConflict = form.dataset.conflict === '1';
+    const overrideReason = form.querySelector('#dec-override-reason')?.value.trim() || '';
+    const needsOverride = decision === 'approve' && ((adjustedLevel && initialLevel && adjustedLevel !== initialLevel) || hasConflict);
 
     if (decision !== 'approve' && !notes) { err.textContent = 'Add a note explaining the decision.'; form.querySelector('#dec-notes').focus(); return; }
     if (decision === 'approve' && !confirmed) { err.textContent = 'Confirm the confidentiality tier to approve.'; return; }
+    if (needsOverride && overrideReason.length < 5) {
+      err.textContent = 'Provide a brief reason (at least 5 characters) for changing the tier or resolving the conflict.';
+      form.querySelector('#dec-override-reason')?.focus();
+      return;
+    }
 
     // Reviewer identity, actor_type=human, last_editor, and all 6 gates are computed strictly on the server.
-    const payload = { decision, notes, confirmed_classification: confirmed };
+    const payload = {
+      decision,
+      notes,
+      confirmed_classification: confirmed,
+      ...(needsOverride ? { adjusted_level: adjustedLevel, override_reason: overrideReason } : {}),
+    };
 
     const done = busy(el);
     try {

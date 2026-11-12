@@ -167,9 +167,20 @@ function decisionCard(task, c, draft, job) {
   const canDecide = blockers.length === 0;
   const disAttr = canDecide ? '' : 'disabled';
   const cl = c?.classification;
+  const currentTier = String(cl?.level || sopTier || 'L0').toUpperCase();
+  const ruleTier = String(cl?.rule_level || 'L0').toUpperCase();
+  const aiTier = String(cl?.ai_suggested_level || currentTier).toUpperCase();
+  const hasConflict = Boolean(cl?.conflict || (cl?.rule_level && cl?.ai_suggested_level && ruleTier !== aiTier && !cl?.override_reason));
+  const minRank = TIER_RANK[ruleTier] ?? 0;
+  const maxRank = TIER_RANK[userTier] ?? 1;
+  const tierLabels = { L0: 'L0 — Public', L1: 'L1 — Internal', L2: 'L2 — Confidential', L3: 'L3 — Restricted' };
+  const tierOptions = ['L0', 'L1', 'L2', 'L3']
+    .filter(lvl => (TIER_RANK[lvl] >= minRank && TIER_RANK[lvl] <= maxRank) || lvl === currentTier)
+    .map(lvl => `<option value="${lvl}" ${lvl === currentTier ? 'selected' : ''}>${esc(tierLabels[lvl])}${lvl === ruleTier ? ' (rule floor)' : ''}</option>`)
+    .join('');
 
   return `
-    <form id="decision-form" class="panel stack" data-page="true" data-task="${esc(task.task_id)}" data-sop="${esc(task.sop_id)}" novalidate>
+    <form id="decision-form" class="panel stack" data-page="true" data-task="${esc(task.task_id)}" data-sop="${esc(task.sop_id)}" data-tier="${esc(currentTier)}" data-conflict="${hasConflict ? '1' : '0'}" novalidate>
       <div class="panel-title">${icon('review')}Security review decision</div>
 
       <div class="meta-grid">
@@ -195,9 +206,21 @@ function decisionCard(task, c, draft, job) {
         <textarea id="dec-notes" class="textarea" rows="3" placeholder="What did you check? What needs to change?" ${disAttr}></textarea>
       </div>
 
+      ${hasConflict ? `<div class="callout warn">${icon('alert')}<div><b>Rule vs AI conflict:</b> Rule scored <b>${esc(ruleTier)}</b>, AI suggested <b>${esc(aiTier)}</b>. Select the final tier and explain below to resolve Gate 5.</div></div>` : ''}
+
+      <div class="field">
+        <label for="dec-tier">Confidentiality tier <span class="muted" style="text-transform:none;font-weight:500">(floor ${esc(ruleTier)})</span></label>
+        <select id="dec-tier" class="input" ${disAttr}>${tierOptions}</select>
+      </div>
+
+      <div class="field" id="dec-override-wrap" ${hasConflict ? '' : 'hidden'}>
+        <label for="dec-override-reason">Tier adjustment / resolution reason <span class="muted" style="text-transform:none;font-weight:500">(required)</span></label>
+        <input type="text" id="dec-override-reason" class="input" placeholder="e.g. Internal AirRetailer VPN/RDP procedure requires L1" ${disAttr}>
+      </div>
+
       <label class="row" style="gap:10px;flex-wrap:nowrap;align-items:flex-start;cursor:${canDecide ? 'pointer' : 'not-allowed'}">
         <span class="switch"><input type="checkbox" id="dec-classif" ${disAttr}><span></span></span>
-        <span class="small secondary">I confirm the confidentiality tier${cl?.level ? ` <b>${esc(cl.level)}</b>` : ''} is correct (publication gate 6).</span>
+        <span class="small secondary">I confirm the confidentiality tier <b id="dec-tier-label">${esc(currentTier)}</b> is correct (publication gate 6).</span>
       </label>
 
       <div id="dec-error" class="field-error" role="alert"></div>
@@ -615,6 +638,15 @@ export default {
     const notesReq = root.querySelector('#dec-notes-req');
     root.querySelector('.radio-cards')?.addEventListener('change', e => {
       if (notesReq) notesReq.textContent = e.target.value !== 'approve' ? '(required)' : '(optional)';
+    }, { signal: ctx.signal });
+    const decForm = root.querySelector('#decision-form');
+    const decTier = root.querySelector('#dec-tier');
+    const decTierLabel = root.querySelector('#dec-tier-label');
+    const decOverrideWrap = root.querySelector('#dec-override-wrap');
+    decTier?.addEventListener('change', () => {
+      if (decTierLabel) decTierLabel.textContent = decTier.value;
+      const changed = decForm && (decTier.value !== decForm.dataset.tier || decForm.dataset.conflict === '1');
+      if (decOverrideWrap) decOverrideWrap.hidden = !changed;
     }, { signal: ctx.signal });
   },
 };

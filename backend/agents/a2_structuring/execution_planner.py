@@ -219,6 +219,7 @@ def plan_okf_from_raw(
                 "raw_text": raw_text,
                 "vlm_reports": vlm_reports,
                 "enriched_text": enriched_sop_text,
+                "ai_advisory": dict(triage_res.get("confidentiality_advisory") or {}) if isinstance(triage_res, dict) else {},
             }
 
     # -------------------------------------------------------------------------
@@ -522,6 +523,7 @@ def plan_okf_from_raw(
                     "raw_text": raw_text,
                     "vlm_reports": vlm_reports,
                     "enriched_text": enriched_sop_text,
+                    "ai_advisory": dict(triage_res.get("confidentiality_advisory") or {}) if isinstance(triage_res, dict) else {},
                 }
 
             validated_model = OKFPlaybookModel.model_validate(data)
@@ -710,6 +712,7 @@ def plan_okf_from_raw(
         "raw_text": raw_text,
         "vlm_reports": vlm_reports,
         "enriched_text": enriched_sop_text,
+        "ai_advisory": dict(triage_res.get("confidentiality_advisory") or {}) if isinstance(triage_res, dict) else {},
     }
 
 

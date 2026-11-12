@@ -32,6 +32,7 @@ from api.context import (
     _find_job_for_sop,
 )
 from auth.models import (
+    CLEARANCE_RANKS,
     HUMAN_ROLES,
     ROLE_SET,
     ROLE_ADMIN,
@@ -282,6 +283,9 @@ async def api_governance_record_decision(request: Request):
     notes = str(body.get("notes", "") or "")
     # Strictly require explicit boolean True from caller; default False (never auto-confirm Gate 6).
     confirmed_classif = body.get("confirmed_classification") is True
+    raw_adjusted_level = body.get("adjusted_level")
+    adjusted_level = str(raw_adjusted_level).strip().upper() if raw_adjusted_level is not None and str(raw_adjusted_level).strip() else ""
+    override_reason = str(body.get("override_reason") or "").strip()
 
     target_job = None
     for job in list(governance_ledger._jobs.values()):
@@ -314,21 +318,66 @@ async def api_governance_record_decision(request: Request):
     canon_hash = None
     draft_hash = None
     if clean_dec == "approve":
+        eval_draft_data = copy.deepcopy(saved_draft_data) if isinstance(saved_draft_data, dict) else saved_draft_data
+        if adjusted_level:
+            if adjusted_level not in CLEARANCE_RANKS:
+                return JSONResponse(
+                    {"error": f"Invalid confidentiality tier '{adjusted_level}'. Must be L0, L1, L2, or L3."},
+                    status_code=422,
+                )
+            enforce_clearance_access(principal, adjusted_level, request=request)
+            if isinstance(eval_draft_data, dict) and isinstance(eval_draft_data.get("canonical_draft"), dict):
+                cand_classif = eval_draft_data["canonical_draft"].setdefault("classification", {})
+                if isinstance(cand_classif, dict):
+                    rule_lvl = str(cand_classif.get("rule_level") or "L0").strip().upper()
+                    rule_rank = CLEARANCE_RANKS.get(rule_lvl, 0)
+                    if CLEARANCE_RANKS[adjusted_level] < rule_rank:
+                        return JSONResponse(
+                            {"error": f"Cannot downgrade confidentiality tier below deterministic policy floor ({rule_lvl})."},
+                            status_code=422,
+                        )
+                    curr_lvl = str(cand_classif.get("level") or rule_lvl).strip().upper()
+                    had_conflict = bool(cand_classif.get("conflict", False)) or (
+                        bool(rule_lvl)
+                        and bool(cand_classif.get("ai_suggested_level"))
+                        and rule_lvl != str(cand_classif.get("ai_suggested_level") or "").strip().upper()
+                    )
+                    if adjusted_level != curr_lvl or had_conflict:
+                        if len(override_reason) < 5:
+                            return JSONResponse(
+                                {"error": "Provide a brief override reason (at least 5 characters) when changing the confidentiality tier or resolving a conflict."},
+                                status_code=422,
+                            )
+                        tier_floors = {"L0": 5, "L1": 21, "L2": 51, "L3": 76}
+                        curr_rank = CLEARANCE_RANKS.get(curr_lvl, 0)
+                        try:
+                            curr_score = int(cand_classif.get("score") or 5)
+                        except (TypeError, ValueError):
+                            curr_score = 5
+                        if CLEARANCE_RANKS[adjusted_level] > curr_rank:
+                            cand_classif["score"] = max(curr_score, tier_floors[adjusted_level])
+                        elif adjusted_level != curr_lvl:
+                            cand_classif["score"] = max(tier_floors.get(rule_lvl, 5), tier_floors[adjusted_level])
+                        cand_classif["level"] = adjusted_level
+                        cand_classif["conflict"] = False
+                        cand_classif["override_reason"] = override_reason
+                        cand_classif["overridden_by"] = reviewer
+
         gate_check = evaluate_draft_publication_gates(
             target_job,
-            saved_draft_data,
+            eval_draft_data,
             for_publish=False,
             body_confirmed_classification=confirmed_classif,
         )
         if (
             gate_check.passed
             and draft_path
-            and isinstance(saved_draft_data, dict)
-            and isinstance(saved_draft_data.get("canonical_draft"), dict)
-            and isinstance(saved_draft_data.get("draft"), dict)
+            and isinstance(eval_draft_data, dict)
+            and isinstance(eval_draft_data.get("canonical_draft"), dict)
+            and isinstance(eval_draft_data.get("draft"), dict)
         ):
             now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
-            stamped_draft_data = copy.deepcopy(saved_draft_data)
+            stamped_draft_data = eval_draft_data
             stamped_canon = stamped_draft_data["canonical_draft"]
             stamped_canon["sop_id"] = target_job.sop_id
             stamped_canon["version"] = target_job.version
@@ -1108,6 +1157,7 @@ def _apply_step_edits(path: str, data: dict, steps_in: list, actor: str, canonic
         tenant_id=tenant_id,
         uploaded_by=(old.get("lifecycle") or {}).get("uploaded_by", draft_meta.get("uploaded_by") or "author@corp.com"),
         vlm_reports=work_draft.get("vlm_reports"),
+        ai_advisory=work_draft.get("ai_advisory"),
     )
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
     old["steps"] = rebuilt["steps"]

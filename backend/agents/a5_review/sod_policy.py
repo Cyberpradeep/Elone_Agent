@@ -420,8 +420,12 @@ def evaluate_draft_publication_gates(
 
     rule_lvl = str(classif.get("rule_level") or "").strip().upper()
     ai_lvl = str(classif.get("ai_suggested_level") or "").strip().upper()
+    resolved_by_human = (
+        bool(str(classif.get("override_reason") or "").strip())
+        and not bool(classif.get("conflict", False))
+    )
     rule_ai_conflict = bool(classif.get("conflict", False)) or (
-        bool(rule_lvl) and bool(ai_lvl) and rule_lvl != ai_lvl
+        not resolved_by_human and bool(rule_lvl) and bool(ai_lvl) and rule_lvl != ai_lvl
     )
 
     # Gate 6: Confidentiality tier confirmation

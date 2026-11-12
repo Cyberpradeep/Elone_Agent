@@ -821,6 +821,7 @@ async def api_ingest_single(request: Request):
             tenant_id=tenant_id,
             uploaded_by=actor,
             vlm_reports=draft.get("vlm_reports") if isinstance(draft, dict) else None,
+            ai_advisory=draft.get("ai_advisory") if isinstance(draft, dict) else None,
             dlp_stats=dlp_stats,
             is_ocr=is_ocr,
         )

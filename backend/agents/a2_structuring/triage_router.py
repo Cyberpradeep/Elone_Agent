@@ -52,6 +52,26 @@ ENTITY_KEY_MAP = {
 
 
 ENABLE_TOOL_INSPECTION_DEFAULT = os.getenv("ELONE_ENABLE_TOOL_INSPECTION", "1").lower() in ("1", "true", "yes")
+_VALID_CONF_LEVELS = {"L0", "L1", "L2", "L3"}
+
+
+def _sanitize_confidentiality_advisory(raw: Any) -> Dict[str, Any]:
+    """Normalizes optional LLM confidentiality advisory block for Agent A3."""
+    if not isinstance(raw, dict):
+        return {}
+    out: Dict[str, Any] = {
+        "security_controls": raw.get("security_controls") is True,
+        "customer_data": raw.get("customer_data") is True,
+        "legal_financial": raw.get("legal_financial") is True,
+        "proprietary_process": raw.get("proprietary_process") is True,
+    }
+    lvl = str(raw.get("suggested_level") or "").strip().upper()
+    if lvl in _VALID_CONF_LEVELS:
+        out["suggested_level"] = lvl
+    rationale = str(raw.get("rationale") or "").strip()
+    if rationale:
+        out["rationale"] = rationale[:240]
+    return out
 
 
 def run_triage_router(
@@ -234,6 +254,7 @@ def run_triage_router(
             "detected_platforms": triage_data.get("detected_platforms", []),
             "target_os": triage_data.get("target_os", "windows"),
             "requires_shell": triage_data.get("requires_shell", True),
+            "confidentiality_advisory": _sanitize_confidentiality_advisory(triage_data.get("confidentiality_advisory")),
         }
     except Exception as e:
         log_warning("Triage Router", f"Fallback parsing to 'command': {e}")
@@ -247,6 +268,7 @@ def run_triage_router(
             "detected_platforms": [],
             "target_os": "windows",
             "requires_shell": True,
+            "confidentiality_advisory": {},
         }
 
 
