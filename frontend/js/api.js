@@ -136,10 +136,15 @@ export const api = {
   publishSop: (sopId, payload = {}) => request(`/api/governance/sops/${id(sopId)}/publish`, { method: 'POST', json: payload }),
   /** The editable (OKF) steps of an unapproved draft, and whether they can still be edited. */
   getDraft: sopId => request(`/api/governance/drafts/${id(sopId)}`),
-  /** Saves a reviewer's step edits into the draft only (nothing is published). */
+  /** Saves a Process Owner's step edits into the draft only (nothing is published). */
   saveDraftSteps: (sopId, { steps }) => request(`/api/governance/drafts/${id(sopId)}/steps`, { method: 'PUT', json: { steps } }),
   /** Saves hand-edited canonical JSON into the draft (system-managed fields are refused by the server). */
   saveDraftCanonical: (sopId, { canonical }) => request(`/api/governance/drafts/${id(sopId)}/canonical`, { method: 'PUT', json: { canonical } }),
+  /** Resubmits a 'changes_requested' draft for fresh Security Reviewer sign-off (Process Owner only). */
+  resubmitDraft: (sopId, { notes = '' } = {}) => request(`/api/governance/drafts/${id(sopId)}/resubmit`, {
+    method: 'POST',
+    json: notes ? { notes } : {},
+  }),
   getCanonical: sopId => request(`/api/governance/sops/${id(sopId)}/canonical`),
   updateCanonical: (sopId, canonical) => request(`/api/governance/sops/${id(sopId)}/canonical`, { method: 'PUT', json: canonical }),
   syncPlaybook: (sopId, canonical) => request(`/api/governance/sops/${id(sopId)}/sync-playbook`, { method: 'POST', json: { canonical_sop: canonical } }),

@@ -2,7 +2,7 @@
 Playbooks API Route Handlers
 ============================
 Handles OKF playbook listing, details, cryptographic HMAC-SHA256 integrity verification,
-and tenant/clearance-enforced soft deletion (admin & process_owner only).
+and tenant/clearance-enforced soft deletion (admin only under Option A RBAC).
 """
 
 import os
@@ -33,7 +33,6 @@ from auth.config import get_default_tenant
 from auth.models import (
     ROLE_SET,
     ROLE_ADMIN,
-    ROLE_PROCESS_OWNER,
 )
 from auth.dependencies import (
     AuthAccessError,
@@ -242,10 +241,10 @@ async def api_verify_sop_integrity(request: Request):
 
 
 async def api_delete_sop(request: Request):
-    """Soft-deletes a playbook. Restricted strictly to 'admin' and 'process_owner' within matching tenant & clearance."""
+    """Soft-deletes a playbook. Restricted strictly to 'admin' within matching tenant & clearance."""
     principal = authenticate_request(
         request,
-        allowed_roles=(ROLE_ADMIN, ROLE_PROCESS_OWNER),
+        allowed_roles=(ROLE_ADMIN,),
         human_only=True,
         check_csrf=True,
     )
@@ -261,7 +260,7 @@ async def api_delete_sop(request: Request):
 
     # Never trust actor or role from the client body; always derive from verified token.
     actor = principal.identity
-    ledger_role = principal.ledger_delete_role() or "owner"
+    ledger_role = principal.ledger_delete_role() or "admin"
     reason = str(body.get("reason", "")).strip()
 
     playbooks = [

@@ -2,7 +2,8 @@
 Ingestion API Route Handlers
 ============================
 Handles document uploads, Gate 1 validation, staging intake, and JIT plan preview.
-Enforces C2 human RBAC, tenant-namespaced _uploads/<tenant_id>/, token-derived uploaded_by/tenant_id,
+Enforces Option A RBAC (process_owner mutations; process_owner & admin upload listing),
+tenant-namespaced _uploads/<tenant_id>/, token-derived uploaded_by/tenant_id,
 and tenant-scoped _INGESTS & _processed_manifest.json.
 """
 
@@ -40,7 +41,7 @@ from api.context import (
     _build_canonical_meta_map,
     parse_yaml_frontmatter,
 )
-from auth.models import HUMAN_ROLES
+from auth.models import ROLE_ADMIN, ROLE_PROCESS_OWNER
 from auth.dependencies import authenticate_request
 from utils.security import sanitize_filename, sanitize_slug, redact_sensitive_dlp, scan_raw_sop_for_ast_threats
 from utils.cancellation import IngestionCancelled, bind_cancel, reset_cancel
@@ -198,7 +199,7 @@ def _latest_jobs_by_sha(tenant_id: str):
 async def api_list_uploads(request: Request):
     principal = authenticate_request(
         request,
-        allowed_roles=HUMAN_ROLES,
+        allowed_roles=(ROLE_PROCESS_OWNER, ROLE_ADMIN),
         human_only=True,
         check_csrf=False,
     )
@@ -401,7 +402,7 @@ async def api_upload_file(request: Request):
     """Receive uploaded file and save strictly inside knowledge_base/_uploads/<tenant_id>/."""
     principal = authenticate_request(
         request,
-        allowed_roles=HUMAN_ROLES,
+        allowed_roles=(ROLE_PROCESS_OWNER,),
         human_only=True,
         check_csrf=True,
     )
@@ -511,7 +512,7 @@ async def api_cancel_ingest(request: Request):
     """Ask a running ingestion in caller's tenant to stop."""
     principal = authenticate_request(
         request,
-        allowed_roles=HUMAN_ROLES,
+        allowed_roles=(ROLE_PROCESS_OWNER,),
         human_only=True,
         check_csrf=True,
     )
@@ -533,7 +534,7 @@ async def api_ingest_single(request: Request):
     """Trigger complete 14-state lifecycle processing for a single tenant-owned upload."""
     principal = authenticate_request(
         request,
-        allowed_roles=HUMAN_ROLES,
+        allowed_roles=(ROLE_PROCESS_OWNER,),
         human_only=True,
         check_csrf=True,
     )
@@ -776,6 +777,7 @@ async def api_ingest_single(request: Request):
 
         governance_ledger.transition_state(job_id, "assessing")
 
+        is_ocr = "ocr" in str(parser_type).lower()
         canonical_draft = await _run_cancellable(
             ctl,
             build_canonical_sop_from_draft,
@@ -784,6 +786,8 @@ async def api_ingest_single(request: Request):
             tenant_id=tenant_id,
             uploaded_by=actor,
             vlm_reports=draft.get("vlm_reports") if isinstance(draft, dict) else None,
+            dlp_stats=dlp_stats,
+            is_ocr=is_ocr,
         )
         if isinstance(canonical_draft.get("source"), dict):
             canonical_draft["source"]["file_sha256"] = content_hash
@@ -909,7 +913,7 @@ async def api_ingest_single(request: Request):
             "quality": canonical_draft.get("quality"),
             "draft": draft,
             "canonical_draft": canonical_draft,
-            "message": "SOP successfully structured and assessed. Human review required before saving to knowledge base."
+            "message": "SOP successfully structured and assessed. Security Reviewer sign-off required before publishing."
         })
     except IngestionCancelled:
         if job is not None and job.current_state != "duplicate":
@@ -955,7 +959,7 @@ async def api_ingest_single(request: Request):
 async def api_run_scan_cycle(request: Request):
     authenticate_request(
         request,
-        allowed_roles=HUMAN_ROLES,
+        allowed_roles=(ROLE_PROCESS_OWNER,),
         human_only=True,
         check_csrf=True,
     )
@@ -977,7 +981,7 @@ async def api_run_scan_cycle(request: Request):
 async def api_plan_preview(request: Request):
     principal = authenticate_request(
         request,
-        allowed_roles=HUMAN_ROLES,
+        allowed_roles=(ROLE_PROCESS_OWNER,),
         human_only=True,
         check_csrf=True,
     )

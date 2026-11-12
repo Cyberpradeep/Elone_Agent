@@ -236,7 +236,7 @@ class TestOrchestratorState(unittest.TestCase):
 
         # Create review task (moves to awaiting_review)
         task = ledger.create_review_task("job_001", confidentiality_score=40, confidentiality_level="L1")
-        self.assertEqual(task.assigned_role, "Process owner")
+        self.assertEqual(task.assigned_role, "Security reviewer")
         self.assertEqual(job.current_state, STATE_AWAITING_REVIEW)
 
         # Human approval with passing gates
@@ -358,23 +358,23 @@ class TestOrchestratorState(unittest.TestCase):
         self.assertIn("Duplicate document detected", j2.history[-1]["reason"])
 
     def test_08_review_task_routing_and_sla(self):
-        """Verify review task routing based on sensitivity score >= 60 or L2/L3."""
+        """Verify all tiers route to Security reviewer while preserving urgency SLA (24h vs 48h)."""
         ledger = OrchestratorLedger()
 
-        # Score 40 (L1): Process Owner, 48h SLA
+        # Score 40 (L1): Security reviewer, 48h SLA
         j1 = ledger.start_job("j_l1", "SOP-L1", "t1", "hash_l1", "u1")
         ledger.transition_state("j_l1", STATE_EXTRACTING)
         ledger.transition_state("j_l1", STATE_SCANNING)
         ledger.transition_state("j_l1", STATE_STRUCTURING)
         ledger.transition_state("j_l1", STATE_ASSESSING)
         t1 = ledger.create_review_task("j_l1", confidentiality_score=40, confidentiality_level="L1")
-        self.assertEqual(t1.assigned_role, "Process owner")
+        self.assertEqual(t1.assigned_role, "Security reviewer")
         due1 = datetime.datetime.fromisoformat(t1.due_date)
         created1 = datetime.datetime.fromisoformat(t1.created_at)
         diff_hours = (due1 - created1).total_seconds() / 3600
         self.assertAlmostEqual(diff_hours, 48, delta=0.1)
 
-        # Score 65 (L2): Security Reviewer, 24h SLA
+        # Score 65 (L2): Security reviewer, 24h SLA
         j2 = ledger.start_job("j_l2", "SOP-L2", "t1", "hash_l2", "u1")
         ledger.transition_state("j_l2", STATE_EXTRACTING)
         ledger.transition_state("j_l2", STATE_SCANNING)
@@ -396,7 +396,7 @@ class TestOrchestratorState(unittest.TestCase):
             job_id="job_01",
             version=1,
             content_sha256="abc",
-            assigned_role="Process owner",
+            assigned_role="Security reviewer",
             due_date=(now - datetime.timedelta(hours=1)).isoformat(),  # Due 1 hour ago
             uploaded_by="uploader",
             status="pending",
@@ -556,6 +556,59 @@ class TestOrchestratorState(unittest.TestCase):
         finally:
             if os.path.exists(ledger_file):
                 os.remove(ledger_file)
+
+    def test_16_draft_edit_and_resubmit_for_review(self):
+        """Verify record_draft_edit stays in changes_requested and resubmit_for_review issues a fresh task."""
+        ledger = OrchestratorLedger()
+        ledger.start_job("job_resub", "SOP-RESUB", "tenant_a", "hash_resub", "po@company.com")
+        ledger.transition_state("job_resub", STATE_EXTRACTING)
+        ledger.transition_state("job_resub", STATE_SCANNING)
+        ledger.transition_state("job_resub", STATE_STRUCTURING)
+        ledger.transition_state("job_resub", STATE_ASSESSING)
+        first_task = ledger.create_review_task("job_resub", confidentiality_score=30, confidentiality_level="L1")
+
+        with self.assertRaises(GovernanceError) as exc_invalid:
+            ledger.resubmit_for_review("job_resub", actor="po@company.com")
+        self.assertEqual(exc_invalid.exception.error_code, "invalid_state")
+
+        ledger.record_review_decision(
+            job_id="job_resub",
+            decision="changes_requested",
+            reviewer="sec@company.com",
+            notes="Clarify step 2 verification quote.",
+        )
+        job = ledger.get_job("job_resub")
+        self.assertEqual(job.current_state, STATE_CHANGES_REQUESTED)
+
+        # Multiple edits in changes_requested must keep state unchanged
+        st1 = ledger.record_draft_edit("job_resub", actor="po@company.com", reason="Updated step 2 text")
+        st2 = ledger.record_draft_edit("job_resub", actor="po@company.com", reason="Updated step 2 quote")
+        self.assertEqual(st1, STATE_CHANGES_REQUESTED)
+        self.assertEqual(st2, STATE_CHANGES_REQUESTED)
+        self.assertEqual(job.current_state, STATE_CHANGES_REQUESTED)
+        self.assertTrue(job.history[-1]["details"].get("draft_edit"))
+
+        new_task = ledger.resubmit_for_review(
+            "job_resub",
+            actor="po@company.com",
+            reason="Fixed step 2 quote and added verification",
+            confidentiality_score=70,
+            confidentiality_level="L2",
+        )
+        self.assertEqual(job.current_state, STATE_AWAITING_REVIEW)
+        self.assertIsNone(job.approval_decision)
+        self.assertNotEqual(new_task.task_id, first_task.task_id)
+        self.assertEqual(new_task.assigned_role, "Security reviewer")
+        self.assertEqual(new_task.status, "pending")
+        self.assertEqual(job.review_task["task_id"], new_task.task_id)
+
+        resub_entries = [h for h in job.history if (h.get("details") or {}).get("resubmission")]
+        self.assertEqual(len(resub_entries), 1)
+        self.assertEqual(resub_entries[0]["details"]["prior_task_id"], first_task.task_id)
+        self.assertEqual(
+            resub_entries[0]["details"]["prior_review_decision"]["notes"],
+            "Clarify step 2 verification quote.",
+        )
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ Implements Sections 8, 9, 10, and 13 of SOP Governance Hub v1.0 (Frozen Spec):
 2. Secret Quarantine Protocol (Section 10): Immediate terminal halt on credential
    detection, incident ticket generation (INC-xxxxxx), and content purging.
 3. Review Task Coordination (Section 5.5 & 13): Creation of bound review tasks (RT-xxxxxx),
-   role routing (Process Owner vs Security Reviewer), and SLA deadline enforcement.
+   unconditional Security Reviewer gate routing, SLA deadline enforcement, and resubmission.
 4. Separation of Duties (SoD) Gate (Section 13): Enforces uploader != reviewer and
    last_editor != reviewer; rejects automated LLM approvals.
 5. Deterministic Publication Gates (Section 9.1): 6-gate verification checklist
@@ -109,7 +109,7 @@ class OrchestratorLedger:
     ) -> JobRecord:
         """Initializes a new ingestion job in 'received' state.
         Detects duplicates (same SHA-256 + same tenant); if found, immediately marks duplicate
-        unless allow_supersede=True supersedes unpublished awaiting_review/approved drafts.
+        unless allow_supersede=True supersedes unpublished awaiting_review/changes_requested/approved drafts.
         """
         with self._lock:
             # Check for existing active/processed record with same SHA-256 and tenant (Section 8)
@@ -119,7 +119,12 @@ class OrchestratorLedger:
                 if (
                     existing.tenant_id == tenant_id
                     and existing.content_sha256 == content_sha256
-                    and existing.current_state in {STATE_APPROVED, STATE_PUBLISHED, STATE_AWAITING_REVIEW}
+                    and existing.current_state in {
+                        STATE_APPROVED,
+                        STATE_PUBLISHED,
+                        STATE_AWAITING_REVIEW,
+                        STATE_CHANGES_REQUESTED,
+                    }
                 )
             ]
             if blocking_matches:
@@ -146,9 +151,9 @@ class OrchestratorLedger:
                     self._save_unlocked()
                     return dup_record
 
-                # Explicitly supersede unpublished awaiting_review / approved jobs while preserving history
+                # Explicitly supersede unpublished awaiting_review / changes_requested / approved jobs while preserving history
                 for existing in blocking_matches:
-                    if existing.current_state == STATE_APPROVED:
+                    if existing.current_state in {STATE_APPROVED, STATE_CHANGES_REQUESTED}:
                         self.transition_state(
                             existing.job_id,
                             STATE_AWAITING_REVIEW,
@@ -230,6 +235,33 @@ class OrchestratorLedger:
             self._save_unlocked()
             return next_state
 
+    def record_draft_edit(
+        self,
+        job_id: str,
+        actor: str,
+        reason: str = "",
+        details: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Records an in-place draft edit in history without leaving current_state."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if not job:
+                raise KeyError(f"Job '{job_id}' not found in ledger.")
+
+            job.updated_at = _utc_now_iso()
+            merged_details = dict(details or {})
+            merged_details["draft_edit"] = True
+            job.history.append({
+                "from_state": job.current_state,
+                "to_state": job.current_state,
+                "timestamp": job.updated_at,
+                "actor": actor,
+                "reason": reason or "Process owner updated draft content.",
+                "details": merged_details,
+            })
+            self._save_unlocked()
+            return job.current_state
+
     # -----------------------------------------------------------------------
     # Terminal Secret Quarantine Protocol (Section 10)
     # -----------------------------------------------------------------------
@@ -292,7 +324,7 @@ class OrchestratorLedger:
         confidentiality_level: str,
     ) -> ReviewTask:
         """Creates an RT-xxxxxx human review task when job reaches awaiting_review.
-        Assigns to 'Security reviewer' (24h SLA) if score >= 60 or L2/L3, else 'Process owner' (48h SLA).
+        Under Option A, assigns all tiers to 'Security reviewer' with 24h SLA if score >= 60 or L2/L3, else 48h SLA.
         """
         with self._lock:
             job = self._jobs.get(job_id)
@@ -308,10 +340,10 @@ class OrchestratorLedger:
                     reason="Assessment completed; routing to human review.",
                 )
 
-            # Determine role and deadline per Section 5.5 & 11
-            requires_security = (confidentiality_score >= 60) or (confidentiality_level in {"L2", "L3"})
-            assigned_role = "Security reviewer" if requires_security else "Process owner"
-            sla_hours = 24 if requires_security else 48
+            # Determine urgency SLA; all tiers route to Security reviewer under Option A
+            is_urgent = (confidentiality_score >= 60) or (confidentiality_level in {"L2", "L3"})
+            assigned_role = "Security reviewer"
+            sla_hours = 24 if is_urgent else 48
 
             now = datetime.datetime.now(datetime.timezone.utc)
             due_date = (now + datetime.timedelta(hours=sla_hours)).isoformat()
@@ -333,6 +365,72 @@ class OrchestratorLedger:
             job.updated_at = _utc_now_iso()
             self._save_unlocked()
             return task
+
+    def resubmit_for_review(
+        self,
+        job_id: str,
+        actor: str,
+        reason: str = "",
+        confidentiality_score: Optional[int] = None,
+        confidentiality_level: Optional[str] = None,
+    ) -> ReviewTask:
+        """Transitions a 'changes_requested' job back to 'awaiting_review' and issues a fresh ReviewTask."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if not job:
+                raise KeyError(f"Job '{job_id}' not found in ledger.")
+
+            if job.current_state != STATE_CHANGES_REQUESTED:
+                raise GovernanceError(
+                    f"Cannot resubmit job in state '{job.current_state}'. Must be 'changes_requested'.",
+                    error_code="invalid_state",
+                )
+
+            prior_decision = copy.deepcopy(job.approval_decision) or {}
+            prior_task_id = (job.review_task or {}).get("task_id")
+            prior_reviewer = str(prior_decision.get("reviewer") or "").strip()
+            prior_notes = str(prior_decision.get("notes") or "").strip()
+            prior_summary_parts = []
+            if prior_reviewer:
+                prior_summary_parts.append(f"prior_reviewer={prior_reviewer}")
+            if prior_notes:
+                prior_summary_parts.append(f"prior_notes={prior_notes}")
+            prior_summary = "; ".join(prior_summary_parts)
+
+            clean_reason = str(reason or "").strip()
+            if not clean_reason:
+                clean_reason = "Process owner revised draft and resubmitted for security review."
+            if prior_summary:
+                clean_reason = f"{clean_reason} ({prior_summary})"
+
+            prev_decision = job.approval_decision
+            prev_gates = job.gate_results
+            job.approval_decision = None
+            job.gate_results = None
+            try:
+                self.transition_state(
+                    job_id,
+                    STATE_AWAITING_REVIEW,
+                    actor=actor,
+                    reason=clean_reason,
+                    details={
+                        "resubmission": True,
+                        "prior_task_id": prior_task_id,
+                        "prior_review_decision": prior_decision or None,
+                    },
+                )
+            except Exception:
+                job.approval_decision = prev_decision
+                job.gate_results = prev_gates
+                raise
+
+            eff_score = 25 if confidentiality_score is None else int(confidentiality_score)
+            eff_level = str(confidentiality_level or "L1").strip().upper() or "L1"
+            return self.create_review_task(
+                job_id=job_id,
+                confidentiality_score=eff_score,
+                confidentiality_level=eff_level,
+            )
 
     # -----------------------------------------------------------------------
     # Review Decision Recording & SoD Gate (Section 5.5 & 13)
@@ -550,4 +648,3 @@ class OrchestratorLedger:
 
 # Alias
 GovernanceLedger = OrchestratorLedger
-

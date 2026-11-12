@@ -1,11 +1,11 @@
 """
-Authentication Models, Lean 4-Role Policy & Claims Validation (C2)
-==================================================================
-Active Role Set:
-  - process_owner     (human, L0-L1 review decisions, upload/ingest, draft edits, publish, delete SOP)
-  - security_reviewer (human, L0-L3 review decisions, incidents, logs, telemetry, publish; no delete)
-  - admin             (human, full tenant ops, config management, user management, delete SOP; SoD still applies)
-  - agent             (downstream machine/service account; retrieval search/stats & published playbooks only)
+Authentication Models, Lean 4-Role Policy & Claims Validation (Option A RBAC)
+=============================================================================
+Active Role Set (Strict Single-Gate Role Separation):
+  - process_owner     (human: upload/ingest/re-ingest, edit & resubmit drafts, publish approved SOPs, view tools, edit published canonicals)
+  - security_reviewer (human: review & decide L0-L3 tasks up to clearance with SoD, quarantine incidents, Security Lab)
+  - admin             (human: platform config, users & agents management, LLM telemetry, debug audit logs, tool catalog, incidents, Security Lab, delete SOPs, edit published canonicals)
+  - agent             (downstream machine/service account: retrieval search/stats & published playbooks only)
 """
 
 import re
@@ -108,24 +108,25 @@ def compute_capabilities(roles: List[str], clearance: str, actor_type: str) -> D
     is_admin = is_human and ROLE_ADMIN in role_set
     is_sec = is_human and ROLE_SECURITY_REVIEWER in role_set
     is_po = is_human and ROLE_PROCESS_OWNER in role_set
-    any_human = is_human and bool(role_set & HUMAN_ROLES)
     clr_rank = CLEARANCE_RANKS.get(clearance, 0)
 
     return {
-        "can_upload": any_human,
-        "can_ingest": any_human,
-        "can_edit_draft": any_human,
-        "can_publish": any_human,
-        "can_review_l0_l1": any_human,
-        "can_review_l2_l3": is_human and (is_sec or is_admin) and clr_rank >= CLEARANCE_RANKS["L2"],
-        "can_delete_sop": is_human and (is_admin or is_po),
-        "can_edit_canonical": is_human and (is_admin or is_po),
-        "can_view_logs": is_human and (is_sec or is_admin),
-        "can_view_telemetry": is_human and (is_sec or is_admin),
-        "can_view_incidents": is_human and (is_sec or is_admin),
+        "can_upload": is_po,
+        "can_ingest": is_po,
+        "can_edit_draft": is_po,
+        "can_publish": is_po,
+        "can_review": is_sec,
+        "can_review_l0_l1": is_sec,
+        "can_review_l2_l3": is_sec and clr_rank >= CLEARANCE_RANKS["L2"],
+        "can_delete_sop": is_admin,
+        "can_edit_canonical": is_po or is_admin,
+        "can_view_logs": is_admin,
+        "can_view_telemetry": is_admin,
+        "can_view_incidents": is_sec or is_admin,
         "can_manage_config": is_admin,
         "can_manage_users": is_admin,
-        "can_run_security_lab": any_human,
+        "can_run_security_lab": is_sec or is_admin,
+        "can_view_tools": is_po or is_admin,
         "can_search_downstream": True,
     }
 
@@ -194,8 +195,6 @@ class AuthPrincipal:
             return None
         if ROLE_ADMIN in self.roles:
             return "admin"
-        if ROLE_PROCESS_OWNER in self.roles:
-            return "owner"
         return None
 
     def to_public_dict(self) -> Dict[str, Any]:
@@ -294,4 +293,3 @@ __all__ = [
     "AuthPrincipal",
     "UserRecord",
 ]
-

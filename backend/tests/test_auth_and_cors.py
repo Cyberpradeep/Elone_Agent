@@ -131,32 +131,78 @@ class TestAuthCoreUnits(unittest.TestCase):
             )
 
         po_caps = compute_capabilities(["process_owner"], "L1", "human")
-        self.assertTrue(po_caps["can_delete_sop"])
         self.assertTrue(po_caps["can_upload"])
-        self.assertFalse(po_caps["can_manage_config"])
-        self.assertFalse(po_caps["can_view_logs"])
-        self.assertFalse(po_caps["can_view_incidents"])
+        self.assertTrue(po_caps["can_ingest"])
+        self.assertTrue(po_caps["can_edit_draft"])
+        self.assertTrue(po_caps["can_publish"])
+        self.assertTrue(po_caps["can_view_tools"])
+        self.assertTrue(po_caps["can_edit_canonical"])
+        self.assertFalse(po_caps["can_review"])
+        self.assertFalse(po_caps["can_review_l0_l1"])
         self.assertFalse(po_caps["can_review_l2_l3"])
+        self.assertFalse(po_caps["can_delete_sop"])
+        self.assertFalse(po_caps["can_manage_config"])
+        self.assertFalse(po_caps["can_manage_users"])
+        self.assertFalse(po_caps["can_view_logs"])
+        self.assertFalse(po_caps["can_view_telemetry"])
+        self.assertFalse(po_caps["can_view_incidents"])
+        self.assertFalse(po_caps["can_run_security_lab"])
 
         sec_caps = compute_capabilities(["security_reviewer"], "L2", "human")
-        self.assertFalse(sec_caps["can_delete_sop"])
-        self.assertTrue(sec_caps["can_view_logs"])
-        self.assertTrue(sec_caps["can_view_telemetry"])
-        self.assertTrue(sec_caps["can_view_incidents"])
+        self.assertTrue(sec_caps["can_review"])
+        self.assertTrue(sec_caps["can_review_l0_l1"])
         self.assertTrue(sec_caps["can_review_l2_l3"])
+        self.assertTrue(sec_caps["can_view_incidents"])
+        self.assertTrue(sec_caps["can_run_security_lab"])
+        self.assertFalse(sec_caps["can_delete_sop"])
+        self.assertFalse(sec_caps["can_upload"])
+        self.assertFalse(sec_caps["can_ingest"])
+        self.assertFalse(sec_caps["can_edit_draft"])
+        self.assertFalse(sec_caps["can_publish"])
+        self.assertFalse(sec_caps["can_edit_canonical"])
+        self.assertFalse(sec_caps["can_view_tools"])
+        self.assertFalse(sec_caps["can_view_logs"])
+        self.assertFalse(sec_caps["can_view_telemetry"])
         self.assertFalse(sec_caps["can_manage_config"])
+        self.assertFalse(sec_caps["can_manage_users"])
+
+        sec_l1_caps = compute_capabilities(["security_reviewer"], "L1", "human")
+        self.assertTrue(sec_l1_caps["can_review_l0_l1"])
+        self.assertFalse(sec_l1_caps["can_review_l2_l3"])
 
         adm_caps = compute_capabilities(["admin"], "L3", "human")
         self.assertTrue(adm_caps["can_manage_config"])
         self.assertTrue(adm_caps["can_manage_users"])
         self.assertTrue(adm_caps["can_delete_sop"])
-        self.assertTrue(adm_caps["can_review_l2_l3"])
+        self.assertTrue(adm_caps["can_view_logs"])
+        self.assertTrue(adm_caps["can_view_telemetry"])
+        self.assertTrue(adm_caps["can_view_incidents"])
+        self.assertTrue(adm_caps["can_run_security_lab"])
+        self.assertTrue(adm_caps["can_view_tools"])
+        self.assertTrue(adm_caps["can_edit_canonical"])
+        self.assertFalse(adm_caps["can_upload"])
+        self.assertFalse(adm_caps["can_ingest"])
+        self.assertFalse(adm_caps["can_edit_draft"])
+        self.assertFalse(adm_caps["can_publish"])
+        self.assertFalse(adm_caps["can_review"])
+        self.assertFalse(adm_caps["can_review_l0_l1"])
+        self.assertFalse(adm_caps["can_review_l2_l3"])
 
         agt_caps = compute_capabilities(["agent"], "L2", "agent")
         self.assertFalse(agt_caps["can_upload"])
         self.assertFalse(agt_caps["can_delete_sop"])
+        self.assertFalse(agt_caps["can_review"])
         self.assertFalse(agt_caps["can_review_l0_l1"])
+        self.assertFalse(agt_caps["can_view_tools"])
         self.assertTrue(agt_caps["can_search_downstream"])
+
+        # ledger_delete_role is strictly 'admin' for human admins
+        p_po = AuthPrincipal(sub="u1", identity="po@ex.com", display_name="PO", roles=["process_owner"], tenant_id="tn_northwind", clearance="L1", actor_type="human")
+        p_sec = AuthPrincipal(sub="u2", identity="sec@ex.com", display_name="Sec", roles=["security_reviewer"], tenant_id="tn_northwind", clearance="L3", actor_type="human")
+        p_adm = AuthPrincipal(sub="u3", identity="adm@ex.com", display_name="Adm", roles=["admin"], tenant_id="tn_northwind", clearance="L3", actor_type="human")
+        self.assertIsNone(p_po.ledger_delete_role())
+        self.assertIsNone(p_sec.ledger_delete_role())
+        self.assertEqual(p_adm.ledger_delete_role(), "admin")
 
     def test_04_jwt_tampering_wrong_claims_expiration_and_revocation(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -448,6 +494,7 @@ protected_calls = [
     ("GET", "/api/governance/drafts/SOP-1"),
     ("PUT", "/api/governance/drafts/SOP-1/steps"),
     ("PUT", "/api/governance/drafts/SOP-1/canonical"),
+    ("POST", "/api/governance/drafts/SOP-1/resubmit"),
     ("POST", "/api/governance/downstream/search"),
     ("GET", "/api/governance/downstream/stats"),
     ("GET", "/api/governance/incidents"),
@@ -496,6 +543,7 @@ accounts = {
     "bob_a": (mk_pw(), ["process_owner"], "tn_northwind", "L1"),
     "po_l2_a": (mk_pw(), ["process_owner"], "tn_northwind", "L2"),
     "sec_a": (mk_pw(), ["security_reviewer"], "tn_northwind", "L2"),
+    "sec_a_l3": (mk_pw(), ["security_reviewer"], "tn_northwind", "L3"),
     "agent_a_l1": (None, ["agent"], "tn_northwind", "L1"),
     "agent_a_l2": (None, ["agent"], "tn_northwind", "L2"),
     "admin_b": (mk_pw(), ["admin"], "tn_globex", "L3"),
@@ -551,17 +599,23 @@ r_me = cookie_client.get("/api/auth/me")
 assert r_me.status_code == 200
 assert r_me.json()["user"]["identity"] == "alice_a@tn_northwind.example"
 
-# Cookie POST WITHOUT X-CSRF-Token -> 403 csrf_invalid
-r_nocsrf = cookie_client.post("/api/security/test", json={"payload": "Get-Process", "type": "ast"})
+# Cookie POST WITHOUT X-CSRF-Token -> 403 csrf_invalid (even on endpoints Alice cannot access by role)
+r_nocsrf = cookie_client.post("/api/uploads/ingest/cancel", json={"filename": "probe.txt"})
 assert r_nocsrf.status_code == 403 and r_nocsrf.json()["error_code"] == "csrf_invalid", r_nocsrf.text
 
-# Cookie POST WITH matching X-CSRF-Token -> 200
+# Cookie POST WITH matching X-CSRF-Token -> 200 for Process Owner mutation; 403 insufficient_role for Security Lab
 r_csrf = cookie_client.post(
+    "/api/uploads/ingest/cancel",
+    headers={"X-CSRF-Token": csrf_tok},
+    json={"filename": "probe.txt"},
+)
+assert r_csrf.status_code == 200, r_csrf.text
+r_csrf_sec_denied = cookie_client.post(
     "/api/security/test",
     headers={"X-CSRF-Token": csrf_tok},
     json={"payload": "Get-Process", "type": "ast"},
 )
-assert r_csrf.status_code == 200
+assert r_csrf_sec_denied.status_code == 403 and r_csrf_sec_denied.json()["error_code"] == "insufficient_role", r_csrf_sec_denied.text
 
 # Logout with cookie + CSRF revokes token jti
 saved_cookie_jwt = cookie_client.cookies.get("elone_session")
@@ -623,19 +677,45 @@ assert mint_res.status_code == 200, mint_res.text
 assert client.get("/api/auth/me", headers={"Authorization": f"Bearer {mint_res.json()['access_token']}"}).status_code == 200
 
 # ---------------------------------------------------------------------------
-# 6. Process Owner vs Security Reviewer Telemetry/Logs/Overview & Agent Blocks
+# 6. Option A Role Separation Matrix: Process Owner vs Security Reviewer vs Admin vs Agent
 # ---------------------------------------------------------------------------
+# Process Owner: allowed tools + redacted overview; blocked on telemetry, logs, incidents, security lab
 assert client.get("/api/telemetry", headers=hdrs["alice_a"]).status_code == 403
 assert client.get("/api/logs", headers=hdrs["alice_a"]).status_code == 403
 assert client.get("/api/governance/incidents", headers=hdrs["alice_a"]).status_code == 403
+assert client.post("/api/security/test", headers=hdrs["alice_a"], json={"payload": "Get-Process", "type": "ast"}).status_code == 403
+assert client.get("/api/tools", headers=hdrs["alice_a"]).status_code == 200
 ov_po = client.get("/api/overview", headers=hdrs["alice_a"])
 assert ov_po.status_code == 200 and ov_po.json()["telemetry"] is None and ov_po.json()["models"] == {}
 
-assert client.get("/api/telemetry", headers=hdrs["sec_a"]).status_code == 200
-assert client.get("/api/logs", headers=hdrs["sec_a"]).status_code == 200
+# Security Reviewer: allowed incidents, security lab & redacted overview; blocked on telemetry, logs, tools & ingestion mutations/reads
+assert client.get("/api/telemetry", headers=hdrs["sec_a"]).status_code == 403
+assert client.get("/api/logs", headers=hdrs["sec_a"]).status_code == 403
+assert client.get("/api/tools", headers=hdrs["sec_a"]).status_code == 403
+assert client.get("/api/uploads", headers=hdrs["sec_a"]).status_code == 403
+assert client.post("/api/uploads/ingest", headers=hdrs["sec_a"], json={"filename": "x.txt"}).status_code == 403
+assert client.post("/api/uploads/ingest/cancel", headers=hdrs["sec_a"], json={"filename": "x.txt"}).status_code == 403
+assert client.post("/api/uploads/scan", headers=hdrs["sec_a"]).status_code == 403
+assert client.post("/api/plan-preview", headers=hdrs["sec_a"], json={"filename": "x.txt"}).status_code == 403
 assert client.get("/api/governance/incidents", headers=hdrs["sec_a"]).status_code == 200
+assert client.post("/api/security/test", headers=hdrs["sec_a"], json={"payload": "Get-Process", "type": "ast"}).status_code == 200
 ov_sec = client.get("/api/overview", headers=hdrs["sec_a"])
-assert ov_sec.status_code == 200 and ov_sec.json()["telemetry"] is not None
+assert ov_sec.status_code == 200 and ov_sec.json()["telemetry"] is None and ov_sec.json()["models"] == {}
+
+# Admin: allowed telemetry, logs, tools, incidents, security lab, read-only uploads & full overview; blocked on ingestion/plan-preview mutations
+assert client.get("/api/telemetry", headers=hdrs["admin_a"]).status_code == 200
+assert client.get("/api/logs", headers=hdrs["admin_a"]).status_code == 200
+assert client.get("/api/tools", headers=hdrs["admin_a"]).status_code == 200
+assert client.get("/api/governance/incidents", headers=hdrs["admin_a"]).status_code == 200
+assert client.post("/api/security/test", headers=hdrs["admin_a"], json={"payload": "Get-Process", "type": "ast"}).status_code == 200
+assert client.get("/api/uploads", headers=hdrs["admin_a"]).status_code == 200
+assert client.post("/api/uploads/upload", headers=hdrs["admin_a"], files={"file": ("no.txt", b"x", "text/plain")}).status_code == 403
+assert client.post("/api/uploads/ingest", headers=hdrs["admin_a"], json={"filename": "x.txt"}).status_code == 403
+assert client.post("/api/uploads/ingest/cancel", headers=hdrs["admin_a"], json={"filename": "x.txt"}).status_code == 403
+assert client.post("/api/uploads/scan", headers=hdrs["admin_a"]).status_code == 403
+assert client.post("/api/plan-preview", headers=hdrs["admin_a"], json={"filename": "x.txt"}).status_code == 403
+ov_adm = client.get("/api/overview", headers=hdrs["admin_a"])
+assert ov_adm.status_code == 200 and ov_adm.json()["telemetry"] is not None and bool(ov_adm.json()["models"])
 
 for m_meth, m_path in (
     ("GET", "/api/overview"),
@@ -650,6 +730,7 @@ for m_meth, m_path in (
     ("POST", "/api/plan-preview"),
     ("GET", "/api/governance/jobs"),
     ("GET", "/api/governance/review-tasks"),
+    ("POST", "/api/governance/drafts/SOP-1/resubmit"),
     ("GET", "/api/governance/incidents"),
 ):
     assert client.request(m_meth, m_path, headers=hdrs["agent_a_l1"]).status_code == 403, f"agent allowed on {m_meth} {m_path}"
@@ -676,9 +757,9 @@ assert os.path.isfile(os.path.join(ctx.tenant_uploads_dir("tn_globex"), "shared_
 with open(os.path.join(ctx.tenant_uploads_dir("tn_northwind"), "shared_vpn.txt"), "rb") as fa:
     assert fa.read() == content_a
 
-# Upload second Tenant A doc for L2 security-reviewer gating + admin SoD + secret quarantine
+# Upload L2, L3, and secret-bearing docs via Process Owner (admin upload was already blocked above)
 client.post("/api/uploads/upload", headers=hdrs["alice_a"], files={"file": ("vault_l2.txt", b"Strictly Confidential Breakglass SOP\nHosts: 10.10.1.1, 10.10.1.2, 192.168.10.5, vpn.northwind.corp\nContacts: sec1@northwind.example, sec2@northwind.example, sec3@northwind.example\n1. Rotate breakglass key\n", "text/plain")})
-client.post("/api/uploads/upload", headers=hdrs["admin_a"], files={"file": ("admin_doc.txt", b"Admin Maint\n1. Check disk health\n", "text/plain")})
+client.post("/api/uploads/upload", headers=hdrs["po_l2_a"], files={"file": ("vault_l3.txt", b"Restricted Breakglass L3 Master Key SOP\nStrictly Confidential Hosts: 10.10.1.1, 10.10.1.2, 192.168.10.5, vpn.northwind.corp\nContacts: sec1@northwind.example, sec2@northwind.example, sec3@northwind.example\n1. Rotate master HSM key\n", "text/plain")})
 client.post("/api/uploads/upload", headers=hdrs["alice_a"], files={"file": ("secret_a.txt", b"password = \"VerySecret123!\"\napi_key = \"sk_live_abc1234567890\"\n", "text/plain")})
 
 def make_plan_factory():
@@ -706,7 +787,7 @@ def make_plan_factory():
                     ],
                 },
             }
-        if base == "admin_doc.txt":
+        if base == "vault_l3.txt":
             return {
                 "sop_id": sid,
                 "is_executable": True,
@@ -716,13 +797,13 @@ def make_plan_factory():
                 "vlm_reports": [],
                 "frontmatter": {
                     "sop_id": sid,
-                    "title": "Admin Maintenance SOP",
-                    "category": "system",
+                    "title": "Breakglass L3 HSM Master Key SOP",
+                    "category": "security",
                     "platform": "system",
-                    "description": "Routine health check.",
+                    "description": "Restricted master key rotation procedure.",
                     "is_executable": True,
                     "steps": [
-                        {"step_number": 1, "step_type": "command", "sop_step_description": "Check disk health", "command": "Get-Volume", "source_quote": "Check disk health"},
+                        {"step_number": 1, "step_type": "command", "sop_step_description": "Rotate master HSM key", "command": "Get-Date", "source_quote": "Rotate master HSM key"},
                     ],
                 },
             }
@@ -771,7 +852,7 @@ import agents.a2_structuring.canonical_builder as canonical_builder_mod
 from agents.a3_security.confidentiality_engine import compute_confidentiality_score as _real_conf_score
 
 def _conf_wrapper(text, dlp_stats=None, is_ocr=False, ai_advisory=None):
-    if ai_advisory is None and "Breakglass" in (text or ""):
+    if ai_advisory is None and "Master Key" in (text or ""):
         ai_advisory = {"security_controls": True, "proprietary_process": True}
     return _real_conf_score(text, dlp_stats=dlp_stats, is_ocr=is_ocr, ai_advisory=ai_advisory)
 
@@ -806,82 +887,133 @@ with patch.object(routes_ingestion.jit_converter, "plan_okf_from_raw", side_effe
     assert client.put("/api/governance/drafts/SOP-NW-L1/steps", headers=hdrs["carol_b"], json={"steps": [{"ref": 1, "sop_step_description": "x", "command": "ipconfig /flushdns"}]}).status_code == 403
     assert client.post(f"/api/governance/review-tasks/{task_nw}/decision", headers=hdrs["carol_b"], json={"decision": "approve"}).status_code == 403
 
-    # Check debug log attribution: sec_a sees Tenant A logs, sec_b does NOT
-    nw_logs = client.get("/api/logs", headers=hdrs["sec_a"]).json()["logs"]
-    glx_logs = client.get("/api/logs", headers=hdrs["sec_b"]).json()["logs"]
+    # Debug log attribution (Option A: admin only, tenant-scoped)
+    nw_logs = client.get("/api/logs", headers=hdrs["admin_a"]).json()["logs"]
+    glx_logs = client.get("/api/logs", headers=hdrs["admin_b"]).json()["logs"]
     assert len(nw_logs) >= 1 and len(glx_logs) >= 1
     assert all(l["tenant_id"] == "tn_northwind" for l in nw_logs)
     nw_log_name = nw_logs[0]["filename"]
-    assert client.get(f"/api/logs/{nw_log_name}", headers=hdrs["sec_a"]).status_code == 200
-    assert client.get(f"/api/logs/{nw_log_name}", headers=hdrs["sec_b"]).status_code == 403
+    assert client.get(f"/api/logs/{nw_log_name}", headers=hdrs["admin_a"]).status_code == 200
+    assert client.get(f"/api/logs/{nw_log_name}", headers=hdrs["admin_b"]).status_code == 403
+    assert client.get(f"/api/logs/{nw_log_name}", headers=hdrs["sec_a"]).status_code == 403
+    assert client.get(f"/api/logs/{nw_log_name}", headers=hdrs["alice_a"]).status_code == 403
+
+    # Direct canonical writes & playbook sync blocked on unpublished draft (tenant/clearance checked first, then 409 not_published)
+    assert client.put("/api/governance/sops/SOP-NW-L1/canonical", headers=hdrs["carol_b"], json={}).status_code == 403
+    r_np_canon = client.put("/api/governance/sops/SOP-NW-L1/canonical", headers=hdrs["alice_a"], json={"sop_id": "SOP-NW-L1", "steps": []})
+    assert r_np_canon.status_code == 409 and r_np_canon.json()["error_code"] == "not_published", r_np_canon.text
+    r_np_sync = client.post("/api/governance/sops/SOP-NW-L1/sync-playbook", headers=hdrs["admin_a"], json={})
+    assert r_np_sync.status_code == 409 and r_np_sync.json()["error_code"] == "not_published", r_np_sync.text
+
+    # Draft editing visibility: process_owner sees editable=True, security_reviewer & admin see editable=False and cannot mutate drafts
+    assert client.get("/api/governance/drafts/SOP-NW-L1", headers=hdrs["bob_a"]).json()["editable"] is True
+    assert client.get("/api/governance/drafts/SOP-NW-L1", headers=hdrs["sec_a"]).json()["editable"] is False
+    assert client.get("/api/governance/drafts/SOP-NW-L1", headers=hdrs["admin_a"]).json()["editable"] is False
+    for non_po in ("sec_a", "admin_a"):
+        assert client.put("/api/governance/drafts/SOP-NW-L1/steps", headers=hdrs[non_po], json={"steps": [{"ref": 1, "sop_step_description": "x", "command": "ipconfig"}]}).status_code == 403
+        assert client.post("/api/governance/drafts/SOP-NW-L1/resubmit", headers=hdrs[non_po], json={}).status_code == 403
+
+    # Review tasks list reports eligible_for_me strictly True for security_reviewer (no SoD conflict), False for process_owner & admin
+    sec_tasks = {t["task_id"]: t for t in client.get("/api/governance/review-tasks", headers=hdrs["sec_a"]).json()["tasks"]}
+    assert sec_tasks[task_nw]["eligible_for_me"] is True
+    for non_sec in ("alice_a", "bob_a", "admin_a"):
+        nt = {t["task_id"]: t for t in client.get("/api/governance/review-tasks", headers=hdrs[non_sec]).json()["tasks"]}
+        assert nt[task_nw]["eligible_for_me"] is False
 
     # Agent CANNOT decide review task even spoofing actor_type=human
     r_agt_dec = client.post(
         f"/api/governance/review-tasks/{task_nw}/decision",
         headers=hdrs["agent_a_l1"],
-        json={"decision": "approve", "actor_type": "human", "reviewer": "bob_a@tn_northwind.example"},
+        json={"decision": "approve", "actor_type": "human", "reviewer": "sec_a@tn_northwind.example"},
     )
     assert r_agt_dec.status_code == 403 and r_agt_dec.json()["error_code"] == "not_human", r_agt_dec.text
 
-    # SoD 1: Uploader Alice cannot self-approve even spoofing reviewer=bob
-    r_alice_sod = client.post(
-        f"/api/governance/review-tasks/{task_nw}/decision",
-        headers=hdrs["alice_a"],
-        json={"decision": "approve", "reviewer": "bob_a@tn_northwind.example"},
-    )
-    assert r_alice_sod.status_code == 403 and r_alice_sod.json()["error_code"] == "separation_of_duties"
+    # Option A Gate Separation: uploader (alice_a), other process_owner (bob_a), AND admin (admin_a) blocked from /decision
+    for forbidden_who in ("alice_a", "bob_a", "admin_a"):
+        r_forb = client.post(
+            f"/api/governance/review-tasks/{task_nw}/decision",
+            headers=hdrs[forbidden_who],
+            json={"decision": "approve", "reviewer": "sec_a@tn_northwind.example"},
+        )
+        assert r_forb.status_code == 403 and r_forb.json()["error_code"] == "insufficient_role", r_forb.text
 
-    # SoD 2: Bob edits draft steps (even spoofing actor) -> last_editor=bob -> Bob blocked from self-approving!
+    # Legacy task metadata bypass guard: even if a legacy disk task says assigned_role='Process owner', process_owner & admin stay 403
+    server.governance_ledger.get_job(job_nw).review_task["assigned_role"] = "Process owner"
+    assert client.post(f"/api/governance/review-tasks/{task_nw}/decision", headers=hdrs["bob_a"], json={"decision": "approve"}).status_code == 403
+    assert client.post(f"/api/governance/review-tasks/{task_nw}/decision", headers=hdrs["admin_a"], json={"decision": "approve"}).status_code == 403
+    server.governance_ledger.get_job(job_nw).review_task["assigned_role"] = "Security reviewer"
+
+    # Changes Requested -> Process Owner edits draft (last_editor=bob_a) -> Resubmits -> Security Reviewer approves -> Process Owner publishes
+    cr_resp = client.post(
+        f"/api/governance/review-tasks/{task_nw}/decision",
+        headers=hdrs["sec_a"],
+        json={"decision": "changes_requested", "notes": "Verify step 1 description"},
+    )
+    assert cr_resp.status_code == 200 and cr_resp.json()["job_state"] == "changes_requested", cr_resp.text
+
     ed = client.put(
         "/api/governance/drafts/SOP-NW-L1/steps",
         headers=hdrs["bob_a"],
         json={"actor": "someone_else", "steps": [{"ref": 1, "sop_step_description": "Run ipconfig /flushdns (verified)", "command": "ipconfig /flushdns", "source_quote": "Run ipconfig /flushdns"}]},
     )
-    assert ed.status_code == 200 and ed.json()["last_editor"] == "bob_a@tn_northwind.example", ed.text
-    r_bob_sod = client.post(
-        f"/api/governance/review-tasks/{task_nw}/decision",
-        headers=hdrs["bob_a"],
-        json={"decision": "approve"},
-    )
-    assert r_bob_sod.status_code == 403 and r_bob_sod.json()["error_code"] == "separation_of_duties"
+    assert ed.status_code == 200 and ed.json()["last_editor"] == "bob_a@tn_northwind.example" and ed.json()["job_state"] == "changes_requested", ed.text
 
-    # Sec reviewer (L2) approves & publishes L1 Northwind SOP (not uploader/editor)
-    assert client.post(f"/api/governance/review-tasks/{task_nw}/decision", headers=hdrs["sec_a"], json={"decision": "approve"}).status_code == 200
-    # Cross-tenant publish blocked
-    assert client.post("/api/governance/sops/SOP-NW-L1/publish", headers=hdrs["admin_b"], json={}).status_code == 403
-    assert client.post("/api/governance/sops/SOP-NW-L1/publish", headers=hdrs["sec_a"], json={}).status_code == 200
+    resub = client.post("/api/governance/drafts/SOP-NW-L1/resubmit", headers=hdrs["bob_a"], json={"notes": "Verified step 1"})
+    assert resub.status_code == 200 and resub.json()["job_state"] == "awaiting_review", resub.text
+    task_nw_2 = resub.json()["task_id"]
+    assert task_nw_2 != task_nw
 
-    # Admin_b approves & publishes Tenant B L1 SOP
-    assert client.post(f"/api/governance/review-tasks/{task_glx}/decision", headers=hdrs["admin_b"], json={"decision": "approve"}).status_code == 200
-    assert client.post("/api/governance/sops/SOP-GLX-L1/publish", headers=hdrs["admin_b"], json={}).status_code == 200
+    assert client.post(f"/api/governance/review-tasks/{task_nw_2}/decision", headers=hdrs["sec_a"], json={"decision": "approve"}).status_code == 200
+    # Security reviewer & Admin cannot publish; cross-tenant process_owner blocked; Process Owner publishes
+    assert client.post("/api/governance/sops/SOP-NW-L1/publish", headers=hdrs["sec_a"], json={}).status_code == 403
+    assert client.post("/api/governance/sops/SOP-NW-L1/publish", headers=hdrs["admin_a"], json={}).status_code == 403
+    assert client.post("/api/governance/sops/SOP-NW-L1/publish", headers=hdrs["carol_b"], json={}).status_code == 403
+    assert client.post("/api/governance/sops/SOP-NW-L1/publish", headers=hdrs["alice_a"], json={}).status_code == 200
 
-    # SoD 3: Admin CANNOT self-approve their own uploaded SOP
-    ing_adm = client.post("/api/uploads/ingest", headers=hdrs["admin_a"], json={"filename": "admin_doc.txt", "sop_id": "SOP-ADM-L1"})
-    assert ing_adm.status_code == 200
-    task_adm = ing_adm.json()["task_id"]
-    r_adm_sod = client.post(f"/api/governance/review-tasks/{task_adm}/decision", headers=hdrs["admin_a"], json={"decision": "approve"})
-    assert r_adm_sod.status_code == 403 and r_adm_sod.json()["error_code"] == "separation_of_duties"
+    # Tenant B L1 SOP: Security Reviewer approves, Process Owner publishes (Admin blocked on both)
+    assert client.post(f"/api/governance/review-tasks/{task_glx}/decision", headers=hdrs["admin_b"], json={"decision": "approve"}).status_code == 403
+    assert client.post(f"/api/governance/review-tasks/{task_glx}/decision", headers=hdrs["sec_b"], json={"decision": "approve"}).status_code == 200
+    assert client.post("/api/governance/sops/SOP-GLX-L1/publish", headers=hdrs["admin_b"], json={}).status_code == 403
+    assert client.post("/api/governance/sops/SOP-GLX-L1/publish", headers=hdrs["sec_b"], json={}).status_code == 403
+    assert client.post("/api/governance/sops/SOP-GLX-L1/publish", headers=hdrs["carol_b"], json={}).status_code == 200
 
-    # Clearance & assigned_role routing: vault_l2 triggers L2/Security reviewer task
+    # Defense-in-depth SoD check for security_reviewer: seeded job uploaded by sec_a blocks sec_a with 403 separation_of_duties
+    server.governance_ledger.start_job("job_sod_sec", "SOP-SOD-SEC", "tn_northwind", "sodsechash", "sec_a@tn_northwind.example")
+    server.governance_ledger.transition_state("job_sod_sec", "extracting")
+    server.governance_ledger.transition_state("job_sod_sec", "scanning")
+    server.governance_ledger.transition_state("job_sod_sec", "structuring")
+    server.governance_ledger.transition_state("job_sod_sec", "assessing")
+    t_sod_sec = server.governance_ledger.create_review_task("job_sod_sec", 20, "L1")
+    r_sec_sod = client.post(f"/api/governance/review-tasks/{t_sod_sec.task_id}/decision", headers=hdrs["sec_a"], json={"decision": "approve"})
+    assert r_sec_sod.status_code == 403 and r_sec_sod.json()["error_code"] == "separation_of_duties", r_sec_sod.text
+    assert client.post(f"/api/governance/review-tasks/{t_sod_sec.task_id}/decision", headers=hdrs["sec_a_l3"], json={"decision": "approve"}).status_code == 200
+
+    # Clearance & role routing: vault_l2 triggers L2/Security reviewer task; L1/L2 process_owner & admin blocked on decision
     ing_l2 = client.post("/api/uploads/ingest", headers=hdrs["alice_a"], json={"filename": "vault_l2.txt", "sop_id": "SOP-NW-L2"})
     assert ing_l2.status_code == 200
     jl2 = ing_l2.json()
     task_l2 = jl2["task_id"]
     assert jl2["confidentiality"]["level"] == "L2", jl2
     assert jl2["assigned_role"] == "Security reviewer", jl2
-    # L1 process_owner blocked by clearance & doesn't see L2 task in /review-tasks
     assert not any(t["task_id"] == task_l2 for t in client.get("/api/governance/review-tasks", headers=hdrs["bob_a"]).json()["tasks"])
     assert client.post(f"/api/governance/review-tasks/{task_l2}/decision", headers=hdrs["bob_a"], json={"decision": "approve"}).status_code == 403
-    # Even L2 process_owner without security_reviewer/admin role is blocked from Security reviewer task!
     assert client.post(f"/api/governance/review-tasks/{task_l2}/decision", headers=hdrs["po_l2_a"], json={"decision": "approve"}).status_code == 403
-    # Security reviewer approves & publishes (note clearance L3 >= L2/L3; ensure L3 SOP uses admin_a or promote sec_a if tier is L3)
-    if jl2["confidentiality"]["level"] == "L3":
-        assert client.post(f"/api/governance/review-tasks/{task_l2}/decision", headers=hdrs["sec_a"], json={"decision": "approve"}).status_code == 403
-        assert client.post(f"/api/governance/review-tasks/{task_l2}/decision", headers=hdrs["admin_a"], json={"decision": "approve"}).status_code == 200
-        assert client.post("/api/governance/sops/SOP-NW-L2/publish", headers=hdrs["admin_a"], json={}).status_code == 200
-    else:
-        assert client.post(f"/api/governance/review-tasks/{task_l2}/decision", headers=hdrs["sec_a"], json={"decision": "approve"}).status_code == 200
-        assert client.post("/api/governance/sops/SOP-NW-L2/publish", headers=hdrs["sec_a"], json={}).status_code == 200
+    # L2 Security Reviewer approves; L1 process_owner blocked by clearance on publish; L2 process_owner publishes
+    assert client.post(f"/api/governance/review-tasks/{task_l2}/decision", headers=hdrs["sec_a"], json={"decision": "approve"}).status_code == 200
+    assert client.post("/api/governance/sops/SOP-NW-L2/publish", headers=hdrs["alice_a"], json={}).status_code == 403
+    assert client.post("/api/governance/sops/SOP-NW-L2/publish", headers=hdrs["sec_a"], json={}).status_code == 403
+    assert client.post("/api/governance/sops/SOP-NW-L2/publish", headers=hdrs["po_l2_a"], json={}).status_code == 200
+
+    # L3 SOP: L2 security_reviewer blocked by clearance (403 insufficient_clearance), L3 security_reviewer approves (200), L3 admin blocked (403)
+    ing_l3 = client.post("/api/uploads/ingest", headers=hdrs["po_l2_a"], json={"filename": "vault_l3.txt", "sop_id": "SOP-NW-L3"})
+    assert ing_l3.status_code == 200
+    jl3 = ing_l3.json()
+    assert jl3["confidentiality"]["level"] == "L3", jl3
+    task_l3 = jl3["task_id"]
+    r_l2_clr = client.post(f"/api/governance/review-tasks/{task_l3}/decision", headers=hdrs["sec_a"], json={"decision": "approve"})
+    assert r_l2_clr.status_code == 403 and r_l2_clr.json()["error_code"] == "insufficient_clearance", r_l2_clr.text
+    assert client.post(f"/api/governance/review-tasks/{task_l3}/decision", headers=hdrs["admin_a"], json={"decision": "approve"}).status_code == 403
+    assert client.post(f"/api/governance/review-tasks/{task_l3}/decision", headers=hdrs["sec_a_l3"], json={"decision": "approve"}).status_code == 200
 
     # Secret quarantine -> tenant-isolated incidents
     r_q = client.post("/api/uploads/ingest", headers=hdrs["alice_a"], json={"filename": "secret_a.txt"})
@@ -920,23 +1052,28 @@ assert ds_a_l1.json()["caller_clearance"] == "L1"
 stats_a = client.get("/api/governance/downstream/stats?tenant_id=tn_globex", headers=hdrs["agent_a_l1"]).json()
 assert stats_a["tenant_id"] == "tn_northwind"
 
-# Security reviewer cannot use PUT canonical or sync-playbook (process_owner / admin only)
-assert client.put("/api/governance/sops/SOP-NW-L1/canonical", headers=hdrs["sec_a"], json={}).status_code == 403
-assert client.post("/api/governance/sops/SOP-NW-L1/sync-playbook", headers=hdrs["sec_a"], json={}).status_code == 403
+# Published canonical PUT / sync-playbook: allowed for process_owner & admin, blocked (403) for security_reviewer
+pub_canon = client.get("/api/governance/sops/SOP-NW-L1/canonical", headers=hdrs["alice_a"]).json()
+assert client.put("/api/governance/sops/SOP-NW-L1/canonical", headers=hdrs["sec_a"], json=pub_canon).status_code == 403
+assert client.post("/api/governance/sops/SOP-NW-L1/sync-playbook", headers=hdrs["sec_a"], json=pub_canon).status_code == 403
+assert client.put("/api/governance/sops/SOP-NW-L1/canonical", headers=hdrs["alice_a"], json=pub_canon).status_code == 200
+assert client.post("/api/governance/sops/SOP-NW-L1/sync-playbook", headers=hdrs["admin_a"], json={"canonical_sop": pub_canon}).status_code == 200
 
-# DELETE /api/sops/{id}: strictly admin and process_owner; security_reviewer & agent blocked!
+# DELETE /api/sops/{id}: strictly admin ONLY (process_owner, security_reviewer, agent, cross-tenant blocked!)
+assert client.delete("/api/sops/SOP-NW-L1", headers=hdrs["alice_a"]).status_code == 403
+assert client.delete("/api/sops/SOP-NW-L1", headers=hdrs["bob_a"]).status_code == 403
+assert client.delete("/api/sops/SOP-NW-L2", headers=hdrs["po_l2_a"]).status_code == 403
 assert client.delete("/api/sops/SOP-NW-L1", headers=hdrs["sec_a"]).status_code == 403
+assert client.delete("/api/sops/SOP-NW-L1", headers=hdrs["sec_a_l3"]).status_code == 403
 assert client.delete("/api/sops/SOP-NW-L1", headers=hdrs["agent_a_l2"]).status_code == 403
-assert client.delete("/api/sops/SOP-NW-L1", headers=hdrs["carol_b"]).status_code == 403
-assert client.delete("/api/sops/SOP-NW-L2", headers=hdrs["bob_a"]).status_code == 403  # L1 cannot delete L2/L3
+assert client.delete("/api/sops/SOP-NW-L1", headers=hdrs["admin_b"]).status_code == 403
 
-# process_owner deletes L1 SOP within tenant -> deleted_role == "owner", actor derived from token!
-del_po = client.request("DELETE", "/api/sops/SOP-NW-L1", headers=hdrs["bob_a"], json={"actor": "spoofed_actor", "reason": "Cleanup"})
-assert del_po.status_code == 200, del_po.text
-assert del_po.json()["deleted_by"] == "bob_a@tn_northwind.example"
-assert del_po.json()["deleted_role"] == "owner"
+# admin deletes L1 & L2 SOPs within tenant -> deleted_role == "admin", actor derived from token!
+del_l1 = client.request("DELETE", "/api/sops/SOP-NW-L1", headers=hdrs["admin_a"], json={"actor": "spoofed_actor", "reason": "Cleanup"})
+assert del_l1.status_code == 200, del_l1.text
+assert del_l1.json()["deleted_by"] == "admin_a@tn_northwind.example"
+assert del_l1.json()["deleted_role"] == "admin"
 
-# admin deletes L2/L3 SOP within tenant -> deleted_role == "admin"
 del_adm = client.delete("/api/sops/SOP-NW-L2", headers=hdrs["admin_a"])
 assert del_adm.status_code == 200, del_adm.text
 assert del_adm.json()["deleted_by"] == "admin_a@tn_northwind.example"

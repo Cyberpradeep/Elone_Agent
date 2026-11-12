@@ -1,7 +1,8 @@
 /**
- * Review — human-in-the-loop governance: review tasks, lifecycle jobs,
- * quarantine incidents (security_reviewer/admin only), decisions with separation
- * of duties, publishing, job history and canonical SOP viewer/editor.
+ * Review — Option A human-in-the-loop governance:
+ * Security Reviewers decide L0–L3 review tasks (with SoD); Process Owners revise
+ * changes_requested drafts and publish approved SOPs; Admins/Security Reviewers inspect
+ * quarantine incidents; Process Owners/Admins edit published canonical JSON.
  */
 
 import { api } from '../api.js';
@@ -15,7 +16,7 @@ let activeTab = 'tasks';
 
 export function showJobsTab() { activeTab = 'jobs'; }
 
-// The ledger stores a task's status as the decision word: pending, approve, changes_requested, reject.
+// The ledger stores a task's status as the decision word: pending, approve, changes_requested, reject, superseded.
 const TASK_STATUS = {
   pending: ['PENDING', 'warning'],
   approve: ['APPROVED', 'success'], approved: ['APPROVED', 'success'],
@@ -48,6 +49,7 @@ export function timelineHtml(hist = []) {
 // ---------------------------------------------------------------------------
 
 function tasksTable(tasks) {
+  const canEditDraft = hasCapability('can_edit_draft');
   const sorted = [...tasks].sort((a, b) => {
     if ((a.status === 'pending') !== (b.status === 'pending')) return a.status === 'pending' ? -1 : 1;
     return String(a.due_date).localeCompare(String(b.due_date));
@@ -64,15 +66,18 @@ function tasksTable(tasks) {
               <td><div class="mono strong">${esc(t.sop_id)}</div><div class="cell-sub">v${esc(t.version)} · uploaded by ${esc(t.uploaded_by)}</div></td>
               <td>
                 <div class="row" style="gap:6px">${t.sop_tier ? tierBadge(t.sop_tier) : ''}<span>${esc(t.assigned_role)}</span></div>
-                ${t.status === 'pending' && t.eligible_for_me === false ? '<div class="cell-sub muted">SoD / role locked for your account</div>' : ''}
+                ${t.status === 'pending' && t.eligible_for_me === false ? '<div class="cell-sub muted">Requires Security Reviewer / SoD check</div>' : ''}
               </td>
               <td class="nowrap"><div class="mono tiny">${fmt.date(t.due_date)}</div><div class="cell-sub">${t.status === 'pending' ? fmt.rel(t.due_date) : ''} ${t.is_overdue ? pill('OVERDUE', 'danger', { dot: false }) : ''}</div></td>
               <td>${taskStatusPill(t.status)}
                   ${t.reviewer ? `<div class="cell-sub">by ${esc(t.reviewer)}</div>` : ''}</td>
               <td>
                 <div class="row-actions">
-                  ${t.status === 'pending' ? `<a class="btn btn-sm ${t.eligible_for_me === false ? 'btn-outline' : 'btn-primary'}" href="#/review/${esc(t.task_id)}">${t.eligible_for_me === false ? 'Inspect' : 'Review'}</a>` : ''}
-                  ${t.status === 'pending' ? '' : `<a class="btn btn-sm btn-outline" href="#/review/${esc(t.task_id)}">View</a>`}
+                  ${t.status === 'pending'
+                    ? `<a class="btn btn-sm ${t.eligible_for_me === false ? 'btn-outline' : 'btn-primary'}" href="#/review/${esc(t.task_id)}">${t.eligible_for_me === false ? 'Inspect' : 'Review'}</a>`
+                    : (t.status === 'changes_requested' && canEditDraft)
+                    ? `<a class="btn btn-sm btn-primary" href="#/review/${esc(t.task_id)}">${icon('edit')}Revise &amp; resubmit</a>`
+                    : `<a class="btn btn-sm btn-outline" href="#/review/${esc(t.task_id)}">View</a>`}
                   <button class="btn btn-sm btn-ghost" data-action="job-history" data-id="${esc(t.job_id)}">History</button>
                 </div>
               </td>
@@ -83,6 +88,8 @@ function tasksTable(tasks) {
 }
 
 function jobsTable(jobs) {
+  const canPublish = hasCapability('can_publish');
+  const canEditDraft = hasCapability('can_edit_draft');
   const sorted = [...jobs].sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
   if (!sorted.length) return emptyState({ icon: 'file', title: 'No lifecycle jobs', text: 'Jobs appear here as soon as a document is ingested.' });
   return `
@@ -99,7 +106,8 @@ function jobsTable(jobs) {
               <td class="nowrap"><div class="mono tiny">${fmt.date(j.updated_at)}</div><div class="cell-sub">${fmt.rel(j.updated_at)}</div></td>
               <td>
                 <div class="row-actions">
-                  ${j.current_state === 'approved' ? `<button class="btn btn-sm btn-success" data-action="publish-sop" data-id="${esc(j.sop_id)}">${icon('upload')}Publish</button>` : ''}
+                  ${j.current_state === 'approved' && canPublish ? `<button class="btn btn-sm btn-success" data-action="publish-sop" data-id="${esc(j.sop_id)}">${icon('upload')}Publish</button>` : ''}
+                  ${j.current_state === 'changes_requested' && canEditDraft && j.review_task?.task_id ? `<a class="btn btn-sm btn-primary" href="#/review/${esc(j.review_task.task_id)}">${icon('edit')}Revise &amp; resubmit</a>` : ''}
                   <button class="btn btn-sm btn-outline" data-action="job-history" data-id="${esc(j.job_id)}">History</button>
                 </div>
               </td>
@@ -198,7 +206,7 @@ registerActions({
       toast(`Decision recorded: ${fmt.words(res.decision)}. Job is now ${fmt.words(res.job_state)}.`, 'success', 5500);
       if (res.decision === 'approve') activeTab = 'jobs';
       ctx.refreshBadges();
-      if (form.dataset.page === 'true') { location.hash = '#/review'; return; }   // submitted from the full review page
+      if (form.dataset.page === 'true') { location.hash = '#/review'; return; }
       await ctx.reload();
     } catch (e) {
       const list = e.failures?.length ? `<ul style="margin:6px 0 0 18px">${e.failures.map(f => `<li>${esc(f)}</li>`).join('')}</ul>` : '';
@@ -254,15 +262,16 @@ registerActions({
     try { canonical = await api.getCanonical(id); } catch (e) { toast(`Canonical SOP not available: ${e.message}`, 'error'); return; }
     const isDraft = canonical.lifecycle?.state !== 'published';
     const steps = canonical.steps || [];
-    const canEdit = hasCapability('can_edit_canonical');
+    const hasEditCap = hasCapability('can_edit_canonical');
+    const canEdit = hasEditCap && !isDraft;
 
     openModal({
       title: `Canonical SOP — ${id}`,
       size: 'lg',
       body: `
         <div class="stack" data-sop="${esc(id)}" data-draft="${isDraft}">
-          ${isDraft ? `<div class="callout warn">${icon('alert')}<div><b>This SOP is still a draft.</b> Saving writes the canonical JSON and playbook into the knowledge base immediately, before it has been approved. Prefer read-only inspection until review is complete.</div></div>` : ''}
-          ${!canEdit ? `<div class="callout">${icon('lock')}<div><b>Read-only view.</b> Direct canonical JSON edits are restricted to Process Owners and Admins.</div></div>` : ''}
+          ${isDraft ? `<div class="callout warn">${icon('lock')}<div><b>Draft canonical JSON is read-only here.</b> Unapproved drafts cannot bypass review to write directly into the knowledge base. Process Owners revise drafts inside the Review queue task before Security Reviewer approval and publication.</div></div>` : ''}
+          ${!isDraft && !hasEditCap ? `<div class="callout">${icon('lock')}<div><b>Read-only view.</b> Direct canonical JSON edits are restricted to Process Owners and Admins.</div></div>` : ''}
           <div class="tabs in-modal" role="tablist">
             <button class="tab active" role="tab" data-tab="summary">Summary</button>
             <button class="tab" role="tab" data-tab="steps">Steps <span class="tab-count">${steps.length}</span></button>
@@ -327,20 +336,14 @@ registerActions({
 
 async function saveCanonical(btn, mode) {
   const wrap = document.querySelector('#modal-body [data-sop]');
-  const id = wrap.dataset.sop;
+  const id = wrap?.dataset.sop;
+  if (!id || wrap.dataset.draft === 'true' || !hasCapability('can_edit_canonical')) {
+    toast('Only published canonical SOPs may be edited here.', 'error');
+    return;
+  }
   let parsed;
   try { parsed = JSON.parse(document.getElementById('canon-json').value); }
   catch (e) { toast(`Invalid JSON: ${e.message}`, 'error'); return; }
-
-  if (wrap.dataset.draft === 'true') {
-    const ok = await confirmDialog({
-      title: 'Write an unapproved draft to the knowledge base?',
-      message: `${id} has not been approved. This will create its canonical JSON and playbook files in the knowledge base now.`,
-      confirmLabel: 'Write files',
-      tone: 'danger',
-    });
-    if (!ok) return;
-  }
 
   const done = busy(btn);
   try {
@@ -365,7 +368,7 @@ export default {
   icon: 'review',
   badge: 'pending',
   title: 'Review & publish',
-  subtitle: 'Human approval with separation of duties, then publication to downstream agents.',
+  subtitle: 'Security Reviewer gatekeeping (L0–L3 with SoD) and Process Owner publication to downstream agents.',
   refreshMs: 15000,
 
   async load(ctx) {
@@ -385,10 +388,16 @@ export default {
     if (!canIncidents && activeTab === 'incidents') activeTab = 'tasks';
 
     const approved = jobs.filter(j => j.current_state === 'approved').length;
+    const changesRequested = jobs.filter(j => j.current_state === 'changes_requested').length;
+    const canPublish = hasCapability('can_publish');
+    const canEditDraft = hasCapability('can_edit_draft');
     const tab = (id, label, count, cls = '') => `<button class="tab ${activeTab === id ? 'active' : ''}" role="tab" data-tab="${id}" aria-selected="${activeTab === id}">${label}<span class="tab-count ${cls}">${count}</span></button>`;
     return `
       <div class="view-stack">
-        ${approved ? `<div class="callout success">${icon('check')}<div><b>${approved} approved SOP${approved > 1 ? 's are' : ' is'} ready to publish.</b> Open the <button class="chip" data-action="goto-jobs" style="padding:1px 9px">Lifecycle jobs</button> tab to publish.</div></div>` : ''}
+        ${approved ? `<div class="callout success">${icon('check')}<div>${canPublish
+          ? `<b>${approved} approved SOP${approved > 1 ? 's are' : ' is'} ready to publish.</b> Open the <button class="chip" data-action="goto-jobs" style="padding:1px 9px">Lifecycle jobs</button> tab to publish.`
+          : `<b>${approved} SOP${approved > 1 ? 's are' : ' is'} approved</b> and waiting for a Process Owner to publish.`}</div></div>` : ''}
+        ${changesRequested && canEditDraft ? `<div class="callout warn">${icon('alert')}<div><b>${changesRequested} SOP${changesRequested > 1 ? 's have' : ' has'} changes requested.</b> Open the task to edit steps or JSON and resubmit for security review.</div></div>` : ''}
         <div class="panel panel-flush">
           <div class="tabs" role="tablist" style="padding:0 12px">
             ${tab('tasks', 'Review tasks', pending, pending ? 'attention' : '')}

@@ -1,11 +1,12 @@
 /**
  * Review task page — #/review/<task_id>
  * Displays the SOP content with evidence quotes, classification, quality, job history,
- * draft editor, and SoD/clearance-aware decision panel (reviewer stamped from token).
+ * Process Owner draft editor & changes_requested resubmission panel, and Security Reviewer
+ * SoD/clearance-aware decision panel (actor identity stamped strictly from token).
  */
 
 import { api } from '../api.js';
-import { getUser, hasAnyRole } from '../auth.js';
+import { getUser, hasRole, hasCapability, formatRoleLabel } from '../auth.js';
 import {
   esc, icon, fmt, pill, jobPill, tierBadge, bindTabs, registerActions,
   emptyState, jsonBlock, prettyJson, busy, toast, confirmDialog,
@@ -109,11 +110,15 @@ function documentTab(c) {
 }
 
 // ---------------------------------------------------------------------------
-// Decision card (always visible beside the content)
+// Decision & Resubmission cards (always visible beside the content)
 // ---------------------------------------------------------------------------
 
-function decisionCard(task, c, draft) {
+function decisionCard(task, c, draft, job) {
+  const isChangesRequestedActive = task.status === 'changes_requested'
+    && (job?.current_state === 'changes_requested' || draft?.job_state === 'changes_requested');
+
   if (task.status !== 'pending') {
+    const canEditDraft = hasCapability('can_edit_draft');
     return `
       <div class="panel">
         <div class="panel-header"><div class="panel-title">${icon('check')}Decision recorded</div>${taskStatusPill(task.status)}</div>
@@ -122,26 +127,38 @@ function decisionCard(task, c, draft) {
           <div><span class="k">Decided</span><span class="v">${fmt.date(task.completed_at)}</span></div>
         </div>
         ${task.notes ? `<div class="field-label" style="margin-top:12px">Notes</div><p class="secondary small" style="margin-top:4px">${esc(task.notes)}</p>` : ''}
-      </div>`;
+      </div>
+      ${isChangesRequestedActive ? (canEditDraft ? `
+        <div class="panel stack" id="rt-resubmit-panel">
+          <div class="panel-title">${icon('refresh')}Revise &amp; resubmit</div>
+          <p class="small secondary">Edit steps or JSON tabs on the left and save your draft updates, then resubmit for a fresh Security Reviewer check.</p>
+          <div class="field">
+            <label for="rt-resubmit-notes">Revision summary <span class="muted" style="text-transform:none;font-weight:500">(optional)</span></label>
+            <textarea id="rt-resubmit-notes" class="textarea" rows="3" placeholder="Summarize what was changed to address the reviewer's notes"></textarea>
+          </div>
+          <div id="rt-resubmit-error" class="field-error" role="alert"></div>
+          <button type="button" class="btn btn-primary" data-action="rt-resubmit" data-sop="${esc(task.sop_id)}">${icon('check')}Resubmit for security review</button>
+        </div>` : `
+        <div class="callout warn">${icon('clock')}<div>Waiting for a Process Owner to revise this draft and resubmit it for security review.</div></div>`) : ''}`;
   }
 
   const user = getUser() || {};
   const myId = String(user.identity || '').trim().toLowerCase();
   const uploader = String(task.uploaded_by || '').trim().toLowerCase();
   const lastEditor = String(c?.lifecycle?.last_editor || draft?.last_editor || '').trim().toLowerCase();
-  const assignedLower = String(task.assigned_role || 'Process owner').trim().toLowerCase();
   const sopTier = String(task.sop_tier || c?.classification?.level || 'L1').toUpperCase();
   const userTier = String(user.clearance || 'L1').toUpperCase();
 
   const blockers = [];
+  if (!hasRole('security_reviewer')) {
+    const roleNames = (user.roles || []).map(formatRoleLabel).join(', ') || 'none';
+    blockers.push(`Review decisions require the Security Reviewer role (your role: ${roleNames}).`);
+  }
   if (myId && myId === uploader) {
     blockers.push(`You uploaded this SOP (${user.identity}). Separation of duties requires a different reviewer.`);
   }
   if (myId && lastEditor && myId === lastEditor) {
     blockers.push(`You last edited this draft (${user.identity}). Separation of duties requires a different reviewer.`);
-  }
-  if (assignedLower === 'security reviewer' && !hasAnyRole(['security_reviewer', 'admin'])) {
-    blockers.push(`This task is assigned to Security reviewer; your role (${(user.roles || []).join(', ')}) cannot decide it.`);
   }
   if ((TIER_RANK[sopTier] ?? 1) > (TIER_RANK[userTier] ?? 1)) {
     blockers.push(`SOP confidentiality is ${sopTier}, which exceeds your ${userTier} clearance.`);
@@ -154,7 +171,7 @@ function decisionCard(task, c, draft) {
 
   return `
     <form id="decision-form" class="panel stack" data-page="true" data-task="${esc(task.task_id)}" data-sop="${esc(task.sop_id)}" novalidate>
-      <div class="panel-title">${icon('review')}Your decision</div>
+      <div class="panel-title">${icon('review')}Security review decision</div>
 
       <div class="meta-grid">
         <div class="meta-item"><div class="meta-label">Reviewing as (token)</div><div class="meta-value mono">${esc(user.identity || '—')}</div></div>
@@ -169,7 +186,7 @@ function decisionCard(task, c, draft) {
         <span class="field-label">Decision</span>
         <div class="radio-cards" role="radiogroup" aria-label="Decision" style="grid-template-columns:1fr">
           <label class="radio-card approve"><input type="radio" name="decision" value="approve" checked ${disAttr}><span class="rc-body"><span class="rc-title">Approve</span><span class="rc-desc">Passes the 6 publication gates</span></span></label>
-          <label class="radio-card changes"><input type="radio" name="decision" value="changes_requested" ${disAttr}><span class="rc-body"><span class="rc-title">Request changes</span><span class="rc-desc">Send back for correction</span></span></label>
+          <label class="radio-card changes"><input type="radio" name="decision" value="changes_requested" ${disAttr}><span class="rc-body"><span class="rc-title">Request changes</span><span class="rc-desc">Send back to Process Owner for revision</span></span></label>
           <label class="radio-card reject"><input type="radio" name="decision" value="reject" ${disAttr}><span class="rc-body"><span class="rc-title">Reject</span><span class="rc-desc">Do not publish</span></span></label>
         </div>
       </div>
@@ -193,6 +210,38 @@ registerActions({
   'rt-unverified': el => {
     const on = el.classList.toggle('active');
     document.getElementById('rt-steps')?.classList.toggle('only-unverified', on);
+  },
+
+  'rt-resubmit': async (el, _e, ctx) => {
+    const err = document.getElementById('rt-resubmit-error');
+    if (err) err.textContent = '';
+    if (editDirty || jsonDirty) {
+      const ok = await confirmDialog({
+        title: 'Unsaved edits in draft editor',
+        message: 'You have unsaved changes in the step or JSON editor. Save them first if you want them included, or continue to resubmit the last saved draft?',
+        confirmLabel: 'Resubmit last saved draft',
+        tone: 'warning',
+      });
+      if (!ok) return;
+    }
+    const sop = el.dataset.sop;
+    const notes = document.getElementById('rt-resubmit-notes')?.value.trim() || '';
+    const done = busy(el);
+    try {
+      const res = await api.resubmitDraft(sop, { notes });
+      editDirty = false;
+      jsonDirty = false;
+      toast(`Resubmitted ${res.sop_id} for security review (task ${res.task_id}).`, 'success', 6000);
+      ctx.refreshBadges();
+      if (res.task_id) {
+        location.hash = `#/review/${encodeURIComponent(res.task_id)}`;
+        return;
+      }
+      await ctx.reload();
+    } catch (e) {
+      if (err) err.textContent = e.message;
+      else toast(`Resubmit failed: ${e.message}`, 'error', 7000);
+    } finally { done(); }
   },
 });
 
@@ -335,7 +384,7 @@ registerActions({
       const cs = res.canonical_draft?.steps || [];
       const found = cs.filter(s => s.verified).length;
       editDirty = false;
-      toast(`Steps saved as ${res.last_editor || editor}. ${found} of ${cs.length} quotes found in the document. A different reviewer must now approve this SOP.`, 'success', 8000);
+      toast(`Steps saved as ${res.last_editor || editor}. ${found} of ${cs.length} quotes found in the document. An independent Security Reviewer must approve this SOP.`, 'success', 8000);
       (res.warnings || []).forEach(w => toast(w, 'warning', 9000));
       await ctx.reload();
     } catch (e) {
@@ -399,7 +448,7 @@ registerActions({
       const res = await api.saveDraftCanonical(document.getElementById('rt-json-edit').dataset.sop, { canonical });
       const cs = res.canonical_draft?.steps || [];
       jsonDirty = false;
-      toast(`JSON saved as ${res.last_editor || editor}. ${cs.filter(s => s.verified).length} of ${cs.length} step quotes found in the document. A different reviewer must now approve this SOP.`, 'success', 8000);
+      toast(`JSON saved as ${res.last_editor || editor}. ${cs.filter(s => s.verified).length} of ${cs.length} step quotes found in the document. An independent Security Reviewer must approve this SOP.`, 'success', 8000);
       (res.warnings || []).forEach(w => toast(w, 'warning', 9000));
       await ctx.reload();
     } catch (e) {
@@ -425,7 +474,7 @@ export default {
     const [canonical, job, draft] = await Promise.all([
       api.getCanonical(task.sop_id).catch(() => null),
       api.getJob(task.job_id).catch(() => null),
-      task.status === 'pending' ? api.getDraft(task.sop_id).catch(() => null) : Promise.resolve(null),
+      ['pending', 'changes_requested'].includes(task.status) ? api.getDraft(task.sop_id).catch(() => null) : Promise.resolve(null),
     ]);
     return { id, task, canonical, job, draft };
   },
@@ -443,6 +492,10 @@ export default {
     const gaugeTone = pct >= 90 ? 'success' : pct >= 50 ? 'warning' : 'danger';
     const issues = c?.issues || [];
     const tab = (idTab, label, extra = '') => `<button class="tab ${idTab === 'steps' ? 'active' : ''}" role="tab" data-tab="${idTab}">${label}${extra}</button>`;
+    const isChangesRequestedActive = task.status === 'changes_requested'
+      && (job?.current_state === 'changes_requested' || draft?.job_state === 'changes_requested');
+    const feedback = draft?.last_review_decision || job?.approval_decision || { reviewer: task.reviewer, notes: task.notes };
+    const canEditDraft = hasCapability('can_edit_draft');
 
     return `
       <div class="view-stack">
@@ -458,8 +511,9 @@ export default {
           </div>
         </div>
 
+        ${isChangesRequestedActive ? `<div class="callout warn">${icon('alert')}<div><b>Changes requested${feedback?.reviewer ? ` by ${esc(feedback.reviewer)}` : ''}.</b>${feedback?.notes ? ` “${esc(feedback.notes)}”` : ''}${canEditDraft ? ' Edit the steps or JSON below, save your updates, then click <b>Resubmit for security review</b>.' : ' Waiting for a Process Owner to revise the draft and resubmit.'}</div></div>` : ''}
         ${c ? '' : `<div class="callout warn">${icon('alert')}<div><b>The draft couldn't be loaded</b>, so the SOP content and quality metrics are unavailable. The server will apply its default gate values if you decide now.</div></div>`}
-        ${c?.lifecycle?.last_editor ? `<div class="callout warn">${icon('alert')}<div><b>Steps were edited by ${esc(c.lifecycle.last_editor)}</b> (${fmt.date(c.lifecycle.last_edited_at)}). Under separation of duties, ${esc(c.lifecycle.last_editor)} cannot approve this SOP — a different reviewer must decide.</div></div>` : ''}
+        ${c?.lifecycle?.last_editor ? `<div class="callout warn">${icon('alert')}<div><b>Draft was edited by ${esc(c.lifecycle.last_editor)}</b> (${fmt.date(c.lifecycle.last_edited_at)}). Under separation of duties, ${esc(c.lifecycle.last_editor)} cannot approve this SOP — an independent Security Reviewer must decide.</div></div>` : ''}
         ${issues.length ? `<div class="callout danger">${icon('alert')}<div><b>${issues.length} open issue${issues.length > 1 ? 's' : ''} recorded on this SOP.</b> They block approval until resolved — see the Issues tab.</div></div>` : ''}
 
         <div class="grid-main-side">
@@ -489,13 +543,13 @@ export default {
                       <span class="spacer"></span>
                       ${draft?.editable
                         ? `<button class="btn btn-sm btn-secondary" data-action="rt-edit-steps">${icon('edit')}Edit steps</button>`
-                        : `<span class="tiny muted">${esc(draft ? (draft.editable_reason || '') : (task.status === 'pending' ? "Editing isn't available: the draft file for this SOP wasn't found." : ''))}</span>`}
+                        : `<span class="tiny muted">${esc(draft ? (draft.editable_reason || '') : (['pending', 'changes_requested'].includes(task.status) ? "Editing isn't available: the draft file for this SOP wasn't found." : ''))}</span>`}
                     </div>
                     ${steps.length ? `<div class="stack" id="rt-steps">${steps.map(stepCard).join('')}</div>` : emptyState({ icon: 'list', title: 'No steps in this SOP' })}
                   </div>
                   ${draft?.editable ? `
                   <div id="rt-edit" data-sop="${esc(task.sop_id)}" hidden>
-                    <div class="callout">${icon('info')}<div><b>Editing steps.</b> Nothing is published until the SOP is approved. When you save, every source quote is checked against the document again and the evidence figures update. Because you will have edited it, <b>a different reviewer must approve it</b>.</div></div>
+                    <div class="callout">${icon('info')}<div><b>Editing steps.</b> Nothing is published until approved by an independent Security Reviewer and published by a Process Owner. Saving re-verifies every source quote against the document, and someone different from the uploader and last editor must approve.</div></div>
                     <div class="stack" id="rt-edit-list" style="margin-top:14px">${(draft.steps || []).map((s, i) => editCard(s, i, c?.steps?.[i])).join('')}</div>
                     <div style="margin-top:12px"><button type="button" class="btn btn-outline" data-action="rt-add-step">+ Add step</button></div>
                     <div id="rt-edit-error" style="margin-top:12px" role="alert"></div>
@@ -527,7 +581,7 @@ export default {
                   ${draft?.editable && c ? `
                   <div id="rt-json-edit" data-sop="${esc(task.sop_id)}" hidden>
                     <div class="stack-sm">
-                      <div class="callout">${icon('info')}<div><b>Editing the JSON.</b> You can change the title, metadata, purpose, scope, preconditions, roles, exceptions, notes and steps. Changing the confidentiality tier, quality, source or lifecycle is refused. Every quote is checked against the document again when you save, and because you will have edited it, <b>a different reviewer must approve it</b>.</div></div>
+                      <div class="callout">${icon('info')}<div><b>Editing the JSON.</b> You can change the title, metadata, purpose, scope, preconditions, roles, exceptions, notes and steps. Changing the confidentiality tier, quality, source or lifecycle is refused. Saving re-verifies every quote, and an independent Security Reviewer must approve.</div></div>
                       <textarea id="rt-json-text" class="textarea code" spellcheck="false" aria-label="Canonical SOP JSON" style="min-height:480px">${esc(prettyJson(c))}</textarea>
                       <div class="row-between"><span id="rt-json-status" class="tiny"></span><button type="button" class="btn btn-sm btn-ghost" data-action="rt-json-format">Format JSON</button></div>
                       <div id="rt-json-error" role="alert"></div>
@@ -543,7 +597,7 @@ export default {
           </div>
 
           <div class="stack sticky-side">
-            ${decisionCard(task, c, draft)}
+            ${decisionCard(task, c, draft, job)}
             ${c ? classificationCard(c.classification) + qualityCard(c.quality) : ''}
           </div>
         </div>

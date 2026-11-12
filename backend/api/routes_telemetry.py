@@ -2,14 +2,14 @@
 Telemetry & Diagnostics API Route Handlers
 ==========================================
 Handles multi-model token telemetry, daily quotas, log inspection, and security testing.
-Locked down per C2 RBAC:
+Locked down per Option A RBAC:
   - GET  /api/health         -> public minimal heartbeat
-  - GET  /api/overview       -> process_owner, security_reviewer, admin (tenant+clearance scoped; models/telemetry redacted for process_owner)
+  - GET  /api/overview       -> process_owner, security_reviewer, admin (tenant+clearance scoped; models/telemetry admin-only)
   - GET  /api/scheduler      -> process_owner, security_reviewer, admin
-  - GET  /api/tools          -> process_owner, security_reviewer, admin
-  - GET  /api/telemetry      -> security_reviewer, admin
-  - GET  /api/logs*          -> security_reviewer, admin (tenant-attributed)
-  - POST /api/security/test  -> process_owner, security_reviewer, admin
+  - GET  /api/tools          -> process_owner, admin
+  - GET  /api/telemetry      -> admin
+  - GET  /api/logs*          -> admin (tenant-attributed)
+  - POST /api/security/test  -> security_reviewer, admin
 """
 
 import os
@@ -33,6 +33,7 @@ from api.context import (
 from auth.models import (
     HUMAN_ROLES,
     ROLE_ADMIN,
+    ROLE_PROCESS_OWNER,
     ROLE_SECURITY_REVIEWER,
 )
 from auth.dependencies import (
@@ -94,7 +95,7 @@ async def api_overview(request: Request):
     total_tools = len(TOOL_CATALOG)
     total_functions = sum(len(p.get("functions", [])) for p in TOOL_CATALOG)
 
-    can_view_telemetry = principal.has_any_role((ROLE_SECURITY_REVIEWER, ROLE_ADMIN))
+    can_view_telemetry = principal.has_role(ROLE_ADMIN)
     telemetry_payload = None
     models_payload = {}
     if can_view_telemetry:
@@ -242,7 +243,7 @@ async def api_get_scheduler(request: Request):
 async def api_get_tools(request: Request):
     authenticate_request(
         request,
-        allowed_roles=HUMAN_ROLES,
+        allowed_roles=(ROLE_PROCESS_OWNER, ROLE_ADMIN),
         human_only=True,
         check_csrf=False,
     )
@@ -256,7 +257,7 @@ async def api_get_tools(request: Request):
 async def api_get_telemetry(request: Request):
     authenticate_request(
         request,
-        allowed_roles=(ROLE_SECURITY_REVIEWER, ROLE_ADMIN),
+        allowed_roles=(ROLE_ADMIN,),
         human_only=True,
         check_csrf=False,
     )
@@ -273,7 +274,7 @@ async def api_get_telemetry(request: Request):
 async def api_list_logs(request: Request):
     principal = authenticate_request(
         request,
-        allowed_roles=(ROLE_SECURITY_REVIEWER, ROLE_ADMIN),
+        allowed_roles=(ROLE_ADMIN,),
         human_only=True,
         check_csrf=False,
     )
@@ -313,7 +314,7 @@ async def api_list_logs(request: Request):
 async def api_get_log(request: Request):
     principal = authenticate_request(
         request,
-        allowed_roles=(ROLE_SECURITY_REVIEWER, ROLE_ADMIN),
+        allowed_roles=(ROLE_ADMIN,),
         human_only=True,
         check_csrf=False,
     )
@@ -354,7 +355,7 @@ async def api_test_security(request: Request):
     """Interactive endpoint to test security filters (DLP, AST, Zero-width)."""
     authenticate_request(
         request,
-        allowed_roles=HUMAN_ROLES,
+        allowed_roles=(ROLE_SECURITY_REVIEWER, ROLE_ADMIN),
         human_only=True,
         check_csrf=True,
     )

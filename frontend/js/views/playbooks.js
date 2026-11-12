@@ -1,7 +1,7 @@
 /**
  * Playbooks — searchable library of published, HMAC-signed OKF playbooks,
  * with a deep inspector (steps, details, rulebook, raw source) and integrity check.
- * Delete capability is gated to admin & process_owner roles and tenant/clearance matched.
+ * Delete capability is gated to the admin role and tenant/clearance matched.
  */
 
 import { api } from '../api.js';
@@ -216,7 +216,7 @@ registerActions({
 
   'delete-sop': el => {
     if (!canDelete()) {
-      toast('Delete requires Process Owner or Admin role.', 'error');
+      toast('Delete requires Admin role.', 'error');
       return;
     }
     const id = el.dataset.id;

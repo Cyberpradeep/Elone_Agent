@@ -53,8 +53,10 @@ class TestPipelineIntegration(unittest.TestCase):
         os.environ["ELONE_ALLOW_INSECURE_DEV_KEY"] = "1"
         cls.hdr_alice = _make_auth_header("alice@example.com", ["process_owner"], clearance="L1")
         cls.hdr_bob = _make_auth_header("bob@example.com", ["process_owner"], clearance="L1")
+        cls.hdr_po_l2 = _make_auth_header("po_l2@example.com", ["process_owner"], clearance="L2")
         cls.hdr_charlie = _make_auth_header("charlie@example.com", ["security_reviewer"], clearance="L2")
-        cls.hdr_reviewer = _make_auth_header("human_reviewer@corp.com", ["process_owner"], clearance="L1")
+        cls.hdr_sec_2 = _make_auth_header("sec_reviewer2@corp.com", ["security_reviewer"], clearance="L2")
+        cls.hdr_admin = _make_auth_header("admin@example.com", ["admin"], clearance="L3")
         cls.hdr_agent_l1 = _make_auth_header("agent_l1", ["agent"], clearance="L1", actor_type="agent")
         cls.hdr_agent_l2 = _make_auth_header("agent_l2", ["agent"], clearance="L2", actor_type="agent")
 
@@ -97,6 +99,19 @@ class TestPipelineIntegration(unittest.TestCase):
         valid, errors, model = validate_canonical_sop_dict(canonical_dict)
         self.assertTrue(valid, f"Canonical JSON validation failed: {errors}")
         self.assertIsNotNone(model)
+
+        # Verify dlp_stats and is_ocr forwarding into confidentiality engine & source metadata
+        canon_with_signals = build_canonical_sop_from_draft(
+            mock_draft,
+            raw_text="Flush Windows DNS resolver cache\nClear Chrome temporary socket pools",
+            dlp_stats={"emails": 5, "passwords": 0, "api_keys": 0, "private_keys": 0},
+            is_ocr=True,
+        )
+        self.assertTrue(canon_with_signals["source"]["ocr"])
+        self.assertGreater(
+            canon_with_signals["classification"]["score"],
+            canonical_dict["classification"]["score"],
+        )
 
     def test_02_sync_canonical_to_playbook_and_hmac_resigning(self):
         """Editing step in Canonical JSON synchronizes into .md YAML frontmatter with valid HMAC."""
@@ -175,7 +190,7 @@ class TestPipelineIntegration(unittest.TestCase):
         self.assertIn("is_overdue", matching_task)
 
     def test_04_api_record_decision_separation_of_duties_enforced(self):
-        """Self-approval is rejected with 403 separation_of_duties even if body spoofs another reviewer."""
+        """Option A blocks process_owner/admin from /decision (403) and enforces SoD for security_reviewer."""
         uid = uuid.uuid4().hex[:6].upper()
         job_id = f"job_sod_{uid}"
         sop_id = f"SOP-SOD-{uid}"
@@ -192,32 +207,53 @@ class TestPipelineIntegration(unittest.TestCase):
         governance_ledger.transition_state(job_id, "assessing")
         task = governance_ledger.create_review_task(job_id, 20, "L0")
 
-        # Alice uses her own token (even trying to spoof reviewer=bob@example.com in body) -> 403 Forbidden!
-        resp = self.client.post(
-            f"/api/governance/review-tasks/{task.task_id}/decision",
-            headers=self.hdr_alice,
-            json={
-                "decision": "approve",
-                "reviewer": "bob@example.com",
-                "actor_type": "human",
-            },
-        )
-        self.assertEqual(resp.status_code, 403)
-        self.assertEqual(resp.json().get("error_code"), "separation_of_duties")
+        # Option A: process_owner (uploader or non-uploader) and admin cannot decide review tasks
+        for forbidden_hdr in (self.hdr_alice, self.hdr_bob, self.hdr_admin):
+            r_role = self.client.post(
+                f"/api/governance/review-tasks/{task.task_id}/decision",
+                headers=forbidden_hdr,
+                json={"decision": "approve", "reviewer": "sec_reviewer2@corp.com", "actor_type": "human"},
+            )
+            self.assertEqual(r_role.status_code, 403)
+            self.assertEqual(r_role.json().get("error_code"), "insufficient_role")
 
-        # Bob (independent authenticated human) approves -> 200 Success, stamped with Bob's token identity
+        # Defense-in-depth SoD: a security_reviewer matching uploaded_by is blocked with 403 separation_of_duties
+        job_id_2 = f"job_sod2_{uid}"
+        sop_id_2 = f"SOP-SOD2-{uid}"
+        governance_ledger.start_job(
+            job_id=job_id_2,
+            sop_id=sop_id_2,
+            tenant_id="tn_northwind",
+            content_sha256=f"hash_sod2_{uid}",
+            uploaded_by="charlie@example.com",
+        )
+        governance_ledger.transition_state(job_id_2, "extracting")
+        governance_ledger.transition_state(job_id_2, "scanning")
+        governance_ledger.transition_state(job_id_2, "structuring")
+        governance_ledger.transition_state(job_id_2, "assessing")
+        task_2 = governance_ledger.create_review_task(job_id_2, 20, "L0")
+
+        resp_sod = self.client.post(
+            f"/api/governance/review-tasks/{task_2.task_id}/decision",
+            headers=self.hdr_charlie,
+            json={"decision": "approve", "reviewer": "sec_reviewer2@corp.com", "actor_type": "human"},
+        )
+        self.assertEqual(resp_sod.status_code, 403)
+        self.assertEqual(resp_sod.json().get("error_code"), "separation_of_duties")
+
+        # Independent Security Reviewer approves -> 200 Success, stamped with token identity
         resp = self.client.post(
             f"/api/governance/review-tasks/{task.task_id}/decision",
-            headers=self.hdr_bob,
+            headers=self.hdr_charlie,
             json={
                 "decision": "approve",
                 "traceability_pct": 95.0,
                 "completeness_pct": 90.0,
             },
         )
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json().get("job_state"), "approved")
-        self.assertEqual(resp.json().get("reviewer"), "bob@example.com")
+        self.assertEqual(resp.json().get("reviewer"), "charlie@example.com")
 
     def test_05_api_publish_and_downstream_search(self):
         """Approved SOP publishes via API and becomes searchable strictly by token clearance."""
@@ -260,12 +296,26 @@ class TestPipelineIntegration(unittest.TestCase):
             "source": {"sha256": content_hash},
             "steps": [],
         }
+        # Option A: security_reviewer and admin cannot publish; L1 process_owner blocked by L2 clearance; L2 process_owner succeeds
+        self.assertEqual(
+            self.client.post(f"/api/governance/sops/{sop_id}/publish", headers=self.hdr_charlie, json={"canonical_sop": canonical_sop}).status_code,
+            403,
+        )
+        self.assertEqual(
+            self.client.post(f"/api/governance/sops/{sop_id}/publish", headers=self.hdr_admin, json={"canonical_sop": canonical_sop}).status_code,
+            403,
+        )
+        self.assertEqual(
+            self.client.post(f"/api/governance/sops/{sop_id}/publish", headers=self.hdr_alice, json={"canonical_sop": canonical_sop}).status_code,
+            403,
+        )
+
         resp = self.client.post(
             f"/api/governance/sops/{sop_id}/publish",
-            headers=self.hdr_charlie,
+            headers=self.hdr_po_l2,
             json={"canonical_sop": canonical_sop},
         )
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 200, resp.text)
         data = resp.json()
         self.assertEqual(data.get("status"), "published")
         self.assertTrue(data.get("citation").startswith(f"{sop_id}@v1#"))
@@ -371,19 +421,23 @@ class TestPipelineIntegration(unittest.TestCase):
             playbook_matches = glob.glob(os.path.join(sops_dir, "**", f"{sop_id}.md"), recursive=True)
             self.assertEqual(len(playbook_matches), 0, "Playbook should not be committed to sops/ before human approval!")
 
-            # Approve via Review Task using independent human reviewer token
+            # Approve via Review Task using independent Security Reviewer token
             task_id = data.get("task_id")
             app_resp = self.client.post(
                 f"/api/governance/review-tasks/{task_id}/decision",
-                headers=self.hdr_reviewer,
+                headers=self.hdr_charlie,
                 json={"decision": "approve"},
             )
             self.assertEqual(app_resp.status_code, 200, app_resp.text)
 
-            # Publish
+            # Security Reviewer cannot publish; Process Owner publishes
+            self.assertEqual(
+                self.client.post(f"/api/governance/sops/{sop_id}/publish", headers=self.hdr_charlie, json={}).status_code,
+                403,
+            )
             pub_resp = self.client.post(
                 f"/api/governance/sops/{sop_id}/publish",
-                headers=self.hdr_reviewer,
+                headers=self.hdr_alice,
                 json={},
             )
             self.assertEqual(pub_resp.status_code, 200, pub_resp.text)

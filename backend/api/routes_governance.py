@@ -2,8 +2,8 @@
 Governance API Route Handlers
 =============================
 Implements REST endpoints for the 14-state orchestrator, review tasks,
-separation-of-duties decisions, publication gatekeeper, downstream search,
-quarantine incidents, and admin-only pipeline configuration.
+separation-of-duties decisions, draft revisions & resubmissions, publication gatekeeper,
+downstream search, quarantine incidents, and admin-only pipeline configuration.
 """
 
 import os
@@ -98,7 +98,7 @@ def _job_for_sop(sop_id: str, tenant_id: str = None, preferred_states=None):
     priority = {
         "awaiting_review": 4,
         "approved": 4,
-        "changes_requested": 3,
+        "changes_requested": 4,
         "published": 3,
         "assessing": 2,
         "structuring": 2,
@@ -183,12 +183,8 @@ async def api_governance_review_tasks(request: Request):
             except Exception:
                 pass
 
-        assigned = str(task_dict.get("assigned_role") or "Process owner").strip()
-        role_ok = (
-            principal.has_any_role((ROLE_SECURITY_REVIEWER, ROLE_ADMIN))
-            if assigned.lower() == "security reviewer"
-            else principal.has_any_role(HUMAN_ROLES)
-        )
+        # Under Option A Single-Gate RBAC, only security_reviewer accounts decide review tasks.
+        role_ok = principal.has_role(ROLE_SECURITY_REVIEWER)
         last_ed = draft_meta.get("last_editor")
         sod_conflict = (
             principal.identity.strip().lower() == str(job.uploaded_by or "").strip().lower()
@@ -205,10 +201,10 @@ async def api_governance_review_tasks(request: Request):
 
 
 async def api_governance_record_decision(request: Request):
-    """Records human review decision with token-verified actor, tenant, clearance, role routing & SoD."""
+    """Records human review decision strictly for 'security_reviewer' with tenant, clearance & SoD enforcement."""
     principal = authenticate_request(
         request,
-        allowed_roles=HUMAN_ROLES,
+        allowed_roles=(ROLE_SECURITY_REVIEWER,),
         human_only=True,
         check_csrf=True,
     )
@@ -322,10 +318,10 @@ async def api_governance_record_decision(request: Request):
 
 
 async def api_governance_publish_sop(request: Request):
-    """Publishes an approved SOP within caller tenant & clearance."""
+    """Publishes an approved SOP (strictly 'process_owner' within caller tenant & clearance)."""
     principal = authenticate_request(
         request,
-        allowed_roles=HUMAN_ROLES,
+        allowed_roles=(ROLE_PROCESS_OWNER,),
         human_only=True,
         check_csrf=True,
     )
@@ -344,6 +340,13 @@ async def api_governance_publish_sop(request: Request):
 
     draft_meta = resolve_draft_access_meta(sop_id, job=target_job)
     enforce_clearance_access(principal, draft_meta["classification_level"], request=request)
+    body_canon = body.get("canonical_sop") if isinstance(body.get("canonical_sop"), dict) else None
+    if body_canon and isinstance(body_canon.get("classification"), dict) and body_canon["classification"].get("level"):
+        enforce_clearance_access(
+            principal,
+            normalize_clearance(body_canon["classification"]["level"]),
+            request=request,
+        )
 
     # Ignore body.actor; stamp identity strictly from token
     actor = principal.identity
@@ -523,7 +526,7 @@ async def api_governance_get_canonical(request: Request):
 
 
 async def api_governance_update_canonical(request: Request):
-    """Interim C2 gate: process_owner/admin only within caller tenant & clearance."""
+    """Updates canonical JSON strictly for already-published SOPs (process_owner/admin only within tenant & clearance)."""
     principal = authenticate_request(
         request,
         allowed_roles=(ROLE_PROCESS_OWNER, ROLE_ADMIN),
@@ -546,12 +549,39 @@ async def api_governance_update_canonical(request: Request):
         meta = resolve_sop_access_meta(sop_id, frontmatter=ex_data)
         enforce_tenant_access(principal, meta["tenant_id"], request=request)
         enforce_clearance_access(principal, meta["classification_level"], request=request)
+        pub_state = str((ex_data.get("lifecycle") or {}).get("state") or meta.get("state") or "").lower()
+        if pub_state != "published":
+            return JSONResponse(
+                {
+                    "error": "Direct canonical updates are only allowed for published SOPs. Edit unapproved drafts via /api/governance/drafts/{sop_id}.",
+                    "error_code": "not_published",
+                },
+                status_code=409,
+            )
     else:
-        req_tier = normalize_clearance((body.get("classification") or {}).get("level", "L1"))
-        enforce_clearance_access(principal, req_tier, request=request)
+        _, draft_data = _read_draft(sop_id)
+        job = _job_for_sop(sop_id)
+        if draft_data is not None or job is not None:
+            d_meta = resolve_draft_access_meta(sop_id, draft_data=draft_data, job=job)
+            enforce_tenant_access(principal, d_meta["tenant_id"], request=request)
+            enforce_clearance_access(principal, d_meta["classification_level"], request=request)
+        else:
+            req_tier = normalize_clearance((body.get("classification") or {}).get("level", "L1"))
+            enforce_clearance_access(principal, req_tier, request=request)
+        return JSONResponse(
+            {
+                "error": f"SOP '{sop_id}' is not published. Edit unapproved drafts via /api/governance/drafts/{sop_id}.",
+                "error_code": "not_published",
+            },
+            status_code=409,
+        )
 
+    req_tier = normalize_clearance((body.get("classification") or {}).get("level") or meta["classification_level"])
+    enforce_clearance_access(principal, req_tier, request=request)
+    body["sop_id"] = sop_id
     body["tenant_id"] = principal.tenant_id
-    category = body.get("category", "general")
+    body.setdefault("lifecycle", {})["state"] = "published"
+    category = body.get("category") or os.path.basename(os.path.dirname(existing[0])) or "general"
     try:
         json_path = write_canonical_sop_json(body, category=category)
         sync_canonical_to_playbook(body, category=category)
@@ -561,7 +591,7 @@ async def api_governance_update_canonical(request: Request):
 
 
 async def api_governance_sync_playbook(request: Request):
-    """Interim C2 gate: process_owner/admin only within caller tenant & clearance."""
+    """Synchronizes canonical JSON to OKF playbook strictly for already-published SOPs (process_owner/admin only)."""
     principal = authenticate_request(
         request,
         allowed_roles=(ROLE_PROCESS_OWNER, ROLE_ADMIN),
@@ -584,10 +614,38 @@ async def api_governance_sync_playbook(request: Request):
         meta = resolve_sop_access_meta(sop_id, frontmatter=ex_data)
         enforce_tenant_access(principal, meta["tenant_id"], request=request)
         enforce_clearance_access(principal, meta["classification_level"], request=request)
+        pub_state = str((ex_data.get("lifecycle") or {}).get("state") or meta.get("state") or "").lower()
+        if pub_state != "published":
+            return JSONResponse(
+                {
+                    "error": "Playbook sync is only allowed for published SOPs. Edit unapproved drafts via /api/governance/drafts/{sop_id}.",
+                    "error_code": "not_published",
+                },
+                status_code=409,
+            )
+    else:
+        _, draft_data = _read_draft(sop_id)
+        job = _job_for_sop(sop_id)
+        if draft_data is not None or job is not None:
+            d_meta = resolve_draft_access_meta(sop_id, draft_data=draft_data, job=job)
+            enforce_tenant_access(principal, d_meta["tenant_id"], request=request)
+            enforce_clearance_access(principal, d_meta["classification_level"], request=request)
+        else:
+            canonical_peek = body.get("canonical_sop") or body
+            req_tier = normalize_clearance((canonical_peek.get("classification") or {}).get("level", "L1"))
+            enforce_clearance_access(principal, req_tier, request=request)
+        return JSONResponse(
+            {
+                "error": f"SOP '{sop_id}' is not published. Playbook sync requires a published SOP.",
+                "error_code": "not_published",
+            },
+            status_code=409,
+        )
 
     canonical_data = body.get("canonical_sop") or body
-    req_tier = normalize_clearance((canonical_data.get("classification") or {}).get("level", "L1"))
+    req_tier = normalize_clearance((canonical_data.get("classification") or {}).get("level") or meta["classification_level"])
     enforce_clearance_access(principal, req_tier, request=request)
+    canonical_data["sop_id"] = sop_id
     canonical_data["tenant_id"] = principal.tenant_id
 
     try:
@@ -772,6 +830,7 @@ _PROTECTED_HINTS = {
     "quality": "it is computed from the document and your steps when you save",
     "lifecycle": "it is controlled by the review workflow",
 }
+_EDITABLE_DRAFT_STATES = {"awaiting_review", "changes_requested"}
 
 
 def _apply_step_edits(path: str, data: dict, steps_in: list, actor: str, canonical_extra: dict = None):
@@ -786,7 +845,7 @@ def _apply_step_edits(path: str, data: dict, steps_in: list, actor: str, canonic
         base = copy.deepcopy(existing[ref - 1]) if isinstance(ref, int) and 1 <= ref <= len(existing) else {
             "step_type": "command", "shell": "powershell", "timeout_seconds": 30,
             "platform": None, "function_name": None, "comm_inputs": None, "fallback_sop_id": None,
-            "execute_if": None, "step_reasoning": "Added by a human reviewer.",
+            "execute_if": None, "step_reasoning": "Added by process owner.",
         }
 
         def text(key):
@@ -881,7 +940,7 @@ def _apply_step_edits(path: str, data: dict, steps_in: list, actor: str, canonic
 
 
 async def api_governance_get_draft(request: Request):
-    """The editable steps of an unapproved draft within caller tenant & clearance."""
+    """Returns draft steps & metadata; editable strictly by 'process_owner' in awaiting_review or changes_requested."""
     principal = authenticate_request(
         request,
         allowed_roles=HUMAN_ROLES,
@@ -893,34 +952,62 @@ async def api_governance_get_draft(request: Request):
     if not data:
         return JSONResponse({"error": f"No draft found for '{sop_id}'."}, status_code=404)
 
-    job = _job_for_sop(sop_id, tenant_id=principal.tenant_id, preferred_states={"awaiting_review"}) or _job_for_sop(sop_id)
+    job = _job_for_sop(
+        sop_id,
+        tenant_id=principal.tenant_id,
+        preferred_states=_EDITABLE_DRAFT_STATES,
+    ) or _job_for_sop(sop_id)
     draft_meta = resolve_draft_access_meta(sop_id, draft_data=data, job=job)
     enforce_tenant_access(principal, draft_meta["tenant_id"], request=request)
     enforce_clearance_access(principal, draft_meta["classification_level"], request=request)
 
     state = job.current_state if job else None
-    editable = state == "awaiting_review"
+    is_po = principal.has_role(ROLE_PROCESS_OWNER)
+    editable = bool(is_po and state in _EDITABLE_DRAFT_STATES)
+    if editable:
+        editable_reason = None
+    elif not job:
+        editable_reason = "No lifecycle job exists for this draft."
+    elif not is_po:
+        editable_reason = "Only a Process Owner can edit SOP drafts before approval."
+    else:
+        editable_reason = "This SOP is no longer awaiting review or changes requested, so its steps are locked."
+
+    last_review_decision = None
+    if job and isinstance(job.approval_decision, dict) and job.approval_decision.get("decision") == "changes_requested":
+        last_review_decision = dict(job.approval_decision)
+    elif job and job.history:
+        for h in reversed(job.history):
+            if h.get("to_state") == "changes_requested":
+                last_review_decision = {
+                    "decision": "changes_requested",
+                    "reviewer": h.get("actor"),
+                    "timestamp": h.get("timestamp"),
+                    "notes": h.get("reason") or "",
+                }
+                break
+
     fm = (data.get("draft") or {}).get("frontmatter") or data.get("draft") or {}
     return JSONResponse({
         "sop_id": sop_id,
         "tenant_id": draft_meta["tenant_id"],
         "sop_tier": draft_meta["classification_level"],
+        "task_id": (job.review_task or {}).get("task_id") if job else data.get("task_id"),
         "job_state": state,
         "editable": editable,
-        "editable_reason": None if editable else (
-            "This SOP is not waiting for review any more, so its steps are locked." if job else "No lifecycle job exists for this draft."
-        ),
+        "editable_reason": editable_reason,
         "last_editor": data.get("last_editor"),
         "last_edited_at": data.get("last_edited_at"),
+        "last_review_decision": last_review_decision,
         "steps": fm.get("steps") or [],
     })
 
 
 async def api_governance_update_draft_steps(request: Request):
-    """Saves a reviewer's edits to steps of an unapproved draft (actor stamped strictly from token)."""
+    """Saves Process Owner's step edits on a draft in 'awaiting_review' or 'changes_requested'."""
     principal = authenticate_request(
         request,
-        allowed_roles=HUMAN_ROLES,
+        allowed_roles=(ROLE_PROCESS_OWNER,),
         human_only=True,
         check_csrf=True,
     )
@@ -938,13 +1025,20 @@ async def api_governance_update_draft_steps(request: Request):
     if not data:
         return JSONResponse({"error": f"No draft found for '{sop_id}'."}, status_code=404)
 
-    job = _job_for_sop(sop_id, tenant_id=principal.tenant_id, preferred_states={"awaiting_review"}) or _job_for_sop(sop_id)
+    job = _job_for_sop(
+        sop_id,
+        tenant_id=principal.tenant_id,
+        preferred_states=_EDITABLE_DRAFT_STATES,
+    ) or _job_for_sop(sop_id)
     draft_meta = resolve_draft_access_meta(sop_id, draft_data=data, job=job)
     enforce_tenant_access(principal, draft_meta["tenant_id"], request=request)
     enforce_clearance_access(principal, draft_meta["classification_level"], request=request)
 
-    if not job or job.current_state != "awaiting_review":
-        return JSONResponse({"error": "Steps can only be edited while the SOP is awaiting review."}, status_code=409)
+    if not job or job.current_state not in _EDITABLE_DRAFT_STATES:
+        return JSONResponse(
+            {"error": "Steps can only be edited while the SOP is awaiting review or has changes requested."},
+            status_code=409,
+        )
 
     actor = principal.identity
     try:
@@ -955,22 +1049,29 @@ async def api_governance_update_draft_steps(request: Request):
         return JSONResponse({"error": result["errors"][0], "errors": result["errors"]}, status_code=422)
 
     try:
-        governance_ledger.transition_state(
-            job.job_id,
-            "awaiting_review",
-            actor=actor,
-            reason=f"Steps edited by reviewer ({result['step_count']} steps).",
-        )
+        if job.current_state == "awaiting_review":
+            governance_ledger.transition_state(
+                job.job_id,
+                "awaiting_review",
+                actor=actor,
+                reason=f"Steps edited by process owner ({result['step_count']} steps).",
+            )
+        else:
+            governance_ledger.record_draft_edit(
+                job.job_id,
+                actor=actor,
+                reason=f"Steps revised by process owner ({result['step_count']} steps).",
+            )
     except Exception as e:
         result["warnings"].append(f"Edit saved, but could not be logged in the job history: {e}")
-    return JSONResponse({"status": "saved", "last_editor": actor, **result})
+    return JSONResponse({"status": "saved", "last_editor": actor, "job_state": job.current_state, **result})
 
 
 async def api_governance_update_draft_canonical(request: Request):
-    """Saves hand-edited canonical JSON for an unapproved draft (actor stamped strictly from token)."""
+    """Saves Process Owner's canonical JSON edits on a draft in 'awaiting_review' or 'changes_requested'."""
     principal = authenticate_request(
         request,
-        allowed_roles=HUMAN_ROLES,
+        allowed_roles=(ROLE_PROCESS_OWNER,),
         human_only=True,
         check_csrf=True,
     )
@@ -990,13 +1091,20 @@ async def api_governance_update_draft_canonical(request: Request):
     if not data:
         return JSONResponse({"error": f"No draft found for '{sop_id}'."}, status_code=404)
 
-    job = _job_for_sop(sop_id, tenant_id=principal.tenant_id, preferred_states={"awaiting_review"}) or _job_for_sop(sop_id)
+    job = _job_for_sop(
+        sop_id,
+        tenant_id=principal.tenant_id,
+        preferred_states=_EDITABLE_DRAFT_STATES,
+    ) or _job_for_sop(sop_id)
     draft_meta = resolve_draft_access_meta(sop_id, draft_data=data, job=job)
     enforce_tenant_access(principal, draft_meta["tenant_id"], request=request)
     enforce_clearance_access(principal, draft_meta["classification_level"], request=request)
 
-    if not job or job.current_state != "awaiting_review":
-        return JSONResponse({"error": "The JSON can only be edited while the SOP is awaiting review."}, status_code=409)
+    if not job or job.current_state not in _EDITABLE_DRAFT_STATES:
+        return JSONResponse(
+            {"error": "The JSON can only be edited while the SOP is awaiting review or has changes requested."},
+            status_code=409,
+        )
 
     current = data.get("canonical_draft") or {}
     problems = []
@@ -1043,15 +1151,132 @@ async def api_governance_update_draft_canonical(request: Request):
     if "errors" in result:
         return JSONResponse({"error": result["errors"][0], "errors": result["errors"]}, status_code=422)
     try:
-        governance_ledger.transition_state(
-            job.job_id,
-            "awaiting_review",
-            actor=actor,
-            reason="Canonical JSON edited by reviewer.",
-        )
+        if job.current_state == "awaiting_review":
+            governance_ledger.transition_state(
+                job.job_id,
+                "awaiting_review",
+                actor=actor,
+                reason="Canonical JSON edited by process owner.",
+            )
+        else:
+            governance_ledger.record_draft_edit(
+                job.job_id,
+                actor=actor,
+                reason="Canonical JSON revised by process owner.",
+            )
     except Exception as e:
         result["warnings"].append(f"Edit saved, but could not be logged in the job history: {e}")
-    return JSONResponse({"status": "saved", "last_editor": actor, **result})
+    return JSONResponse({"status": "saved", "last_editor": actor, "job_state": job.current_state, **result})
+
+
+async def api_governance_resubmit_draft(request: Request):
+    """Resubmits a 'changes_requested' draft for fresh Security Reviewer sign-off (Process Owner only)."""
+    principal = authenticate_request(
+        request,
+        allowed_roles=(ROLE_PROCESS_OWNER,),
+        human_only=True,
+        check_csrf=True,
+    )
+    sop_id = (request.path_params.get("sop_id") or "").strip()
+    if not _SOP_ID_RE.fullmatch(sop_id):
+        return JSONResponse({"error": "Invalid SOP id."}, status_code=400)
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    path, data = _read_draft(sop_id)
+    if not data:
+        return JSONResponse({"error": f"No draft found for '{sop_id}'."}, status_code=404)
+
+    job = _job_for_sop(
+        sop_id,
+        tenant_id=principal.tenant_id,
+        preferred_states={"changes_requested", "awaiting_review"},
+    ) or _job_for_sop(sop_id)
+    draft_meta = resolve_draft_access_meta(sop_id, draft_data=data, job=job)
+    enforce_tenant_access(principal, draft_meta["tenant_id"], request=request)
+    enforce_clearance_access(principal, draft_meta["classification_level"], request=request)
+
+    if not job:
+        return JSONResponse({"error": f"Job for SOP '{sop_id}' not found."}, status_code=404)
+
+    if job.current_state != "changes_requested":
+        return JSONResponse(
+            {
+                "error": f"Cannot resubmit SOP '{sop_id}' from state '{job.current_state}'. Must be 'changes_requested'.",
+                "error_code": "invalid_state",
+            },
+            status_code=409,
+        )
+
+    reason = str(body.get("notes") or body.get("reason") or "").strip()
+    classif = (data.get("canonical_draft") or {}).get("classification") or {}
+    conf_score = int(classif.get("score", 25))
+    conf_level = normalize_clearance(classif.get("level", draft_meta["classification_level"]))
+
+    try:
+        new_task = governance_ledger.resubmit_for_review(
+            job_id=job.job_id,
+            actor=principal.identity,
+            reason=reason,
+            confidentiality_score=conf_score,
+            confidentiality_level=conf_level,
+        )
+    except Exception as e:
+        code = getattr(e, "error_code", None)
+        status_code = 409 if code == "invalid_state" else 400
+        payload = {"error": str(e)}
+        if code:
+            payload["error_code"] = code
+        return JSONResponse(payload, status_code=status_code)
+
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    data["task_id"] = new_task.task_id
+    data["resubmitted_by"] = principal.identity
+    data["resubmitted_at"] = now
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp, path)
+
+    try:
+        m = read_manifest()
+        target_fn = data.get("raw_filename")
+        if not target_fn:
+            prefix = f"{job.tenant_id}::"
+            for k, v in m.items():
+                if not isinstance(v, dict):
+                    continue
+                if "::" in k and not k.startswith(prefix):
+                    continue
+                if v.get("job_id") == job.job_id or v.get("sop_id") == job.sop_id:
+                    target_fn = k.split("::", 1)[1] if "::" in k else k
+                    break
+        if target_fn:
+            set_manifest_entry(m, job.tenant_id, target_fn, {
+                "status": "awaiting_review",
+                "sop_id": job.sop_id,
+                "job_id": job.job_id,
+                "task_id": new_task.task_id,
+                "sha256": job.content_sha256,
+                "tenant_id": job.tenant_id,
+                "processed_at": now,
+            })
+            write_manifest(m)
+    except Exception:
+        pass
+
+    return JSONResponse({
+        "status": "resubmitted",
+        "sop_id": job.sop_id,
+        "job_id": job.job_id,
+        "job_state": job.current_state,
+        "task_id": new_task.task_id,
+        "assigned_role": new_task.assigned_role,
+        "due_date": new_task.due_date,
+    })
 
 
 governance_router = APIRouter(tags=["Governance, Dual-Custody & Downstream Catalog"])
@@ -1066,6 +1291,7 @@ governance_router.add_api_route("/api/governance/sops/{sop_id}/sync-playbook", a
 governance_router.add_api_route("/api/governance/drafts/{sop_id}", api_governance_get_draft, methods=["GET"], summary="Get Unapproved SOP Draft")
 governance_router.add_api_route("/api/governance/drafts/{sop_id}/steps", api_governance_update_draft_steps, methods=["PUT"], summary="Update Unapproved SOP Draft Steps")
 governance_router.add_api_route("/api/governance/drafts/{sop_id}/canonical", api_governance_update_draft_canonical, methods=["PUT"], summary="Update Unapproved SOP Draft Canonical JSON")
+governance_router.add_api_route("/api/governance/drafts/{sop_id}/resubmit", api_governance_resubmit_draft, methods=["POST"], summary="Resubmit Revised SOP Draft for Security Review")
 governance_router.add_api_route("/api/governance/downstream/search", api_governance_downstream_search, methods=["POST"], summary="Search Catalog (Clearance & Tenant Filtered)")
 governance_router.add_api_route("/api/governance/downstream/stats", api_governance_downstream_stats, methods=["GET"], summary="Get Downstream Catalog Metrics")
 governance_router.add_api_route("/api/governance/incidents", api_governance_quarantine_incidents, methods=["GET"], summary="List Security Quarantine Incidents")

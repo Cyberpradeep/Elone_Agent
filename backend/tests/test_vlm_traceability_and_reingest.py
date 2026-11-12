@@ -843,6 +843,38 @@ class TestLedgerSupersede(unittest.TestCase):
             j_blocked = ledger.start_job("job_a3", "SOP-A", "tn_a", sha_a, "u@corp.com", allow_supersede=True)
             self.assertEqual(j_blocked.current_state, STATE_DUPLICATE)
 
+    def test_allow_supersede_changes_requested_state(self):
+        from orchestrator.ledger import (
+            OrchestratorLedger,
+            STATE_DUPLICATE,
+            STATE_RECEIVED,
+            STATE_REJECTED,
+            STATE_CHANGES_REQUESTED,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ledger = OrchestratorLedger(os.path.join(tmpdir, "ledger.json"))
+            sha_cr = "c" * 64
+            ledger.start_job("job_cr1", "SOP-CR", "tn_a", sha_cr, "u@corp.com")
+            ledger.transition_state("job_cr1", "extracting")
+            ledger.transition_state("job_cr1", "scanning")
+            ledger.transition_state("job_cr1", "structuring")
+            ledger.transition_state("job_cr1", "assessing")
+            ledger.create_review_task("job_cr1", 20, "L1")
+            ledger.record_review_decision("job_cr1", "changes_requested", reviewer="sec@corp.com", notes="Fix step 1")
+            self.assertEqual(ledger.get_job("job_cr1").current_state, STATE_CHANGES_REQUESTED)
+
+            # Default allow_supersede=False must treat active changes_requested job as duplicate
+            j_dup = ledger.start_job("job_cr_dup", "SOP-CR", "tn_a", sha_cr, "u@corp.com", allow_supersede=False)
+            self.assertEqual(j_dup.current_state, STATE_DUPLICATE)
+
+            # Explicit allow_supersede=True supersedes changes_requested cleanly
+            j_sup = ledger.start_job("job_cr2", "SOP-CR", "tn_a", sha_cr, "u@corp.com", allow_supersede=True)
+            self.assertEqual(j_sup.current_state, STATE_RECEIVED)
+            old_job = ledger.get_job("job_cr1")
+            self.assertEqual(old_job.current_state, STATE_REJECTED)
+            self.assertEqual(old_job.review_task["status"], "superseded")
+
 
 # ---------------------------------------------------------------------------
 # 6. End-to-End FastAPI Re-Ingestion & Governance Lifecycle (Subprocess-Isolated)
@@ -885,8 +917,7 @@ def _hdr(sub, identity, roles, clearance="L1"):
 HDR_ALICE = _hdr("usr_vlm_alice", "alice@corp.com", ["process_owner"], "L1")
 HDR_SEC = _hdr("usr_vlm_sec", "sec.rev1@corp.com", ["security_reviewer"], "L2")
 HDR_EDITOR = _hdr("usr_vlm_ed", "human.editor@corp.com", ["process_owner"], "L1")
-HDR_FINAL = _hdr("usr_vlm_fin", "final.reviewer@corp.com", ["process_owner"], "L1")
-HDR_OWNER = _hdr("usr_vlm_own", "owner@corp.com", ["process_owner"], "L1")
+HDR_ADMIN = _hdr("usr_vlm_adm", "admin@corp.com", ["admin"], "L3")
 
 def write_upload(name, text):
     p = os.path.join(ctx.tenant_uploads_dir("tn_northwind"), name)
@@ -1052,7 +1083,14 @@ with patch.object(routes_ingestion.jit_converter, "plan_okf_from_raw", side_effe
     assert jobs[job_2]["current_state"] == "rejected"
     assert jobs[job_2]["review_task"]["status"] == "superseded"
 
-    # --- D: Reviewer step edit preserves vlm_reports, media, and visual_inspection evidence ---
+    # --- D: Process Owner step edit preserves vlm_reports, media, and visual_inspection evidence ---
+    for blocked_editor in (HDR_SEC, HDR_ADMIN):
+        assert client.put(
+            f"/api/governance/drafts/{sop_id}/steps",
+            headers=blocked_editor,
+            json={"steps": [{"ref": 1, "sop_step_description": "x", "command": "echo 1"}]},
+        ).status_code == 403
+
     edit_res = client.put(
         f"/api/governance/drafts/{sop_id}/steps",
         headers=HDR_EDITOR,
@@ -1080,15 +1118,79 @@ with patch.object(routes_ingestion.jit_converter, "plan_okf_from_raw", side_effe
     assert edited_canon["steps"][1]["image_ref"] == "Image 12"
     assert len(edited_canon["media"]) == 1
 
-    # --- E: Approve (distinct reviewer != uploader & != editor) + Publish -> locked from re-ingest ---
-    dec_app = client.post(
+    # --- D2: Option A Gate Separation: Security Reviewer changes_requested -> Process Owner revise & resubmit ---
+    for forbidden_decider in (HDR_ALICE, HDR_EDITOR, HDR_ADMIN):
+        r_forb = client.post(
+            f"/api/governance/review-tasks/{task_3}/decision",
+            headers=forbidden_decider,
+            json={"decision": "approve", "confirmed_classification": True},
+        )
+        assert r_forb.status_code == 403 and r_forb.json()["error_code"] == "insufficient_role", r_forb.text
+
+    dec_cr = client.post(
         f"/api/governance/review-tasks/{task_3}/decision",
-        headers=HDR_FINAL,
-        json={"decision": "approve", "reviewer": "final.reviewer@corp.com", "confirmed_classification": True},
+        headers=HDR_SEC,
+        json={"decision": "changes_requested", "notes": "Add confirmation flag description in step 2"},
+    )
+    assert dec_cr.status_code == 200, dec_cr.text
+    assert dec_cr.json()["job_state"] == "changes_requested"
+    up_cr = get_upload_item("airvpn_test.txt")
+    assert up_cr["status"] == "changes_requested", up_cr
+    assert "Add confirmation flag" in (up_cr["reason"] or "")
+
+    assert client.get(f"/api/governance/drafts/{sop_id}", headers=HDR_ALICE).json()["editable"] is True
+    assert client.get(f"/api/governance/drafts/{sop_id}", headers=HDR_SEC).json()["editable"] is False
+    assert client.get(f"/api/governance/drafts/{sop_id}", headers=HDR_ADMIN).json()["editable"] is False
+
+    # Process Owner makes multiple edits while in changes_requested without prematurely leaving changes_requested
+    for suffix in ("rev1", "rev2"):
+        r_rev = client.put(
+            f"/api/governance/drafts/{sop_id}/steps",
+            headers=HDR_ALICE,
+            json={
+                "steps": [
+                    {
+                        "ref": 1,
+                        "sop_step_description": "Open AirRetailer VPN portal in browser",
+                        "command": "start https://securevpn.airretailer.com",
+                        "source_quote": "Open https://securevpn.airretailer.com in browser",
+                    },
+                    {
+                        "ref": 2,
+                        "sop_step_description": f"Save office PC connection profile ({suffix})",
+                        "command": "save-pc-profile --confirm",
+                        "source_quote": "Click the 'Save' button to confirm PC configuration changes",
+                    },
+                ],
+            },
+        )
+        assert r_rev.status_code == 200, r_rev.text
+        assert r_rev.json()["job_state"] == "changes_requested"
+
+    assert client.post(f"/api/governance/drafts/{sop_id}/resubmit", headers=HDR_SEC, json={}).status_code == 403
+    resub = client.post(
+        f"/api/governance/drafts/{sop_id}/resubmit",
+        headers=HDR_ALICE,
+        json={"notes": "Updated step 2 confirmation wording"},
+    )
+    assert resub.status_code == 200, resub.text
+    resub_json = resub.json()
+    assert resub_json["status"] == "resubmitted"
+    assert resub_json["job_state"] == "awaiting_review"
+    task_3b = resub_json["task_id"]
+    assert task_3b != task_3
+
+    # --- E: Security Reviewer approves -> Process Owner publishes -> locked from re-ingest ---
+    dec_app = client.post(
+        f"/api/governance/review-tasks/{task_3b}/decision",
+        headers=HDR_SEC,
+        json={"decision": "approve", "confirmed_classification": True},
     )
     assert dec_app.status_code == 200, dec_app.text
 
-    pub_res = client.post(f"/api/governance/sops/{sop_id}/publish", headers=HDR_FINAL, json={"actor": "final.reviewer@corp.com"})
+    assert client.post(f"/api/governance/sops/{sop_id}/publish", headers=HDR_SEC, json={}).status_code == 403
+    assert client.post(f"/api/governance/sops/{sop_id}/publish", headers=HDR_ADMIN, json={}).status_code == 403
+    pub_res = client.post(f"/api/governance/sops/{sop_id}/publish", headers=HDR_ALICE, json={})
     assert pub_res.status_code == 200, pub_res.text
     pub_json = pub_res.json()
     assert pub_json["status"] == "published"
@@ -1114,9 +1216,13 @@ with patch.object(routes_ingestion.jit_converter, "plan_okf_from_raw", side_effe
     assert client.post("/api/uploads/ingest", headers=HDR_ALICE, json={"filename": "airvpn_test.txt", "reingest": False}).status_code == 409
     assert client.post("/api/uploads/ingest", headers=HDR_ALICE, json={"filename": "airvpn_test.txt", "reingest": True}).status_code == 409
 
-    # --- F: Delete via API -> resets /api/uploads to pending -> re-ingest succeeds ---
-    del_res = client.request("DELETE", f"/api/sops/{sop_id}", headers=HDR_OWNER, json={"actor": "owner@corp.com", "reason": "Retire old draft"})
+    # --- F: Delete via Admin API (process_owner & security_reviewer blocked) -> resets to pending -> re-ingest succeeds ---
+    assert client.delete(f"/api/sops/{sop_id}", headers=HDR_ALICE).status_code == 403
+    assert client.delete(f"/api/sops/{sop_id}", headers=HDR_SEC).status_code == 403
+
+    del_res = client.request("DELETE", f"/api/sops/{sop_id}", headers=HDR_ADMIN, json={"reason": "Retire old draft"})
     assert del_res.status_code == 200, del_res.text
+    assert del_res.json()["deleted_role"] == "admin"
     up_del = get_upload_item("airvpn_test.txt")
     assert up_del["status"] == "pending", up_del
     assert up_del["playbook_exists"] is False
@@ -1128,10 +1234,10 @@ with patch.object(routes_ingestion.jit_converter, "plan_okf_from_raw", side_effe
     task_4 = d4["task_id"]
     assert client.post(
         f"/api/governance/review-tasks/{task_4}/decision",
-        headers=HDR_FINAL,
-        json={"decision": "approve", "reviewer": "final.reviewer@corp.com", "confirmed_classification": True},
+        headers=HDR_SEC,
+        json={"decision": "approve", "confirmed_classification": True},
     ).status_code == 200
-    pub4 = client.post(f"/api/governance/sops/{sop_id}/publish", headers=HDR_FINAL, json={"actor": "final.reviewer@corp.com"})
+    pub4 = client.post(f"/api/governance/sops/{sop_id}/publish", headers=HDR_ALICE, json={})
     assert pub4.status_code == 200, pub4.text
     md_path_4 = pub4.json()["playbook_path"]
 

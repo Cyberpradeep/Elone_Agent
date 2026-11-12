@@ -53,9 +53,12 @@ export function clearSession() {
 
 export function canAccessView(viewId) {
   if (!isAuthenticated() || !isHumanUser()) return false;
+  if (viewId === 'ingestion') return hasCapability('can_upload') || hasCapability('can_ingest');
+  if (viewId === 'tools') return hasCapability('can_view_tools');
+  if (viewId === 'security') return hasCapability('can_run_security_lab');
   if (viewId === 'telemetry') return hasCapability('can_view_telemetry');
   if (viewId === 'audit') return hasCapability('can_view_logs');
-  if (viewId === 'settings') return hasCapability('can_manage_config');
+  if (viewId === 'settings') return hasCapability('can_manage_config') || hasCapability('can_manage_users');
   return true;
 }
 

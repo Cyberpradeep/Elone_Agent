@@ -72,7 +72,7 @@ function filesTable(files) {
                     ? `<a class="btn btn-sm btn-secondary" href="#/playbooks" title="View published playbook in OKF Hub">${icon('book')}Playbook</a>
                        <button class="btn btn-sm btn-outline" data-action="dry-run" data-file="${esc(f.filename)}" title="Preview the plan without saving anything">Dry run</button>`
                     : isInReview(f)
-                    ? `<a class="btn btn-sm btn-secondary" href="#/${f.task_id ? `review/${esc(f.task_id)}` : 'review'}" title="${f.status === 'approved' ? 'Ready to publish in Lifecycle jobs' : 'Open review task'}">${icon(f.status === 'approved' ? 'check' : 'review')}${f.status === 'approved' ? 'Publish' : 'Review'}</a>
+                    ? `<a class="btn btn-sm ${f.status === 'approved' ? 'btn-success' : f.status === 'changes_requested' ? 'btn-primary' : 'btn-secondary'}" href="#/${f.status === 'approved' ? 'review' : f.task_id ? `review/${esc(f.task_id)}` : 'review'}" title="${f.status === 'approved' ? 'Ready to publish in Lifecycle jobs' : f.status === 'changes_requested' ? 'Revise draft steps and resubmit for security review' : 'Inspect draft & review task'}">${icon(f.status === 'approved' ? 'check' : f.status === 'changes_requested' ? 'edit' : 'review')}${f.status === 'approved' ? 'Publish' : f.status === 'changes_requested' ? 'Revise draft' : 'View task'}</a>
                        <button class="btn btn-sm btn-outline" data-action="ingest-file" data-file="${esc(f.filename)}" data-reingest="1" data-status="${esc(f.status)}" title="Supersede current draft and re-run ingestion">${icon('refresh')}Re-ingest</button>
                        <button class="btn btn-sm btn-outline" data-action="dry-run" data-file="${esc(f.filename)}" title="Preview the plan without saving anything">Dry run</button>`
                     : (f.status === 'rejected' || f.status === 'quarantined' || f.status === 'failed' || f.status === 'unactionable')
@@ -112,7 +112,7 @@ registerActions({
             <div class="meta-item"><div class="meta-label">Tenant scope</div><div class="meta-value mono">${esc(user.tenant_id || '—')}</div></div>
           </div>
           ${supersedeNote}
-          <div class="callout">${icon('info')}<div>Runs extraction, secret scanning, LLM structuring and quality assessment. It can take a minute or two and uses LLM quota. <b>Nothing is published</b> until someone else reviews and approves it.</div></div>
+          <div class="callout">${icon('info')}<div>Runs extraction, secret scanning, LLM structuring and quality assessment. It can take a minute or two and uses LLM quota. <b>Nothing is published</b> until an independent Security Reviewer approves it and you publish it.</div></div>
           <div class="field"><label for="ing-sopid">SOP ID <span class="muted" style="text-transform:none">(optional)</span></label><input id="ing-sopid" class="input mono" placeholder="Generated from the file hash if left empty"></div>
         </form>`,
       footer: `<button class="btn btn-outline" data-action="close-modal">Cancel</button>
@@ -192,7 +192,7 @@ function resultModal(res, file) {
     return {
       body: `
         <div class="stack">
-          <div class="callout success">${icon('check')}<div><b>${esc(res.sop_id)} is ready for review.</b> A human other than the uploader must now approve it.</div></div>
+          <div class="callout success">${icon('check')}<div><b>${esc(res.sop_id)} is ready for security review.</b> An independent Security Reviewer must approve it before you can publish it.</div></div>
           <div class="meta-grid">
             <div class="meta-item"><div class="meta-label">Review task</div><div class="meta-value mono">${esc(res.task_id)}</div></div>
             <div class="meta-item"><div class="meta-label">Assigned to</div><div class="meta-value">${esc(res.assigned_role)}</div></div>
@@ -201,7 +201,7 @@ function resultModal(res, file) {
             <div class="meta-item"><div class="meta-label">Quality</div><div class="meta-value">${esc(q.status || '—')} <span class="mono tiny muted">${esc(q.quality_score ?? '')}</span></div></div>
           </div>
         </div>`,
-      footer: `${close}<button class="btn btn-primary" data-action="goto-review" data-task="${esc(res.task_id)}">${icon('review')}Review this SOP</button>`,
+      footer: `${close}<button class="btn btn-primary" data-action="goto-review" data-task="${esc(res.task_id)}">${icon('review')}Open review task</button>`,
     };
   }
   if (status === 'quarantined') {

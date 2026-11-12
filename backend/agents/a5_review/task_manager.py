@@ -1,11 +1,12 @@
 """
 Agent A5: Review Task Manager
 =============================
-Frozen Specification: SOP Governance Hub v1.0 (Section 5.5 & 13)
+SOP Governance Hub (Option A Single-Gate RBAC):
 - Emits RT-xxxxxx identifiers bound to job_id, version, and content hash
-- SLA Routing:
-    - Confidentiality score >= 60 OR level in (L2, L3) -> "Security reviewer", 24h deadline
-    - Otherwise -> "Process owner", 48h deadline
+- Role Routing: All SOP tiers (L0-L3) route unconditionally to "Security reviewer"
+- SLA Deadlines:
+    - Confidentiality score >= 60 OR level in (L2, L3) -> 24h deadline
+    - Otherwise (L0-L1) -> 48h deadline
 """
 
 import datetime
@@ -26,12 +27,10 @@ def create_review_task(
     confidentiality_score: int,
     confidentiality_level: str,
 ) -> ReviewTask:
-    """Creates a tracked review task with SLA deadline routing."""
-    # SLA routing per Section 13:
-    # Score >= 60 or L2/L3 routes to Security Reviewer with 24h deadline; otherwise Process Owner with 48h deadline.
-    requires_security = (confidentiality_score >= 60 or confidentiality_level in ("L2", "L3"))
-    assigned_role = "Security reviewer" if requires_security else "Process owner"
-    hours = 24 if requires_security else 48
+    """Creates a tracked review task with urgency-based SLA deadline routing."""
+    is_urgent = (confidentiality_score >= 60 or confidentiality_level in ("L2", "L3"))
+    assigned_role = "Security reviewer"
+    hours = 24 if is_urgent else 48
     due_dt = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=hours)
 
     return ReviewTask(

@@ -336,7 +336,7 @@ def enforce_review_task_eligibility(
     *,
     request: Optional[Request] = None,
 ) -> None:
-    """Enforces human actor, clearance >= sop_tier, and assigned_role routing."""
+    """Enforces human actor, clearance >= sop_tier, and strict Option A Security Reviewer role gate."""
     if not principal.is_human:
         raise AuthAccessError(
             403,
@@ -346,34 +346,25 @@ def enforce_review_task_eligibility(
 
     enforce_clearance_access(principal, sop_tier, request=request)
 
-    assigned_role = str((task or {}).get("assigned_role") or "Process owner").strip()
-    if assigned_role.lower() == "security reviewer":
-        if not principal.has_any_role((ROLE_SECURITY_REVIEWER, ROLE_ADMIN)):
-            log_auth_event(
-                "access_denied",
-                identity=principal.identity,
-                sub=principal.sub,
-                roles=principal.roles,
-                tenant_id=principal.tenant_id,
-                clearance=principal.clearance,
-                actor_type=principal.actor_type,
-                client_ip=get_client_ip(request) if request else None,
-                path=str(request.url.path) if request else None,
-                status="denied",
-                detail=f"assigned_role_mismatch:required=Security reviewer",
-            )
-            raise AuthAccessError(
-                403,
-                "Access denied: Tasks assigned to 'Security reviewer' require role 'security_reviewer' or 'admin'.",
-                "insufficient_role",
-            )
-    else:
-        if not principal.has_any_role((ROLE_PROCESS_OWNER, ROLE_SECURITY_REVIEWER, ROLE_ADMIN)):
-            raise AuthAccessError(
-                403,
-                "Access denied: Human reviewer role required.",
-                "insufficient_role",
-            )
+    if not principal.has_role(ROLE_SECURITY_REVIEWER):
+        log_auth_event(
+            "access_denied",
+            identity=principal.identity,
+            sub=principal.sub,
+            roles=principal.roles,
+            tenant_id=principal.tenant_id,
+            clearance=principal.clearance,
+            actor_type=principal.actor_type,
+            client_ip=get_client_ip(request) if request else None,
+            path=str(request.url.path) if request else None,
+            status="denied",
+            detail="role_gate:requires=security_reviewer",
+        )
+        raise AuthAccessError(
+            403,
+            "Access denied: Review decisions require the 'security_reviewer' role.",
+            "insufficient_role",
+        )
 
 
 __all__ = [
@@ -391,4 +382,3 @@ __all__ = [
     "enforce_clearance_access",
     "enforce_review_task_eligibility",
 ]
-
