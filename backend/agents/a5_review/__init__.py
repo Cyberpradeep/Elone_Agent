@@ -11,6 +11,8 @@ from agents.a5_review.sod_policy import (
     verify_separation_of_duties,
     validate_human_reviewer,
     evaluate_publication_gates,
+    compute_canonical_sha256,
+    evaluate_draft_publication_gates,
 )
 from agents.a5_review.task_manager import (
     create_review_task,
@@ -26,6 +28,8 @@ __all__ = [
     "verify_separation_of_duties",
     "validate_human_reviewer",
     "evaluate_publication_gates",
+    "compute_canonical_sha256",
+    "evaluate_draft_publication_gates",
     "create_review_task",
     "stage_unapproved_draft",
     "load_staged_draft",

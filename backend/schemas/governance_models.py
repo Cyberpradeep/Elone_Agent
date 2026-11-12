@@ -181,10 +181,10 @@ class ReviewTask:
     job_id: str
     version: int
     content_sha256: str
-    assigned_role: str  # "Process owner" or "Security reviewer"
+    assigned_role: str  # "Security reviewer" (all L0-L3 review tasks under Option A)
     due_date: str
     uploaded_by: str
-    status: str = "pending"  # "pending", "approved", "changes_requested", "rejected"
+    status: str = "pending"  # "pending", "approved", "changes_requested", "rejected", "superseded"
     created_at: str = field(default_factory=_utc_now_iso)
     completed_at: Optional[str] = None
     reviewer: Optional[str] = None
@@ -216,6 +216,8 @@ class ReviewDecision:
     timestamp: str = field(default_factory=_utc_now_iso)
     notes: Optional[str] = None
     route: Optional[str] = None
+    canonical_sha256: Optional[str] = None
+    draft_sha256: Optional[str] = None
 
 
 @dataclass

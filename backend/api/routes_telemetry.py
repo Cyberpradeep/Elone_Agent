@@ -2,6 +2,14 @@
 Telemetry & Diagnostics API Route Handlers
 ==========================================
 Handles multi-model token telemetry, daily quotas, log inspection, and security testing.
+Locked down per Option A RBAC:
+  - GET  /api/health         -> public minimal heartbeat
+  - GET  /api/overview       -> process_owner, security_reviewer, admin (tenant+clearance scoped; models/telemetry admin-only)
+  - GET  /api/scheduler      -> process_owner, security_reviewer, admin
+  - GET  /api/tools          -> process_owner, admin
+  - GET  /api/telemetry      -> admin
+  - GET  /api/logs*          -> admin (tenant-attributed)
+  - POST /api/security/test  -> security_reviewer, admin
 """
 
 import os
@@ -10,13 +18,27 @@ import re
 import datetime
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
-from starlette.routing import Route
 
 from api.context import (
-    UPLOADS_DIR,
     SOPS_DIR,
     LOGS_DIR,
     read_manifest,
+    filter_manifest_for_tenant,
+    list_tenant_uploads,
+    get_log_owner,
+    resolve_sop_access_meta,
+    _build_canonical_meta_map,
+    parse_yaml_frontmatter,
+)
+from auth.models import (
+    HUMAN_ROLES,
+    ROLE_ADMIN,
+    ROLE_PROCESS_OWNER,
+    ROLE_SECURITY_REVIEWER,
+)
+from auth.dependencies import (
+    authenticate_request,
+    enforce_tenant_access,
 )
 from scheduler import get_scheduler_status
 from gemini_monitor.monitor import get_today_usage, get_daily_max_calls, _load_usage_data
@@ -30,26 +52,67 @@ async def api_health(request: Request):
     return JSONResponse({
         "status": "healthy",
         "service": "Elone SOP Governance Hub API Bridge",
-        "timestamp": datetime.datetime.now().isoformat()
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "auth_enabled": True,
     })
 
 
 async def api_overview(request: Request):
-    """Aggregate dashboard metrics across all pipeline components."""
-    manifest = read_manifest()
+    """Aggregate tenant- and clearance-scoped dashboard metrics."""
+    principal = authenticate_request(
+        request,
+        allowed_roles=HUMAN_ROLES,
+        human_only=True,
+        check_csrf=False,
+    )
+
+    manifest = filter_manifest_for_tenant(read_manifest(), principal.tenant_id)
     total_manifest = len(manifest)
     success_manifest = sum(1 for v in manifest.values() if v.get("status") == "success")
     failed_manifest = sum(1 for v in manifest.values() if v.get("status") == "failed")
 
-    upload_files = [f for f in os.listdir(UPLOADS_DIR) if not f.startswith("_")] if os.path.exists(UPLOADS_DIR) else []
+    upload_files = list_tenant_uploads(principal.tenant_id)
+
+    canonical_map = _build_canonical_meta_map()
     playbook_files = glob.glob(os.path.join(SOPS_DIR, "**", "*.md"), recursive=True)
-    total_playbooks = len([p for p in playbook_files if os.path.basename(p).lower() != "index.md"])
+    total_playbooks = 0
+    for p in playbook_files:
+        if os.path.basename(p).lower() == "index.md":
+            continue
+        sop_id = os.path.splitext(os.path.basename(p))[0]
+        fm = None
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                fm, _ = parse_yaml_frontmatter(f.read())
+            sop_id = str(fm.get("sop_id") or sop_id).strip()
+        except Exception:
+            pass
+        meta = resolve_sop_access_meta(sop_id, canonical_map=canonical_map, frontmatter=fm)
+        if meta["tenant_id"] == principal.tenant_id and principal.can_access_tier(meta["classification_level"]):
+            total_playbooks += 1
 
-    today_usage = get_today_usage()
     sched_state = get_scheduler_status()
-
     total_tools = len(TOOL_CATALOG)
     total_functions = sum(len(p.get("functions", [])) for p in TOOL_CATALOG)
+
+    can_view_telemetry = principal.has_role(ROLE_ADMIN)
+    telemetry_payload = None
+    models_payload = {}
+    if can_view_telemetry:
+        today_usage = get_today_usage()
+        telemetry_payload = {
+            "date": today_usage.get("date"),
+            "total_calls": today_usage.get("total_calls", 0),
+            "max_daily_calls": today_usage.get("max_daily_calls", get_daily_max_calls()),
+            "calls_remaining": today_usage.get("calls_remaining", 0),
+            "gemini_calls": today_usage.get("gemini_calls", 0),
+            "mistral_calls": today_usage.get("mistral_calls", 0),
+            "nvidia_vision_calls": today_usage.get("nvidia_vision_calls", 0),
+            "total_tokens": today_usage.get("total_tokens", 0),
+            "total_cost_usd": today_usage.get("total_cost_usd", 0.0),
+            "total_cost_inr": today_usage.get("total_cost_inr", 0.0),
+        }
+        models_payload = ROLE_PROVIDER_MAP
 
     gates = [
         {
@@ -148,6 +211,7 @@ async def api_overview(request: Request):
     ]
 
     return JSONResponse({
+        "tenant_id": principal.tenant_id,
         "stats": {
             "total_playbooks": total_playbooks,
             "total_uploads": len(upload_files),
@@ -158,30 +222,31 @@ async def api_overview(request: Request):
             "total_tools": total_tools,
             "total_functions": total_functions,
         },
-        "telemetry": {
-            "date": today_usage.get("date"),
-            "total_calls": today_usage.get("total_calls", 0),
-            "max_daily_calls": today_usage.get("max_daily_calls", get_daily_max_calls()),
-            "calls_remaining": today_usage.get("calls_remaining", 0),
-            "gemini_calls": today_usage.get("gemini_calls", 0),
-            "mistral_calls": today_usage.get("mistral_calls", 0),
-            "nvidia_vision_calls": today_usage.get("nvidia_vision_calls", 0),
-            "total_tokens": today_usage.get("total_tokens", 0),
-            "total_cost_usd": today_usage.get("total_cost_usd", 0.0),
-            "total_cost_inr": today_usage.get("total_cost_inr", 0.0),
-        },
+        "telemetry": telemetry_payload,
         "scheduler": sched_state,
-        "models": ROLE_PROVIDER_MAP,
-        "gates": gates
+        "models": models_payload,
+        "gates": gates,
     })
 
 
 async def api_get_scheduler(request: Request):
+    authenticate_request(
+        request,
+        allowed_roles=HUMAN_ROLES,
+        human_only=True,
+        check_csrf=False,
+    )
     status = get_scheduler_status()
     return JSONResponse(status)
 
 
 async def api_get_tools(request: Request):
+    authenticate_request(
+        request,
+        allowed_roles=(ROLE_PROCESS_OWNER, ROLE_ADMIN),
+        human_only=True,
+        check_csrf=False,
+    )
     return JSONResponse({
         "platforms": TOOL_CATALOG,
         "count": len(TOOL_CATALOG),
@@ -190,6 +255,12 @@ async def api_get_tools(request: Request):
 
 
 async def api_get_telemetry(request: Request):
+    authenticate_request(
+        request,
+        allowed_roles=(ROLE_ADMIN,),
+        human_only=True,
+        check_csrf=False,
+    )
     usage_data = _load_usage_data()
     today_usage = get_today_usage()
 
@@ -201,6 +272,12 @@ async def api_get_telemetry(request: Request):
 
 
 async def api_list_logs(request: Request):
+    principal = authenticate_request(
+        request,
+        allowed_roles=(ROLE_ADMIN,),
+        human_only=True,
+        check_csrf=False,
+    )
     logs = []
     base_logs = os.path.dirname(LOGS_DIR)
     search_dirs = [
@@ -217,10 +294,13 @@ async def api_list_logs(request: Request):
             if name.endswith(".log") and name not in seen:
                 seen.add(name)
                 path = os.path.join(directory, name)
+                if get_log_owner(name, path) != principal.tenant_id:
+                    continue
                 try:
                     stat = os.stat(path)
                     logs.append({
                         "filename": name,
+                        "tenant_id": principal.tenant_id,
                         "size_bytes": stat.st_size,
                         "modified": datetime.datetime.fromtimestamp(stat.st_mtime).isoformat()
                     })
@@ -232,8 +312,16 @@ async def api_list_logs(request: Request):
 
 
 async def api_get_log(request: Request):
+    principal = authenticate_request(
+        request,
+        allowed_roles=(ROLE_ADMIN,),
+        human_only=True,
+        check_csrf=False,
+    )
     filename = request.path_params.get("filename", "").strip()
     safe_name = os.path.basename(filename)
+    if not safe_name or safe_name != filename or not safe_name.endswith(".log"):
+        return JSONResponse({"error": f"Log file '{filename}' not found"}, status_code=404)
 
     base_logs = os.path.dirname(LOGS_DIR)
     search_dirs = [
@@ -245,12 +333,15 @@ async def api_get_log(request: Request):
     resolved_path = None
     for directory in search_dirs:
         candidate = os.path.join(directory, safe_name)
-        if os.path.exists(candidate) and safe_name.endswith(".log"):
+        if os.path.isfile(candidate):
             resolved_path = candidate
             break
 
     if not resolved_path:
         return JSONResponse({"error": f"Log file '{filename}' not found"}, status_code=404)
+
+    owner_tenant = get_log_owner(safe_name, resolved_path)
+    enforce_tenant_access(principal, owner_tenant, request=request)
 
     try:
         with open(resolved_path, "r", encoding="utf-8", errors="replace") as f:
@@ -262,6 +353,12 @@ async def api_get_log(request: Request):
 
 async def api_test_security(request: Request):
     """Interactive endpoint to test security filters (DLP, AST, Zero-width)."""
+    authenticate_request(
+        request,
+        allowed_roles=(ROLE_SECURITY_REVIEWER, ROLE_ADMIN),
+        human_only=True,
+        check_csrf=True,
+    )
     try:
         body = await request.json()
     except Exception:

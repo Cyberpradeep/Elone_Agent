@@ -40,11 +40,18 @@ LOGS_DIR = os.path.join(KB_DIR, "logs")
 INDEX_PATH = os.path.join(SOPS_DIR, "index.md")
 
 
-def write_okf_playbook(draft: Dict[str, Any], raw_filename: str = "(reviewed draft)") -> str:
+def write_okf_playbook(
+    draft: Dict[str, Any],
+    raw_filename: str = "(reviewed draft)",
+    tenant_id: Optional[str] = None,
+    uploaded_by: Optional[str] = None,
+    canonical_data: Optional[Dict[str, Any]] = None,
+) -> str:
     """Phase 2 (commits to disk): render the OKF body, save the playbook, then
     initialize its rulebook and refresh the catalogs and weekly audit log.
     """
-    frontmatter_dict = draft["frontmatter"]
+    draft_copy = copy.deepcopy(draft) if isinstance(draft, dict) else {}
+    frontmatter_dict = draft_copy["frontmatter"] if isinstance(draft_copy.get("frontmatter"), dict) else draft_copy
     raw_category = (frontmatter_dict.get("category") or "other").lower().strip()
     category = sanitize_slug(raw_category).lower()
     sop_id = sanitize_slug(frontmatter_dict.get("sop_id") or "SOP-DYN-001")
@@ -116,11 +123,23 @@ def write_okf_playbook(draft: Dict[str, Any], raw_filename: str = "(reviewed dra
     _log_okf_creation(sop_id, title, raw_filename, rel_path)
 
     # 6. Dual Export: Save Canonical SOP JSON 1.0 (Section 16) alongside OKF Playbook
-    try:
-        canonical_data = build_canonical_sop_from_draft(draft, raw_text=draft.get("raw_text", ""), vlm_reports=draft.get("vlm_reports"))
-        write_canonical_sop_json(canonical_data, category=category)
-    except Exception as e:
-        log_warning("OKF Builder", f"Dual export canonical JSON generation failed: {e}")
+    if canonical_data is not None:
+        canon_to_write = copy.deepcopy(canonical_data)
+        write_canonical_sop_json(canon_to_write, category=category)
+    else:
+        try:
+            resolved_tenant = tenant_id or draft_copy.get("tenant_id") or frontmatter_dict.get("tenant_id") or os.getenv("ELONE_DEFAULT_TENANT", "tn_northwind")
+            resolved_uploader = uploaded_by or draft_copy.get("uploaded_by") or frontmatter_dict.get("uploaded_by") or "author@corp.com"
+            built_canonical = build_canonical_sop_from_draft(
+                draft_copy,
+                raw_text=draft_copy.get("raw_text", ""),
+                tenant_id=resolved_tenant,
+                uploaded_by=resolved_uploader,
+                vlm_reports=draft_copy.get("vlm_reports"),
+            )
+            write_canonical_sop_json(built_canonical, category=category)
+        except Exception as e:
+            log_warning("OKF Builder", f"Dual export canonical JSON generation failed: {e}")
 
     return okf_file_path
 

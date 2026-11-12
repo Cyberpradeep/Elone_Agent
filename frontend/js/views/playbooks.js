@@ -1,17 +1,20 @@
 /**
  * Playbooks — searchable library of published, HMAC-signed OKF playbooks,
  * with a deep inspector (steps, details, rulebook, raw source) and integrity check.
+ * Delete capability is gated to the admin role and tenant/clearance matched.
  */
 
 import { api } from '../api.js';
+import { getUser, hasCapability } from '../auth.js';
 import {
-  esc, icon, fmt, pill, store, toast, busy, openModal, closeModal, registerActions, bindTabs,
-  emptyState, jsonBlock,
+  esc, icon, fmt, pill, tierBadge, store, toast, busy, openModal, closeModal,
+  registerActions, bindTabs, emptyState, jsonBlock,
 } from '../ui.js';
 
 let copyCounts = {};   // sop_id -> how many playbook files carry it (the same id can sit in two category folders)
 let currentFilters = { query: '', category: 'all', sort: 'title', layout: store.get('pb-layout', 'cards') };
 
+const canDelete = () => hasCapability('can_delete_sop');
 const confidenceTone = s => (s >= 0.9 ? 'success' : s >= 0.7 ? 'warning' : 'danger');
 const pct = s => `${Math.round((Number(s) || 0) * 100)}%`;
 
@@ -39,11 +42,16 @@ function applyFilters(list) {
 }
 
 function cardHtml(p) {
+  const showDelete = canDelete();
   return `
     <article class="pb-card" tabindex="0" role="button" data-action="inspect-sop" data-id="${esc(p.sop_id)}" aria-label="Inspect ${esc(p.title)}">
       <div class="pb-card-top">
         <span class="id-cell">${esc(p.sop_id)}</span>
-        <span class="row" style="gap:6px;flex-wrap:nowrap">${integrityPill(p)}<button class="btn btn-ghost btn-icon-only btn-sm pb-del" data-action="delete-sop" data-id="${esc(p.sop_id)}" data-title="${esc(p.title)}" aria-label="Delete ${esc(p.title)}" title="Delete playbook">${icon('trash')}</button></span>
+        <span class="row" style="gap:6px;flex-wrap:nowrap">
+          ${p.classification_level ? tierBadge(p.classification_level) : ''}
+          ${integrityPill(p)}
+          ${showDelete ? `<button class="btn btn-ghost btn-icon-only btn-sm pb-del" data-action="delete-sop" data-id="${esc(p.sop_id)}" data-title="${esc(p.title)}" aria-label="Delete ${esc(p.title)}" title="Delete playbook">${icon('trash')}</button>` : ''}
+        </span>
       </div>
       <div class="stack-sm">
         <h4>${esc(p.title)}</h4>
@@ -61,20 +69,27 @@ function cardHtml(p) {
 }
 
 function tableHtml(list) {
+  const showDelete = canDelete();
   return `
     <div class="table-responsive">
       <table class="data-table">
-        <thead><tr><th>SOP</th><th>Category</th><th>Platform</th><th>Confidence</th><th class="num">Steps</th><th>Integrity</th><th></th></tr></thead>
+        <thead><tr><th>SOP</th><th>Tier</th><th>Category</th><th>Platform</th><th>Confidence</th><th class="num">Steps</th><th>Integrity</th><th></th></tr></thead>
         <tbody>
           ${list.map(p => `
             <tr>
               <td><div class="id-cell">${esc(p.sop_id)}</div><div class="strong">${esc(p.title)}</div></td>
+              <td>${tierBadge(p.classification_level || 'L1')}</td>
               <td><span class="badge-tag">${esc(p.category)}</span></td>
               <td><div>${esc(p.platform)}</div><div class="cell-sub mono">${esc(p.target_os)}</div></td>
               <td>${pill(`${pct(p.confidence_score)} ${p.confidence_level || ''}`.trim(), confidenceTone(p.confidence_score))}</td>
               <td class="num">${esc(p.step_count)}</td>
               <td>${integrityPill(p)}</td>
-              <td><div class="row-actions"><button class="btn btn-sm btn-secondary" data-action="inspect-sop" data-id="${esc(p.sop_id)}">${icon('eye')}Inspect</button><button class="btn btn-sm btn-danger-ghost" data-action="delete-sop" data-id="${esc(p.sop_id)}" data-title="${esc(p.title)}" aria-label="Delete ${esc(p.title)}">${icon('trash')}Delete</button></div></td>
+              <td>
+                <div class="row-actions">
+                  <button class="btn btn-sm btn-secondary" data-action="inspect-sop" data-id="${esc(p.sop_id)}">${icon('eye')}Inspect</button>
+                  ${showDelete ? `<button class="btn btn-sm btn-danger-ghost" data-action="delete-sop" data-id="${esc(p.sop_id)}" data-title="${esc(p.title)}" aria-label="Delete ${esc(p.title)}">${icon('trash')}Delete</button>` : ''}
+                </div>
+              </td>
             </tr>`).join('')}
         </tbody>
       </table>
@@ -84,7 +99,13 @@ function tableHtml(list) {
 function resultsHtml(all) {
   const list = applyFilters(all);
   if (!all.length) {
-    return emptyState({ icon: 'book', title: 'No published playbooks yet', text: 'Playbooks appear here once an SOP is approved and published.', action: '<a class="btn btn-primary" href="#/ingestion">Ingest an SOP</a>' });
+    const canUpload = hasCapability('can_upload');
+    return emptyState({
+      icon: 'book',
+      title: 'No published playbooks yet',
+      text: 'Playbooks appear here once an SOP is approved and published within your tenant and clearance.',
+      action: canUpload ? '<a class="btn btn-primary" href="#/ingestion">Ingest an SOP</a>' : '',
+    });
   }
   if (!list.length) {
     return emptyState({ icon: 'search', title: 'No playbooks match', text: 'Try a different search term or clear the category filter.', action: '<button class="btn btn-outline" data-action="pb-clear">Clear filters</button>' });
@@ -134,6 +155,7 @@ function inspectorHtml(d) {
     <div class="stack">
       <div class="meta-grid">
         <div class="meta-item"><div class="meta-label">Category</div><div class="meta-value">${esc(fm.category || '—')}</div></div>
+        <div class="meta-item"><div class="meta-label">Clearance tier</div><div class="meta-value">${tierBadge(d.classification_level || 'L1')}</div></div>
         <div class="meta-item"><div class="meta-label">Platform / OS</div><div class="meta-value mono">${esc(fm.platform || 'system')} / ${esc(fm.target_os || 'windows')}</div></div>
         <div class="meta-item"><div class="meta-label">Confidence</div><div class="meta-value">${esc(pct(fm.confidence_score))} <span class="muted">${esc(fm.confidence_level || '')}</span></div></div>
         <div class="meta-item"><div class="meta-label">HMAC signature</div><div class="meta-value" id="sop-integrity">${pill(integ.is_valid ? 'AUTHENTIC' : 'FAILED CHECK', integ.is_valid ? 'success' : 'danger', { title: integ.reason || '' })}</div></div>
@@ -168,12 +190,13 @@ registerActions({
     const id = el.dataset.id;
     let d;
     try { d = await api.getSop(id); } catch (err) { toast(`Couldn't open ${id}: ${err.message}`, 'error'); return; }
+    const showDelete = canDelete();
     openModal({
       title: `${d.frontmatter?.title || id}`,
       size: 'lg',
       body: inspectorHtml(d),
       footer: `
-        <button class="btn btn-danger-ghost" data-action="delete-sop" data-id="${esc(id)}" data-title="${esc(d.frontmatter?.title || id)}" style="margin-right:auto">${icon('trash')}Delete…</button>
+        ${showDelete ? `<button class="btn btn-danger-ghost" data-action="delete-sop" data-id="${esc(id)}" data-title="${esc(d.frontmatter?.title || id)}" style="margin-right:auto">${icon('trash')}Delete…</button>` : ''}
         <button class="btn btn-outline" data-action="edit-canonical" data-id="${esc(id)}">${icon('edit')}Canonical JSON</button>
         <button class="btn btn-secondary" data-action="verify-sop" data-id="${esc(id)}">${icon('shield')}Re-verify HMAC</button>
         <button class="btn btn-primary" data-action="close-modal">Close</button>`,
@@ -192,15 +215,23 @@ registerActions({
   },
 
   'delete-sop': el => {
+    if (!canDelete()) {
+      toast('Delete requires Admin role.', 'error');
+      return;
+    }
     const id = el.dataset.id;
     const title = el.dataset.title || id;
     const copies = copyCounts[id] || 1;
+    const user = getUser() || {};
     openModal({
       title: 'Delete playbook',
       size: 'md',
       body: `
         <form id="del-form" class="stack" data-id="${esc(id)}" novalidate>
-          <div class="meta-item"><div class="meta-label">Playbook</div><div class="meta-value">${esc(title)} <span class="mono muted">${esc(id)}</span></div></div>
+          <div class="meta-grid">
+            <div class="meta-item"><div class="meta-label">Playbook</div><div class="meta-value">${esc(title)} <span class="mono muted">${esc(id)}</span></div></div>
+            <div class="meta-item"><div class="meta-label">Deleting as (token)</div><div class="meta-value mono">${esc(user.identity || '—')}</div></div>
+          </div>
           ${copies > 1 ? `<div class="callout warn">${icon('alert')}<div><b>${copies} playbook files share this id</b> (in different category folders). All of them will be removed.</div></div>` : ''}
           <div class="callout danger">${icon('trash')}<div>
             <b>This takes the playbook out of use.</b>
@@ -210,9 +241,9 @@ registerActions({
               <li>Its lifecycle job is marked <b>soft-deleted</b>, and the category index pages are refreshed.</li>
             </ul>
           </div></div>
-          <div class="form-grid">
-            <div class="field"><label for="del-actor">Your name or ID</label><input id="del-actor" class="input" value="${esc(store.get('reviewer', ''))}" placeholder="who is deleting this" autocomplete="username"></div>
-            <div class="field"><label for="del-reason">Reason <span class="muted" style="text-transform:none">(optional)</span></label><input id="del-reason" class="input" placeholder="e.g. superseded by v2"></div>
+          <div class="field">
+            <label for="del-reason">Reason <span class="muted" style="text-transform:none">(optional)</span></label>
+            <input id="del-reason" class="input" placeholder="e.g. superseded by v2">
           </div>
           <div class="field">
             <label for="del-confirm">Type <span class="mono" style="text-transform:none">${esc(id)}</span> to confirm</label>
@@ -223,10 +254,10 @@ registerActions({
       footer: `<button class="btn btn-outline" data-action="close-modal">Cancel</button>
                <button class="btn btn-danger" id="del-go" data-action="confirm-delete-sop" disabled>${icon('trash')}Delete playbook</button>`,
       onMount: root => {
-        const actor = root.querySelector('#del-actor'), typed = root.querySelector('#del-confirm'), go = root.querySelector('#del-go');
-        const sync = () => { go.disabled = !(actor.value.trim() && typed.value.trim() === id); };
-        actor.addEventListener('input', sync); typed.addEventListener('input', sync); sync();
-        (actor.value ? typed : actor).focus();
+        const typed = root.querySelector('#del-confirm'), go = root.querySelector('#del-go');
+        const sync = () => { go.disabled = typed.value.trim() !== id; };
+        typed.addEventListener('input', sync); sync();
+        typed.focus();
       },
     });
   },
@@ -234,17 +265,15 @@ registerActions({
   'confirm-delete-sop': async (el, _e, ctx) => {
     const form = document.getElementById('del-form');
     const id = form.dataset.id;
-    const actor = form.querySelector('#del-actor').value.trim();
     const reason = form.querySelector('#del-reason').value.trim();
     const err = document.getElementById('del-error');
     err.textContent = '';
     if (form.querySelector('#del-confirm').value.trim() !== id) { err.textContent = `Type ${id} exactly to confirm.`; return; }
     const done = busy(el);
     try {
-      const r = await api.deleteSop(id, { actor, reason });
-      store.set('reviewer', actor);
+      const r = await api.deleteSop(id, { reason });
       closeModal();
-      toast(`Deleted ${r.sop_id}. Files moved to ${r.trash_dir}.`, 'success', 7000);
+      toast(`Deleted ${r.sop_id} as ${r.deleted_by || 'session'}. Files moved to ${r.trash_dir}.`, 'success', 7000);
       (r.warnings || []).forEach(w => toast(w, 'warning', 8000));
       await ctx.reload();
       ctx.refreshBadges();
@@ -268,7 +297,7 @@ export default {
   icon: 'book',
   badge: 'playbooks',
   title: 'OKF playbooks',
-  subtitle: 'Published, signed playbooks compiled from human SOPs.',
+  subtitle: 'Published, signed playbooks scoped to your tenant and clearance.',
 
   async load(ctx) {
     const data = await api.listSops();

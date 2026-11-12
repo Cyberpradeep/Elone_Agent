@@ -4,6 +4,7 @@
  */
 
 import { api } from '../api.js';
+import { hasCapability } from '../auth.js';
 import { esc, icon, fmt, pill, jobPill, isUnlimited, jsonBlock, emptyState } from '../ui.js';
 
 const FUNNEL = [
@@ -46,9 +47,16 @@ function funnel(jobs) {
     </div>`;
 }
 
-function recentJobs(jobs) {
+function recentJobs(jobs, canUpload) {
   const rows = [...jobs].sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at))).slice(0, 6);
-  if (!rows.length) return emptyState({ icon: 'inbox', title: 'No jobs yet', text: 'Upload an SOP document to start the pipeline.', action: '<a class="btn btn-primary" href="#/ingestion">Ingest an SOP</a>' });
+  if (!rows.length) {
+    return emptyState({
+      icon: 'inbox',
+      title: 'No jobs yet',
+      text: canUpload ? 'Upload an SOP document to start the pipeline.' : 'No SOP ingestion jobs have been started for this tenant yet.',
+      action: canUpload ? '<a class="btn btn-primary" href="#/ingestion">Ingest an SOP</a>' : '',
+    });
+  }
   return `
     <div class="table-responsive">
       <table class="data-table">
@@ -66,7 +74,7 @@ function recentJobs(jobs) {
     </div>`;
 }
 
-function schedulerPanel(s) {
+function schedulerPanel(s, canUpload) {
   const disabled = Boolean(s.disabled);
   const badgeLabel = disabled ? 'DISABLED (GOVERNED)' : (s.running ? 'WATCHER ACTIVE' : 'STANDBY');
   const badgeTone = disabled ? 'neutral' : (s.running ? 'success' : 'warning');
@@ -87,7 +95,7 @@ function schedulerPanel(s) {
       </div>
       ${s.last_run_summary ? `<details class="accordion" style="margin-top:12px"><summary>Last run summary</summary><div class="acc-body">${jsonBlock(s.last_run_summary)}</div></details>` : ''}
       ${disabled
-        ? `<a class="btn btn-secondary" style="margin-top:14px;width:100%" href="#/ingestion">${icon('upload')}Open governed ingestion</a>`
+        ? (canUpload ? `<a class="btn btn-secondary" style="margin-top:14px;width:100%" href="#/ingestion">${icon('upload')}Open governed ingestion</a>` : '')
         : `<button class="btn btn-secondary" style="margin-top:14px;width:100%" data-action="run-scan">${icon('refresh')}Run scan now</button>`}
     </div>`;
 }
@@ -140,15 +148,16 @@ export default {
   label: 'Overview',
   icon: 'dashboard',
   title: 'Governance overview',
-  subtitle: 'Pipeline health, reviews waiting on a human, and today\'s AI usage.',
+  subtitle: 'Tenant pipeline health, pending Security Reviewer approvals, and active governance gates.',
   refreshMs: 20000,
 
   async load(ctx) {
+    const canIncidents = hasCapability('can_view_incidents');
     const [overview, jobs, tasks, incidents] = await Promise.all([
       api.getOverview(),
       api.getGovernanceJobs().catch(() => ({ jobs: [] })),
       api.getReviewTasks().catch(() => ({ tasks: [] })),
-      api.getIncidents().catch(() => ({ incidents: [] })),
+      canIncidents ? api.getIncidents().catch(() => ({ incidents: [] })) : Promise.resolve({ incidents: [] }),
     ]);
     const pending = (tasks.tasks || []).filter(t => t.status === 'pending');
     ctx.setBadges({ playbooks: overview.stats?.total_playbooks ?? null, pending: pending.length });
@@ -156,48 +165,87 @@ export default {
   },
 
   render({ overview, jobs, pending, incidents }) {
+    const canUpload = hasCapability('can_upload');
+    const canReview = hasCapability('can_review');
+    const canPublish = hasCapability('can_publish');
+    const canIncidents = hasCapability('can_view_incidents');
+    const canTelemetry = hasCapability('can_view_telemetry');
+    const canSettings = hasCapability('can_manage_config') || hasCapability('can_manage_users');
     const stats = overview.stats || {};
-    const t = overview.telemetry || {};
-    const unlimited = isUnlimited(t.max_daily_calls);
-    const quotaPct = !unlimited && t.max_daily_calls > 0 ? Math.round((t.total_calls / t.max_daily_calls) * 100) : 0;
+    const t = canTelemetry && overview.telemetry ? overview.telemetry : null;
+    const unlimited = t ? isUnlimited(t.max_daily_calls) : true;
+    const quotaPct = t && !unlimited && t.max_daily_calls > 0 ? Math.round((t.total_calls / t.max_daily_calls) * 100) : 0;
     const overdue = pending.filter(p => p.is_overdue).length;
+    const approvedCount = jobs.filter(j => j.current_state === 'approved').length;
+    const changesReqCount = jobs.filter(j => j.current_state === 'changes_requested').length;
+    const kpiCount = 3 + (canIncidents ? 1 : 0) + (t ? 2 : 0);
+
+    let heroTitle = 'Nothing is waiting on you';
+    let heroSub = 'Review tenant playbooks and pipeline status below.';
+    let heroActions = '';
+    if (canReview) {
+      heroTitle = pending.length
+        ? `${pending.length} SOP review${pending.length > 1 ? 's' : ''} waiting for security sign-off`
+        : 'Security review queue is clear';
+      heroSub = pending.length
+        ? `${overdue ? `${overdue} overdue. ` : ''}Inspect drafted steps, verify source quotes and confidentiality tier, then approve or request changes.`
+        : 'All L0–L3 drafts within your clearance have been decided. Approved SOPs are published by a Process Owner.';
+      heroActions = pending.length ? `<a class="btn btn-primary" href="#/review">${icon('review')}Open review queue</a>` : '';
+    } else if (canUpload) {
+      if (changesReqCount) {
+        heroTitle = `${changesReqCount} SOP draft${changesReqCount > 1 ? 's' : ''} require${changesReqCount === 1 ? 's' : ''} revision`;
+        heroSub = 'A Security Reviewer requested changes. Edit the draft steps or JSON and resubmit for security review.';
+        heroActions = `<a class="btn btn-primary" href="#/review">${icon('edit')}Revise drafts</a><a class="btn btn-secondary" href="#/ingestion">${icon('upload')}Ingest an SOP</a>`;
+      } else if (approvedCount && canPublish) {
+        heroTitle = `${approvedCount} approved SOP${approvedCount > 1 ? 's' : ''} ready to publish`;
+        heroSub = 'Security Reviewer sign-off succeeded. Publish from Lifecycle jobs to release playbooks to downstream agents.';
+        heroActions = `<a class="btn btn-primary" href="#/review">${icon('check')}Review &amp; publish</a><a class="btn btn-secondary" href="#/ingestion">${icon('upload')}Ingest an SOP</a>`;
+      } else if (pending.length) {
+        heroTitle = `${pending.length} SOP${pending.length > 1 ? 's' : ''} awaiting Security Reviewer sign-off`;
+        heroSub = `${overdue ? `${overdue} overdue. ` : ''}Drafts stay locked for publication until an independent Security Reviewer approves them.`;
+        heroActions = `<a class="btn btn-primary" href="#/ingestion">${icon('upload')}Ingest an SOP</a><a class="btn btn-secondary" href="#/review">${icon('review')}View review queue</a>`;
+      } else {
+        heroTitle = 'Ready to author & publish SOPs';
+        heroSub = 'Upload a document to run extraction, secret scanning, structuring and Security Reviewer sign-off.';
+        heroActions = `<a class="btn btn-primary" href="#/ingestion">${icon('upload')}Ingest an SOP</a>`;
+      }
+    } else {
+      heroTitle = pending.length ? `${pending.length} SOP review${pending.length > 1 ? 's' : ''} in flight` : 'Tenant governance & platform operations';
+      heroSub = 'Manage pipeline settings, users and service accounts, LLM telemetry, audit logs, and security incidents for your tenant.';
+      heroActions = `${canTelemetry ? `<a class="btn btn-primary" href="#/telemetry">${icon('chart')}LLM telemetry</a>` : ''}${canSettings ? `<a class="btn btn-secondary" href="#/settings">${icon('settings')}Settings &amp; users</a>` : ''}${pending.length ? `<a class="btn btn-outline" href="#/review">${icon('review')}View queue</a>` : ''}`;
+    }
 
     return `
       <div class="view-stack">
         <div class="hero">
           <div>
-            <h3>${pending.length ? `${pending.length} review${pending.length > 1 ? 's' : ''} waiting on a human` : 'Nothing is waiting on you'}</h3>
-            <p>${pending.length
-              ? `${overdue ? `${overdue} overdue. ` : ''}An SOP can't be published until someone other than its uploader approves it.`
-              : 'Upload a document to run it through extraction, secret scanning, structuring and verification.'}</p>
+            <h3>${heroTitle}</h3>
+            <p>${heroSub}</p>
           </div>
-          <div class="row">
-            <a class="btn btn-primary" href="#/ingestion">${icon('upload')}Ingest an SOP</a>
-            ${pending.length ? `<a class="btn btn-secondary" href="#/review">${icon('review')}Open review queue</a>` : ''}
-          </div>
+          <div class="row">${heroActions}</div>
         </div>
 
-        <div class="kpi-grid kpi-6">
-          ${kpi({ title: 'Published playbooks', value: fmt.num(stats.total_playbooks || 0), badge: 'HMAC signed', badgeTone: 'badge-success', sub: `${fmt.num(stats.total_uploads || 0)} files in the uploads folder`, iconName: 'book', href: '#/playbooks' })}
-          ${kpi({ title: 'Pending reviews', value: fmt.num(pending.length), badge: overdue ? `${overdue} overdue` : '', badgeTone: 'badge-danger', sub: 'Dual-custody approval required', iconName: 'review', tone: pending.length ? 'warning' : 'success', href: '#/review' })}
-          ${kpi({ title: 'Quarantine incidents', value: fmt.num(incidents.length), sub: incidents.length ? 'Documents halted by the secret scanner' : 'No secrets detected so far', iconName: 'lock', tone: incidents.length ? 'danger' : 'success', href: '#/review' })}
+        <div class="kpi-grid ${kpiCount === 6 ? 'kpi-6' : ''}">
+          ${kpi({ title: 'Published playbooks', value: fmt.num(stats.total_playbooks || 0), badge: 'HMAC signed', badgeTone: 'badge-success', sub: `${fmt.num(stats.total_uploads || 0)} files in tenant uploads`, iconName: 'book', href: '#/playbooks' })}
+          ${kpi({ title: 'Pending reviews', value: fmt.num(pending.length), badge: overdue ? `${overdue} overdue` : '', badgeTone: 'badge-danger', sub: 'Security Reviewer sign-off required', iconName: 'review', tone: pending.length ? 'warning' : 'success', href: '#/review' })}
+          ${canIncidents ? kpi({ title: 'Quarantine incidents', value: fmt.num(incidents.length), sub: incidents.length ? 'Documents halted by the secret scanner' : 'No secrets detected so far', iconName: 'lock', tone: incidents.length ? 'danger' : 'success', href: '#/review' }) : ''}
           ${kpi({ title: 'Ingestion success', value: `${stats.success_rate ?? 100}<small>%</small>`, badge: `${stats.manifest_success || 0} ok`, badgeTone: 'badge-success', sub: `${stats.manifest_failed || 0} failed of ${stats.manifest_total || 0} processed`, iconName: 'check', tone: 'success' })}
-          ${kpi({
+          ${t ? kpi({
             title: 'AI calls today',
             value: fmt.num(t.total_calls || 0),
             badge: unlimited ? 'No daily cap' : `${t.calls_remaining ?? 0} left`,
             badgeTone: quotaPct > 80 ? 'badge-danger' : '',
             iconName: 'chart', tone: quotaPct > 80 ? 'danger' : 'info', href: '#/telemetry',
             extra: unlimited ? '' : `<div class="gauge-track" role="progressbar" aria-valuenow="${quotaPct}" aria-valuemin="0" aria-valuemax="100" aria-label="Daily quota used"><div class="gauge-fill ${quotaPct > 80 ? 'danger' : ''}" style="width:${Math.min(quotaPct, 100)}%"></div></div>`,
-          })}
-          ${kpi({ title: 'AI spend today', value: fmt.usd(t.total_cost_usd), badge: fmt.inr(t.total_cost_inr), sub: `${fmt.num(t.total_tokens || 0)} tokens`, iconName: 'database', tone: 'warning', href: '#/telemetry' })}
+          }) : ''}
+          ${t ? kpi({ title: 'AI spend today', value: fmt.usd(t.total_cost_usd), badge: fmt.inr(t.total_cost_inr), sub: `${fmt.num(t.total_tokens || 0)} tokens`, iconName: 'database', tone: 'warning', href: '#/telemetry' }) : ''}
         </div>
 
         <div class="panel">
           <div class="panel-header">
             <div>
               <div class="panel-title">${icon('refresh')}Job lifecycle</div>
-              <div class="panel-subtitle">Where every ingested SOP currently sits in the orchestrator.</div>
+              <div class="panel-subtitle">Where every ingested SOP for your tenant currently sits in the orchestrator.</div>
             </div>
             <span class="badge-tag">${jobs.length} jobs</span>
           </div>
@@ -210,11 +258,11 @@ export default {
               <div class="panel-title">${icon('file')}Recent jobs</div>
               <a class="btn btn-sm btn-outline" href="#/review">View all</a>
             </div>
-            ${recentJobs(jobs)}
+            ${recentJobs(jobs, canUpload)}
           </div>
           <div class="stack">
-            ${schedulerPanel(overview.scheduler || {})}
-            ${modelsPanel(overview.models)}
+            ${schedulerPanel(overview.scheduler || {}, canUpload)}
+            ${canTelemetry && overview.models && Object.keys(overview.models).length ? modelsPanel(overview.models) : ''}
           </div>
         </div>
 

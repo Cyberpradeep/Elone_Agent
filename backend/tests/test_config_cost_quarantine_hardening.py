@@ -44,36 +44,36 @@ class TestConfigSchema(unittest.TestCase):
         self.assertEqual(clean["governance"]["max_daily_calls"], 150)
 
 
+class _FakePrincipal:
+    identity = "admin@test"
+    sub = "admin-1"
+    roles = ("admin",)
+    tenant_id = "t1"
+    clearance = "L3"
+    actor_type = "human"
+
+
 class TestConfigEndpointAdminOnly(unittest.TestCase):
     def setUp(self):
         self.client = _app()
 
-    def test_fails_closed_without_admin_token_configured(self):
-        with patch.dict(os.environ, {"ELONE_ADMIN_TOKEN": ""}):
-            r = self.client.post("/api/config", json={"governance": {"min_passing_score": 85}})
-        self.assertEqual(r.status_code, 503)
-
-    def test_wrong_or_missing_token_denied(self):
-        with patch.dict(os.environ, {"ELONE_ADMIN_TOKEN": "s3cret"}), patch("config.settings.audit_config_change"):
-            self.assertEqual(self.client.post("/api/config", json={}).status_code, 403)
-            r = self.client.post("/api/config", json={}, headers={"X-Admin-Token": "nope"})
-            self.assertEqual(r.status_code, 403)
+    def test_unauthenticated_caller_denied(self):
+        from server import app  # real app: has the auth error handler
+        client = TestClient(app)
+        with patch("config.settings.update_settings") as upd:
+            r = client.post("/api/config", json={"governance": {"min_passing_score": 85}})
+        self.assertIn(r.status_code, (401, 403))
+        upd.assert_not_called()
 
     def test_invalid_payload_rejected_and_nothing_saved(self):
-        with patch.dict(os.environ, {"ELONE_ADMIN_TOKEN": "s3cret"}), \
-             patch("config.settings.audit_config_change"), \
-             patch("config.settings.update_settings") as upd:
-            r = self.client.put("/api/config", json={"governance": {"min_passing_score": 0}},
-                                headers={"Authorization": "Bearer s3cret"})
+        with patch("api.routes_governance.authenticate_request", return_value=_FakePrincipal()),              patch("config.settings.audit_config_change"),              patch("config.settings.update_settings") as upd:
+            r = self.client.put("/api/config", json={"governance": {"min_passing_score": 0}})
         self.assertEqual(r.status_code, 422)
         upd.assert_not_called()
 
     def test_valid_admin_update_applied_and_audited(self):
-        with patch.dict(os.environ, {"ELONE_ADMIN_TOKEN": "s3cret"}), \
-             patch("config.settings.audit_config_change") as audit, \
-             patch("config.settings.update_settings", return_value={"ok": 1}) as upd:
-            r = self.client.post("/api/config", json={"governance": {"max_daily_calls": 150}},
-                                 headers={"X-Admin-Token": "s3cret"})
+        with patch("api.routes_governance.authenticate_request", return_value=_FakePrincipal()),              patch("config.settings.audit_config_change") as audit,              patch("config.settings.update_settings", return_value={"ok": 1}) as upd:
+            r = self.client.post("/api/config", json={"governance": {"max_daily_calls": 150}})
         self.assertEqual(r.status_code, 200)
         upd.assert_called_once_with({"governance": {"max_daily_calls": 150}})
         self.assertEqual(audit.call_args[0][-1], "applied")

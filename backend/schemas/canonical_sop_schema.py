@@ -133,6 +133,7 @@ class ClassificationModel(BaseModel):
     evidence_categories: List[str] = Field(default_factory=list)
     rule_level: str = "L0"
     ai_suggested_level: str = "L0"
+    conflict: bool = False
     rationale: Optional[str] = None
     confirmed: bool = False
     confirmed_by: Optional[str] = None

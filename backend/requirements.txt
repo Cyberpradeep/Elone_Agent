@@ -10,6 +10,9 @@ rich>=13.0.0
 fastapi>=0.115.0
 python-multipart>=0.0.9
 
+# Authentication & Cryptography (C2)
+PyJWT[crypto]>=2.9.0
+
 # Document Parsing, OCR & Web Scraping
 markitdown>=0.1.0
 PyMuPDF>=1.24.0

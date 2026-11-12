@@ -182,6 +182,9 @@ def build_canonical_sop_from_draft(
     source_metadata: Optional[Dict[str, Any]] = None,
     transformations: Optional[List[Dict[str, Any]]] = None,
     vlm_reports: Optional[List[Dict[str, Any]]] = None,
+    dlp_stats: Optional[Dict[str, int]] = None,
+    is_ocr: Optional[bool] = None,
+    ai_advisory: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Constructs a Canonical SOP JSON Schema 1.0 dictionary from a draft OKF playbook (Section 16)."""
     frontmatter_dict = draft.get("frontmatter", draft)
@@ -359,13 +362,21 @@ def build_canonical_sop_from_draft(
                                 if isinstance(sub_v, (str, int, float)):
                                     coverage_meta.append(str(sub_v))
 
+    meta = source_metadata or draft.get("source_metadata") or draft.get("intake_meta") or {}
+    effective_ocr = bool(is_ocr) if is_ocr is not None else bool(meta.get("is_ocr", False))
+
     total_non_blank, mapped_count, _ = compute_source_line_coverage(
         raw_lines=source_lines,
         steps=canonical_steps,
         coverage_items=frontmatter_dict.get("source_action_coverage") or [],
         metadata_fields=coverage_meta,
     )
-    conf_res = compute_confidentiality_score(raw_text or title)
+    conf_res = compute_confidentiality_score(
+        raw_text or title,
+        dlp_stats=dlp_stats,
+        is_ocr=effective_ocr,
+        ai_advisory=ai_advisory,
+    )
     quality_res = compute_quality_score(
         total_non_blank_lines=total_non_blank,
         mapped_source_lines=mapped_count,
@@ -387,7 +398,6 @@ def build_canonical_sop_from_draft(
     purpose_lines = _find_matching_line_range(purpose_text, source_lines)
     scope_lines = _find_matching_line_range(scope_text, source_lines)
 
-    meta = source_metadata or draft.get("source_metadata") or draft.get("intake_meta") or {}
     source_filename = meta.get("filename") or os.path.basename(draft.get("raw_filepath", f"{sop_id.lower()}.txt"))
     detected_type = meta.get("detected_type") or meta.get("mime_type") or ("application/pdf" if str(source_filename).endswith(".pdf") else ("application/vnd.openxmlformats-officedocument.wordprocessingml.document" if str(source_filename).endswith(".docx") else "text/plain"))
     page_count = int(meta.get("page_count") or meta.get("pages") or 1)
@@ -411,7 +421,7 @@ def build_canonical_sop_from_draft(
             "detected_type": detected_type,
             "pages": page_count,
             "extracted_lines": len(source_lines),
-            "ocr": bool(meta.get("is_ocr", False)),
+            "ocr": effective_ocr,
         },
         "purpose": {
             "text": purpose_text,
@@ -441,6 +451,7 @@ def build_canonical_sop_from_draft(
             "evidence_categories": conf_res["evidence_categories"],
             "rule_level": conf_res["rule_level"],
             "ai_suggested_level": conf_res["ai_suggested_level"],
+            "conflict": bool(conf_res.get("conflict", False)),
             "rationale": "Deterministic rule classification",
             "confirmed": False,
         },
@@ -556,4 +567,3 @@ def sync_canonical_to_playbook(canonical_data: Dict[str, Any], category: Optiona
 
 # Aliases
 sync_canonical_to_okf = sync_canonical_to_playbook
-

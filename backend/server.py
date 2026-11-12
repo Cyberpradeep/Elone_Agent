@@ -16,9 +16,14 @@ if BASE_DIR not in sys.path:
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
+
+from auth.config import parse_allowed_origins
+from auth.dependencies import AuthAccessError
 
 # Shared Context & Services
 from api.context import (
@@ -38,12 +43,16 @@ from api.context import (
 # Route Controllers
 from api import all_routers, all_routes
 
+# Validate CORS origins fail-closed at startup (never permits '*' with allow_credentials=True)
+ALLOWED_ORIGINS = parse_allowed_origins()
+
 # FastAPI Application
 app = FastAPI(
     title="Elone Agent — SOP Governance Hub API",
     description=(
         "Enterprise Multi-Agent Standard Operating Procedure Governance Engine.\n\n"
         "Features:\n"
+        "- Authenticated Lean 4-Role RBAC & Tenant/Clearance Enforcement (C2)\n"
         "- 14-State Lifecycle Machine & Separation of Duties (SoD)\n"
         "- Dual-Custody HITL (Human-in-the-Loop) Review Gate\n"
         "- Automated Secret Scanning, DLP & AST Threat Quarantine Gate\n"
@@ -56,18 +65,59 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
-# CORS Middleware
+
+@app.exception_handler(AuthAccessError)
+async def _auth_access_error_handler(_request: Request, exc: AuthAccessError):
+    return JSONResponse(
+        {"error": exc.message, "error_code": exc.error_code},
+        status_code=exc.status_code,
+        headers=exc.headers or None,
+    )
+
+
+# Explicit CORS Lockdown (no wildcard origins/methods/headers with credentials)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"],
+    max_age=600,
 )
 
 # Register API Routers
 for router in all_routers:
     app.include_router(router)
+
+
+def _custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+    components = schema.setdefault("components", {})
+    schemes = components.setdefault("securitySchemes", {})
+    schemes["BearerAuth"] = {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+    }
+    public_paths = {"/api/health", "/api/auth/login"}
+    for path, methods in (schema.get("paths") or {}).items():
+        if path in public_paths:
+            continue
+        for op in (methods or {}).values():
+            if isinstance(op, dict):
+                op.setdefault("security", [{"BearerAuth": []}])
+    app.openapi_schema = schema
+    return app.openapi_schema
+
+
+app.openapi = _custom_openapi
 
 # Mount Frontend Dashboard Static Assets
 FRONTEND_DIR = os.path.join(PROJECT_ROOT, "frontend")
