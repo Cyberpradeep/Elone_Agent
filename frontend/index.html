@@ -15,27 +15,27 @@
   <script type="importmap">
   {
     "imports": {
-
-      "./js/api.js": "./js/api.js?v=20261103l",
-      "./js/ui.js": "./js/ui.js?v=20261103l",
-      "./js/charts.js": "./js/charts.js?v=20261103l",
-      "./js/progress.js": "./js/progress.js?v=20261103l",
-      "./js/views/overview.js": "./js/views/overview.js?v=20261103l",
-      "./js/views/playbooks.js": "./js/views/playbooks.js?v=20261103l",
-      "./js/views/review.js": "./js/views/review.js?v=20261103l",
-      "./js/views/review-task.js": "./js/views/review-task.js?v=20261103l",
-      "./js/views/catalog.js": "./js/views/catalog.js?v=20261103l",
-      "./js/views/ingestion.js": "./js/views/ingestion.js?v=20261103l",
-      "./js/views/tools.js": "./js/views/tools.js?v=20261103l",
-      "./js/views/telemetry.js": "./js/views/telemetry.js?v=20261103l",
-      "./js/views/audit.js": "./js/views/audit.js?v=20261103l",
-      "./js/views/security.js": "./js/views/security.js?v=20261103l",
-      "./js/views/settings.js": "./js/views/settings.js?v=20261103l"
+      "./js/auth.js": "./js/auth.js?v=20261112a",
+      "./js/api.js": "./js/api.js?v=20261112a",
+      "./js/ui.js": "./js/ui.js?v=20261112a",
+      "./js/charts.js": "./js/charts.js?v=20261112a",
+      "./js/progress.js": "./js/progress.js?v=20261112a",
+      "./js/views/overview.js": "./js/views/overview.js?v=20261112a",
+      "./js/views/playbooks.js": "./js/views/playbooks.js?v=20261112a",
+      "./js/views/review.js": "./js/views/review.js?v=20261112a",
+      "./js/views/review-task.js": "./js/views/review-task.js?v=20261112a",
+      "./js/views/catalog.js": "./js/views/catalog.js?v=20261112a",
+      "./js/views/ingestion.js": "./js/views/ingestion.js?v=20261112a",
+      "./js/views/tools.js": "./js/views/tools.js?v=20261112a",
+      "./js/views/telemetry.js": "./js/views/telemetry.js?v=20261112a",
+      "./js/views/audit.js": "./js/views/audit.js?v=20261112a",
+      "./js/views/security.js": "./js/views/security.js?v=20261112a",
+      "./js/views/settings.js": "./js/views/settings.js?v=20261112a"
     }
   }
   </script>
-  <link rel="stylesheet" href="./css/style.css?v=20261103l">
-  <link rel="stylesheet" href="./css/components.css?v=20261103l">
+  <link rel="stylesheet" href="./css/style.css?v=20261112a">
+  <link rel="stylesheet" href="./css/components.css?v=20261112a">
 
   <script>
     // Apply the saved (or OS) theme before first paint to avoid a flash.
@@ -51,7 +51,9 @@
 <body>
   <a class="skip-link" href="#viewport-container">Skip to content</a>
 
-  <div id="app-container">
+  <div id="login-screen" hidden></div>
+
+  <div id="app-container" hidden>
     <aside id="sidebar" aria-label="Primary">
       <div class="brand-section">
         <div class="brand-logo-badge" aria-hidden="true">E</div>
@@ -64,6 +66,7 @@
       <nav class="nav-menu" id="nav-menu" aria-label="Main navigation"><!-- built by app.js --></nav>
 
       <div class="sidebar-footer">
+        <div id="sidebar-user"></div>
         <div class="system-status-indicator" id="api-status" role="status" aria-live="polite">
           <span class="status-left"><span class="status-dot-pulse" id="api-dot"></span><span id="api-label">Connecting…</span></span>
           <span class="status-right" id="api-latency"></span>
@@ -103,6 +106,6 @@
   <div id="toast-container" aria-live="polite"></div>
 
   <noscript><p style="padding:24px">This dashboard needs JavaScript enabled.</p></noscript>
-  <script type="module" src="./js/app.js?v=20261103m"></script>
+  <script type="module" src="./js/app.js?v=20261112a"></script>
 </body>
 </html>

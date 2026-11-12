@@ -1,12 +1,13 @@
 /**
  * Review — human-in-the-loop governance: review tasks, lifecycle jobs,
- * quarantine incidents, decisions with separation of duties, publishing,
- * job history and the canonical SOP editor.
+ * quarantine incidents (security_reviewer/admin only), decisions with separation
+ * of duties, publishing, job history and canonical SOP viewer/editor.
  */
 
 import { api } from '../api.js';
+import { hasCapability } from '../auth.js';
 import {
-  esc, icon, fmt, pill, jobPill, jobTone, tierBadge, store, toast, busy, openModal, closeModal,
+  esc, icon, fmt, pill, jobPill, jobTone, tierBadge, toast, busy, openModal, closeModal,
   confirmDialog, registerActions, bindTabs, emptyState, jsonBlock, prettyJson,
 } from '../ui.js';
 
@@ -51,23 +52,26 @@ function tasksTable(tasks) {
     if ((a.status === 'pending') !== (b.status === 'pending')) return a.status === 'pending' ? -1 : 1;
     return String(a.due_date).localeCompare(String(b.due_date));
   });
-  if (!sorted.length) return emptyState({ icon: 'review', title: 'No review tasks', text: 'A task is created automatically when an ingested SOP reaches "awaiting review".' });
+  if (!sorted.length) return emptyState({ icon: 'review', title: 'No review tasks', text: 'A task is created automatically when an ingested SOP reaches "awaiting review" within your tenant and clearance.' });
   return `
     <div class="table-responsive">
       <table class="data-table">
-        <thead><tr><th>Task</th><th>SOP</th><th>Assigned to</th><th>Due</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Task</th><th>SOP</th><th>Tier &amp; role</th><th>Due</th><th>Status</th><th></th></tr></thead>
         <tbody>
           ${sorted.map(t => `
             <tr>
               <td><span class="id-cell">${esc(t.task_id)}</span></td>
               <td><div class="mono strong">${esc(t.sop_id)}</div><div class="cell-sub">v${esc(t.version)} · uploaded by ${esc(t.uploaded_by)}</div></td>
-              <td>${esc(t.assigned_role)}</td>
+              <td>
+                <div class="row" style="gap:6px">${t.sop_tier ? tierBadge(t.sop_tier) : ''}<span>${esc(t.assigned_role)}</span></div>
+                ${t.status === 'pending' && t.eligible_for_me === false ? '<div class="cell-sub muted">SoD / role locked for your account</div>' : ''}
+              </td>
               <td class="nowrap"><div class="mono tiny">${fmt.date(t.due_date)}</div><div class="cell-sub">${t.status === 'pending' ? fmt.rel(t.due_date) : ''} ${t.is_overdue ? pill('OVERDUE', 'danger', { dot: false }) : ''}</div></td>
               <td>${taskStatusPill(t.status)}
                   ${t.reviewer ? `<div class="cell-sub">by ${esc(t.reviewer)}</div>` : ''}</td>
               <td>
                 <div class="row-actions">
-                  ${t.status === 'pending' ? `<a class="btn btn-sm btn-primary" href="#/review/${esc(t.task_id)}">Review</a>` : ''}
+                  ${t.status === 'pending' ? `<a class="btn btn-sm ${t.eligible_for_me === false ? 'btn-outline' : 'btn-primary'}" href="#/review/${esc(t.task_id)}">${t.eligible_for_me === false ? 'Inspect' : 'Review'}</a>` : ''}
                   ${t.status === 'pending' ? '' : `<a class="btn btn-sm btn-outline" href="#/review/${esc(t.task_id)}">View</a>`}
                   <button class="btn btn-sm btn-ghost" data-action="job-history" data-id="${esc(t.job_id)}">History</button>
                 </div>
@@ -168,20 +172,19 @@ registerActions({
     const form = document.getElementById('decision-form');
     const err = document.getElementById('dec-error');
     err.innerHTML = '';
-    const reviewer = form.querySelector('#dec-reviewer').value.trim();
-    const decision = form.querySelector('input[name="decision"]:checked').value;
+    const decisionEl = form.querySelector('input[name="decision"]:checked');
+    const decision = decisionEl ? decisionEl.value : 'approve';
     const notes = form.querySelector('#dec-notes').value.trim();
     const confirmed = form.querySelector('#dec-classif').checked;
 
-    if (!reviewer) { err.textContent = 'Enter your name or ID.'; form.querySelector('#dec-reviewer').focus(); return; }
     if (decision !== 'approve' && !notes) { err.textContent = 'Add a note explaining the decision.'; form.querySelector('#dec-notes').focus(); return; }
     if (decision === 'approve' && !confirmed) { err.textContent = 'Confirm the confidentiality tier to approve.'; return; }
 
     let quality = {};
     try { quality = JSON.parse(el.dataset.quality || '{}'); } catch { /* ignore */ }
+    // Reviewer identity and actor_type=human are derived strictly from the server token.
     const payload = {
-      decision, reviewer, notes, actor_type: 'human', confirmed_classification: confirmed,
-      // Send the measured gate inputs when the draft provided them, so the server judges real numbers.
+      decision, notes, confirmed_classification: confirmed,
       ...(typeof quality.traceability === 'number' ? { traceability_pct: quality.traceability } : {}),
       ...(typeof quality.completeness === 'number' ? { completeness_pct: quality.completeness } : {}),
       ...(typeof quality.schema_valid === 'boolean' ? { schema_valid: quality.schema_valid } : {}),
@@ -191,7 +194,6 @@ registerActions({
     const done = busy(el);
     try {
       const res = await api.recordDecision(form.dataset.task, payload);
-      store.set('reviewer', reviewer);
       closeModal();
       toast(`Decision recorded: ${fmt.words(res.decision)}. Job is now ${fmt.words(res.job_state)}.`, 'success', 5500);
       if (res.decision === 'approve') activeTab = 'jobs';
@@ -252,6 +254,7 @@ registerActions({
     try { canonical = await api.getCanonical(id); } catch (e) { toast(`Canonical SOP not available: ${e.message}`, 'error'); return; }
     const isDraft = canonical.lifecycle?.state !== 'published';
     const steps = canonical.steps || [];
+    const canEdit = hasCapability('can_edit_canonical');
 
     openModal({
       title: `Canonical SOP — ${id}`,
@@ -259,10 +262,11 @@ registerActions({
       body: `
         <div class="stack" data-sop="${esc(id)}" data-draft="${isDraft}">
           ${isDraft ? `<div class="callout warn">${icon('alert')}<div><b>This SOP is still a draft.</b> Saving writes the canonical JSON and playbook into the knowledge base immediately, before it has been approved. Prefer read-only inspection until review is complete.</div></div>` : ''}
+          ${!canEdit ? `<div class="callout">${icon('lock')}<div><b>Read-only view.</b> Direct canonical JSON edits are restricted to Process Owners and Admins.</div></div>` : ''}
           <div class="tabs in-modal" role="tablist">
             <button class="tab active" role="tab" data-tab="summary">Summary</button>
             <button class="tab" role="tab" data-tab="steps">Steps <span class="tab-count">${steps.length}</span></button>
-            <button class="tab" role="tab" data-tab="json">JSON editor</button>
+            <button class="tab" role="tab" data-tab="json">${canEdit ? 'JSON editor' : 'JSON'}</button>
           </div>
           <div>
             <div class="tab-panel" data-panel="summary">
@@ -287,18 +291,19 @@ registerActions({
             </div>
             <div class="tab-panel" data-panel="json" hidden>
               <div class="stack-sm">
-                <textarea id="canon-json" class="textarea code" spellcheck="false" style="min-height:380px">${esc(prettyJson(canonical))}</textarea>
-                <div class="row-between"><span id="canon-status" class="tiny"></span><button type="button" class="btn btn-sm btn-ghost" data-action="canon-format">Format JSON</button></div>
+                <textarea id="canon-json" class="textarea code" spellcheck="false" style="min-height:380px" ${canEdit ? '' : 'readonly'}>${esc(prettyJson(canonical))}</textarea>
+                ${canEdit ? `<div class="row-between"><span id="canon-status" class="tiny"></span><button type="button" class="btn btn-sm btn-ghost" data-action="canon-format">Format JSON</button></div>` : ''}
               </div>
             </div>
           </div>
         </div>`,
-      footer: `
+      footer: canEdit ? `
         <button class="btn btn-outline" data-action="close-modal">Close</button>
         <button class="btn btn-secondary" data-action="canon-sync">Sync playbook only</button>
-        <button class="btn btn-primary" data-action="canon-save">Save &amp; sync</button>`,
+        <button class="btn btn-primary" data-action="canon-save">Save &amp; sync</button>` : '<button class="btn btn-primary" data-action="close-modal">Close</button>',
       onMount: root => {
         bindTabs(root);
+        if (!canEdit) return;
         const ta = root.querySelector('#canon-json');
         const status = root.querySelector('#canon-status');
         const check = () => {
@@ -364,13 +369,21 @@ export default {
   refreshMs: 15000,
 
   async load(ctx) {
-    const [jobs, tasks, incidents] = await Promise.all([api.getGovernanceJobs(), api.getReviewTasks(), api.getIncidents()]);
+    const canIncidents = hasCapability('can_view_incidents');
+    const [jobs, tasks, incidents] = await Promise.all([
+      api.getGovernanceJobs(),
+      api.getReviewTasks(),
+      canIncidents ? api.getIncidents() : Promise.resolve({ incidents: [] }),
+    ]);
     const pending = (tasks.tasks || []).filter(t => t.status === 'pending').length;
     ctx.setBadges({ pending });
     return { jobs: jobs.jobs || [], tasks: tasks.tasks || [], incidents: incidents.incidents || [], pending };
   },
 
   render({ jobs, tasks, incidents, pending }) {
+    const canIncidents = hasCapability('can_view_incidents');
+    if (!canIncidents && activeTab === 'incidents') activeTab = 'tasks';
+
     const approved = jobs.filter(j => j.current_state === 'approved').length;
     const tab = (id, label, count, cls = '') => `<button class="tab ${activeTab === id ? 'active' : ''}" role="tab" data-tab="${id}" aria-selected="${activeTab === id}">${label}<span class="tab-count ${cls}">${count}</span></button>`;
     return `
@@ -380,12 +393,12 @@ export default {
           <div class="tabs" role="tablist" style="padding:0 12px">
             ${tab('tasks', 'Review tasks', pending, pending ? 'attention' : '')}
             ${tab('jobs', 'Lifecycle jobs', jobs.length, approved ? 'attention' : '')}
-            ${tab('incidents', 'Quarantine incidents', incidents.length, incidents.length ? 'danger' : '')}
+            ${canIncidents ? tab('incidents', 'Quarantine incidents', incidents.length, incidents.length ? 'danger' : '') : ''}
           </div>
           <div>
             <div class="tab-panel" data-panel="tasks" ${activeTab === 'tasks' ? '' : 'hidden'}>${tasksTable(tasks)}</div>
             <div class="tab-panel" data-panel="jobs" ${activeTab === 'jobs' ? '' : 'hidden'}>${jobsTable(jobs)}</div>
-            <div class="tab-panel" data-panel="incidents" ${activeTab === 'incidents' ? '' : 'hidden'}>${incidentsTable(incidents)}</div>
+            ${canIncidents ? `<div class="tab-panel" data-panel="incidents" ${activeTab === 'incidents' ? '' : 'hidden'}>${incidentsTable(incidents)}</div>` : ''}
           </div>
         </div>
       </div>`;

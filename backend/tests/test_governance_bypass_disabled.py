@@ -21,6 +21,8 @@ if BACKEND_DIR not in sys.path:
 import scheduler  # noqa: E402
 import mcp_server  # noqa: E402
 from agents.a2_structuring import execution_planner  # noqa: E402
+from auth.models import AuthPrincipal  # noqa: E402
+from auth.tokens import create_access_token  # noqa: E402
 from server import app  # noqa: E402
 
 
@@ -28,6 +30,17 @@ class TestGovernanceBypassDisabled(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         os.environ["ELONE_ALLOW_INSECURE_DEV_KEY"] = "1"
+        principal = AuthPrincipal(
+            sub="usr_test_bypass",
+            identity="bypass.tester@northwind.example",
+            display_name="Bypass Tester",
+            roles=["process_owner"],
+            tenant_id="tn_northwind",
+            clearance="L1",
+            actor_type="human",
+        )
+        token, _, _ = create_access_token(principal, ttl_seconds=600)
+        cls.auth_headers = {"Authorization": f"Bearer {token}"}
 
     def setUp(self):
         self.client = TestClient(app)
@@ -58,7 +71,8 @@ class TestGovernanceBypassDisabled(unittest.TestCase):
     def test_03_http_scan_endpoint_returns_410_and_never_runs_cycle(self):
         """POST /api/uploads/scan returns HTTP 410 with UNGOVERNED_SCAN_DISABLED."""
         with patch("agents.a2_structuring.okf_builder.write_okf_playbook") as mock_write:
-            resp = self.client.post("/api/uploads/scan")
+            self.assertEqual(self.client.post("/api/uploads/scan").status_code, 401)
+            resp = self.client.post("/api/uploads/scan", headers=self.auth_headers)
         self.assertEqual(resp.status_code, 410)
         data = resp.json()
         self.assertFalse(data["success"])
@@ -114,13 +128,15 @@ class TestGovernanceBypassDisabled(unittest.TestCase):
 
     def test_07_telemetry_scheduler_endpoints_report_disabled(self):
         """GET /api/scheduler and GET /api/overview report disabled=True and running=False."""
-        r_sched = self.client.get("/api/scheduler")
+        self.assertEqual(self.client.get("/api/scheduler").status_code, 401)
+        r_sched = self.client.get("/api/scheduler", headers=self.auth_headers)
         self.assertEqual(r_sched.status_code, 200)
         sched = r_sched.json()
         self.assertTrue(sched.get("disabled"))
         self.assertFalse(sched.get("running"))
 
-        r_over = self.client.get("/api/overview")
+        self.assertEqual(self.client.get("/api/overview").status_code, 401)
+        r_over = self.client.get("/api/overview", headers=self.auth_headers)
         self.assertEqual(r_over.status_code, 200)
         over_sched = r_over.json().get("scheduler", {})
         self.assertTrue(over_sched.get("disabled"))

@@ -517,11 +517,25 @@ sys.path.insert(0, backend_dir)
 import server
 import api.context as ctx
 import api.routes_ingestion as routes_ingestion
+from auth.models import AuthPrincipal
+from auth.tokens import create_access_token
 
 client = TestClient(server.app)
+_po_principal = AuthPrincipal(
+    sub="usr_stage2_po",
+    identity="stage2.po@northwind.example",
+    display_name="Stage2 PO",
+    roles=["process_owner"],
+    tenant_id="tn_northwind",
+    clearance="L1",
+    actor_type="human",
+)
+_token, _, _ = create_access_token(_po_principal, ttl_seconds=600)
+HDR = {"Authorization": f"Bearer {_token}"}
 
 def write_upload(name, text):
-    p = os.path.join(ctx.UPLOADS_DIR, name)
+    p = os.path.join(ctx.tenant_uploads_dir("tn_northwind"), name)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
     with open(p, "w", encoding="utf-8") as f:
         f.write(text)
     return p
@@ -567,7 +581,7 @@ evil_sop = (
 write_upload("stage2_ast_test.txt", evil_sop)
 
 with patch.object(routes_ingestion.jit_converter, "plan_okf_from_raw", side_effect=fake_plan):
-    r_block = client.post("/api/uploads/ingest", json={"filename": "stage2_ast_test.txt"})
+    r_block = client.post("/api/uploads/ingest", headers=HDR, json={"filename": "stage2_ast_test.txt"})
     assert r_block.status_code == 403, f"Expected 403, got {r_block.status_code}: {r_block.text}"
     body = r_block.json()
     assert body["status"] == "blocked", body
@@ -577,10 +591,10 @@ with patch.object(routes_ingestion.jit_converter, "plan_okf_from_raw", side_effe
     assert plan_calls["count"] == 0, f"LLM planner must NOT be called when Stage 2 AST blocks! calls={plan_calls['count']}"
 
     # Ledger must transition to 'blocked' and /api/uploads must allow re-ingest
-    jobs = {j["job_id"]: j for j in client.get("/api/governance/jobs").json()["jobs"]}
+    jobs = {j["job_id"]: j for j in client.get("/api/governance/jobs", headers=HDR).json()["jobs"]}
     assert jobs[body["job_id"]]["current_state"] == "blocked", jobs[body["job_id"]]
 
-    uploads = {item["filename"]: item for item in client.get("/api/uploads").json()["files"]}
+    uploads = {item["filename"]: item for item in client.get("/api/uploads", headers=HDR).json()["files"]}
     up = uploads["stage2_ast_test.txt"]
     assert up["status"] == "failed", up
     assert up["reingest_allowed"] is True, up
@@ -588,10 +602,10 @@ with patch.object(routes_ingestion.jit_converter, "plan_okf_from_raw", side_effe
 
     # 2. Replacing file with clean SOP resets hash/manifest and ingests cleanly
     write_upload("stage2_ast_test.txt", "Safe Runbook\n1. Flush local DNS cache cleanly\n")
-    uploads_after_edit = {item["filename"]: item for item in client.get("/api/uploads").json()["files"]}
+    uploads_after_edit = {item["filename"]: item for item in client.get("/api/uploads", headers=HDR).json()["files"]}
     assert uploads_after_edit["stage2_ast_test.txt"]["status"] == "pending", uploads_after_edit["stage2_ast_test.txt"]
 
-    r_ok = client.post("/api/uploads/ingest", json={"filename": "stage2_ast_test.txt"})
+    r_ok = client.post("/api/uploads/ingest", headers=HDR, json={"filename": "stage2_ast_test.txt"})
     assert r_ok.status_code == 200, r_ok.text
     assert r_ok.json()["status"] == "awaiting_review", r_ok.json()
     assert plan_calls["count"] == 1
@@ -608,7 +622,7 @@ with patch.object(routes_ingestion.jit_converter, "plan_okf_from_raw", side_effe
         ),
     ):
         write_upload(benign_name, benign_text)
-        r_benign = client.post("/api/uploads/ingest", json={"filename": benign_name})
+        r_benign = client.post("/api/uploads/ingest", headers=HDR, json={"filename": benign_name})
         assert r_benign.status_code == 200, f"Benign SOP {benign_name} wrongly blocked: {r_benign.text}"
         assert r_benign.json()["status"] == "awaiting_review", r_benign.json()
 

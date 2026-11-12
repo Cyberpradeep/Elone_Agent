@@ -1,11 +1,13 @@
 /**
  * Ingestion — upload SOP documents, see Gate-1 results, run the pipeline on a
  * file, or preview the LLM plan (dry run) without writing anything.
+ * Uploader identity and tenant scope are derived strictly from the signed-in session token.
  */
 
 import { api } from '../api.js';
+import { getUser } from '../auth.js';
 import {
-  esc, icon, fmt, pill, store, toast, busy, openModal, closeModal, registerActions,
+  esc, icon, fmt, pill, toast, busy, openModal, closeModal, registerActions,
   bindTabs, emptyState, jsonBlock, tierBadge,
 } from '../ui.js';
 import { stepHtml } from './playbooks.js';
@@ -95,6 +97,7 @@ registerActions({
     const file = el.dataset.file;
     const reingest = el.dataset.reingest === '1';
     const prevStatus = el.dataset.status || '';
+    const user = getUser() || {};
     const supersedeNote = (prevStatus === 'awaiting_review' || prevStatus === 'approved' || prevStatus === 'changes_requested')
       ? `<div class="callout warn">${icon('alert')}<div>This will supersede the current <b>${esc(fmt.words(prevStatus))}</b> draft and create a fresh review task. Prior ledger history is preserved.</div></div>`
       : '';
@@ -103,13 +106,13 @@ registerActions({
       size: 'md',
       body: `
         <form id="ingest-form" class="stack" data-file="${esc(file)}" data-reingest="${reingest ? '1' : '0'}">
-          <div class="meta-item"><div class="meta-label">Document</div><div class="meta-value mono">${esc(file)}</div></div>
+          <div class="meta-grid">
+            <div class="meta-item"><div class="meta-label">Document</div><div class="meta-value mono">${esc(file)}</div></div>
+            <div class="meta-item"><div class="meta-label">Uploaded by (session)</div><div class="meta-value mono">${esc(user.identity || '—')}</div></div>
+            <div class="meta-item"><div class="meta-label">Tenant scope</div><div class="meta-value mono">${esc(user.tenant_id || '—')}</div></div>
+          </div>
           ${supersedeNote}
           <div class="callout">${icon('info')}<div>Runs extraction, secret scanning, LLM structuring and quality assessment. It can take a minute or two and uses LLM quota. <b>Nothing is published</b> until someone else reviews and approves it.</div></div>
-          <div class="form-grid">
-            <div class="field"><label for="ing-uploader">Uploaded by</label><input id="ing-uploader" class="input" value="${esc(store.get('uploader', 'analyst@example.com'))}" autocomplete="username"><span class="field-hint">The reviewer must be someone else.</span></div>
-            <div class="field"><label for="ing-tenant">Tenant</label><input id="ing-tenant" class="input" value="${esc(store.get('tenant', 'tn_northwind'))}"></div>
-          </div>
           <div class="field"><label for="ing-sopid">SOP ID <span class="muted" style="text-transform:none">(optional)</span></label><input id="ing-sopid" class="input mono" placeholder="Generated from the file hash if left empty"></div>
         </form>`,
       footer: `<button class="btn btn-outline" data-action="close-modal">Cancel</button>
@@ -121,14 +124,11 @@ registerActions({
     const form = document.getElementById('ingest-form');
     const file = form.dataset.file;
     const opts = {
-      uploadedBy: form.querySelector('#ing-uploader').value.trim(),
-      tenantId: form.querySelector('#ing-tenant').value.trim(),
       sopId: form.querySelector('#ing-sopid').value.trim(),
       reingest: form.dataset.reingest === '1',
     };
-    store.set('uploader', opts.uploadedBy); store.set('tenant', opts.tenantId);
 
-    const tracker = trackIngest(file, { actor: opts.uploadedBy });       // live stage list; the request itself only answers at the end
+    const tracker = trackIngest(file);       // live stage list; identity stamped server-side from token
     let res;
     try {
       res = await api.ingestSingle(file, opts);
@@ -296,6 +296,8 @@ export default {
   load: () => api.listUploads(),
 
   render(data) {
+    const user = getUser() || {};
+    const tenantId = data.tenant_id || user.tenant_id || '—';
     const files = data.files || [];
     const allowed = data.allowed_extensions || [];
     const count = {
@@ -312,12 +314,13 @@ export default {
               <div class="panel-title">${icon('upload')}Upload documents</div>
               <div class="panel-subtitle">Allowed: ${allowed.map(e => `<code>${esc(e)}</code>`).join(' ') || '—'} · up to ${esc(data.max_size_mb)} MB. Files are checked for type, size, spoofed headers and length before anything is read.</div>
             </div>
+            <span class="badge-tag mono">${esc(tenantId)}</span>
           </div>
           <div class="dropzone-container" id="dropzone" tabindex="0" role="button" aria-label="Choose files to upload">
             <input type="file" id="file-input" multiple hidden accept="${esc(allowed.join(','))}">
             <div class="dropzone-icon">${icon('upload')}</div>
             <div class="dropzone-title">Drop files here, or click to browse</div>
-            <div class="dropzone-subtext">You can select several at once</div>
+            <div class="dropzone-subtext">Scoped to tenant <b>${esc(tenantId)}</b> · you can select several at once</div>
           </div>
           <div class="upload-queue" id="upload-queue"></div>
         </div>
@@ -326,7 +329,7 @@ export default {
           <div class="panel-header">
             <div>
               <div class="panel-title">${icon('file')}Uploads folder</div>
-              <div class="panel-subtitle">Everything currently in <code>knowledge_base/_uploads</code> and how far it got.</div>
+              <div class="panel-subtitle">Tenant-isolated uploads in <code>knowledge_base/_uploads/${esc(tenantId)}</code> and pipeline state.</div>
             </div>
             <div class="panel-actions">
               <div class="chips" role="group" aria-label="Filter files">

@@ -1,11 +1,20 @@
 /**
  * Elone SOP Governance Hub — API client.
  * One request layer for every backend endpoint (see backend/api/routes_*.py).
+ * Sends HttpOnly cookie credentials + double-submit X-CSRF-Token header automatically.
  */
 
 export const API_BASE = (window.location.port === '8000')
   ? window.location.origin
   : 'http://127.0.0.1:8000';
+
+export const AUTH_REQUIRED_EVENT = 'elone:auth-required';
+
+export function readCsrfCookie() {
+  const m = /(?:^|;\s*)elone_csrf=([^;]+)/.exec(document.cookie || '');
+  if (!m) return '';
+  try { return decodeURIComponent(m[1]); } catch { return m[1]; }
+}
 
 export class ApiError extends Error {
   constructor(message, { status = 0, data = {} } = {}) {
@@ -15,6 +24,7 @@ export class ApiError extends Error {
     this.data = data;
     this.failures = Array.isArray(data.failures) ? data.failures : Array.isArray(data.errors) ? data.errors : [];
     this.code = data.error_code || null;
+    this.retryAfter = data.retry_after ?? null;
   }
 }
 
@@ -25,7 +35,14 @@ export class ApiError extends Error {
  *         pipeline status (e.g. quarantined, duplicate) instead of throwing.
  */
 async function request(path, { method = 'GET', json, form, as = 'json', soft = false } = {}) {
-  const init = { method, headers: {} };
+  const upperMethod = String(method || 'GET').toUpperCase();
+  const init = { method: upperMethod, credentials: 'include', headers: {} };
+
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(upperMethod)) {
+    const csrf = readCsrfCookie();
+    if (csrf) init.headers['X-CSRF-Token'] = csrf;
+  }
+
   if (json !== undefined) {
     init.headers['Content-Type'] = 'application/json';
     init.body = JSON.stringify(json);
@@ -44,8 +61,13 @@ async function request(path, { method = 'GET', json, form, as = 'json', soft = f
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    if (soft && data && (data.status || data.success === false)) return { ...data, _http: res.status };
-    const message = data.error || data.reason || data.message || `${method} ${path} failed (${res.status} ${res.statusText})`;
+    if (res.status === 401 && path !== '/api/auth/login' && path !== '/api/auth/me') {
+      window.dispatchEvent(new CustomEvent(AUTH_REQUIRED_EVENT, { detail: { path, data } }));
+    }
+    if (soft && res.status !== 401 && data && (data.status || data.success === false)) {
+      return { ...data, _http: res.status };
+    }
+    const message = data.error || data.reason || data.message || `${upperMethod} ${path} failed (${res.status} ${res.statusText})`;
     throw new ApiError(message, { status: res.status, data });
   }
   return data;
@@ -54,6 +76,18 @@ async function request(path, { method = 'GET', json, form, as = 'json', soft = f
 const id = encodeURIComponent;
 
 export const api = {
+  // --- Authentication ------------------------------------------------------
+  login: (username, password) => request('/api/auth/login', { method: 'POST', json: { username, password } }),
+  logout: () => request('/api/auth/logout', { method: 'POST' }),
+  getMe: () => request('/api/auth/me'),
+  listUsers: () => request('/api/auth/users'),
+  createUser: payload => request('/api/auth/users', { method: 'POST', json: payload }),
+  updateUser: (sub, payload) => request(`/api/auth/users/${id(sub)}`, { method: 'PATCH', json: payload }),
+  issueAgentToken: (sub, ttlMinutes) => request(`/api/auth/users/${id(sub)}/token`, {
+    method: 'POST',
+    json: ttlMinutes ? { ttl_minutes: ttlMinutes } : {},
+  }),
+
   // --- Telemetry & diagnostics ---------------------------------------------
   getHealth: () => request('/api/health'),
   getOverview: () => request('/api/overview'),
@@ -72,19 +106,17 @@ export const api = {
     return request('/api/uploads/upload', { method: 'POST', form });
   },
   /** Resolves with the pipeline body even for 400/403/409 outcomes (check `.status`). */
-  ingestSingle: (filename, { sopId, tenantId, uploadedBy, reingest } = {}) => request('/api/uploads/ingest', {
+  ingestSingle: (filename, { sopId, reingest } = {}) => request('/api/uploads/ingest', {
     method: 'POST',
     soft: true,
     json: {
       filename,
       ...(sopId ? { sop_id: sopId } : {}),
-      ...(tenantId ? { tenant_id: tenantId } : {}),
-      ...(uploadedBy ? { uploaded_by: uploadedBy } : {}),
       ...(reingest ? { reingest: true } : {}),
     },
   }),
   /** Ask a running ingestion to stop. It ends at its next checkpoint; nothing is saved. */
-  cancelIngest: (filename, actor) => request('/api/uploads/ingest/cancel', { method: 'POST', json: { filename, actor } }),
+  cancelIngest: filename => request('/api/uploads/ingest/cancel', { method: 'POST', json: { filename } }),
   runScan: () => request('/api/uploads/scan', { method: 'POST' }),
   planPreview: filename => request('/api/plan-preview', { method: 'POST', json: { filename } }),
 
@@ -93,7 +125,7 @@ export const api = {
   getSop: sopId => request(`/api/sops/${id(sopId)}`),
   verifySop: sopId => request(`/api/sops/${id(sopId)}/verify`, { method: 'POST' }),
   /** Moves the playbook (+ canonical JSON, rulebook) to knowledge_base/_trash and unpublishes it. */
-  deleteSop: (sopId, { actor, reason }) => request(`/api/sops/${id(sopId)}`, { method: 'DELETE', json: { actor, reason } }),
+  deleteSop: (sopId, { reason = '' } = {}) => request(`/api/sops/${id(sopId)}`, { method: 'DELETE', json: { reason } }),
 
   // --- Governance ----------------------------------------------------------
   getGovernanceJobs: () => request('/api/governance/jobs'),
@@ -105,14 +137,17 @@ export const api = {
   /** The editable (OKF) steps of an unapproved draft, and whether they can still be edited. */
   getDraft: sopId => request(`/api/governance/drafts/${id(sopId)}`),
   /** Saves a reviewer's step edits into the draft only (nothing is published). */
-  saveDraftSteps: (sopId, { actor, steps }) => request(`/api/governance/drafts/${id(sopId)}/steps`, { method: 'PUT', json: { actor, steps } }),
+  saveDraftSteps: (sopId, { steps }) => request(`/api/governance/drafts/${id(sopId)}/steps`, { method: 'PUT', json: { steps } }),
   /** Saves hand-edited canonical JSON into the draft (system-managed fields are refused by the server). */
-  saveDraftCanonical: (sopId, { actor, canonical }) => request(`/api/governance/drafts/${id(sopId)}/canonical`, { method: 'PUT', json: { actor, canonical } }),
+  saveDraftCanonical: (sopId, { canonical }) => request(`/api/governance/drafts/${id(sopId)}/canonical`, { method: 'PUT', json: { canonical } }),
   getCanonical: sopId => request(`/api/governance/sops/${id(sopId)}/canonical`),
   updateCanonical: (sopId, canonical) => request(`/api/governance/sops/${id(sopId)}/canonical`, { method: 'PUT', json: canonical }),
   syncPlaybook: (sopId, canonical) => request(`/api/governance/sops/${id(sopId)}/sync-playbook`, { method: 'POST', json: { canonical_sop: canonical } }),
-  searchDownstream: payload => request('/api/governance/downstream/search', { method: 'POST', json: payload }),
-  getDownstreamStats: tenantId => request(`/api/governance/downstream/stats${tenantId ? `?tenant_id=${id(tenantId)}` : ''}`),
+  searchDownstream: ({ query = '', department, limit = 10 } = {}) => request('/api/governance/downstream/search', {
+    method: 'POST',
+    json: { query, ...(department ? { department } : {}), limit },
+  }),
+  getDownstreamStats: () => request('/api/governance/downstream/stats'),
 
   // --- Configuration -------------------------------------------------------
   getConfig: () => request('/api/config'),

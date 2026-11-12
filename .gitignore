@@ -137,6 +137,7 @@ knowledge_base/_uploads/*
 !knowledge_base/_uploads/.gitkeep
 
 # Staged unapproved drafts, trash, quarantine & governance runtime state
+**/_auth/
 **/_drafts/
 **/_trash/
 **/_quarantine/

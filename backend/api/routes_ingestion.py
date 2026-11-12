@@ -2,9 +2,12 @@
 Ingestion API Route Handlers
 ============================
 Handles document uploads, Gate 1 validation, staging intake, and JIT plan preview.
+Enforces C2 human RBAC, tenant-namespaced _uploads/<tenant_id>/, token-derived uploaded_by/tenant_id,
+and tenant-scoped _INGESTS & _processed_manifest.json.
 """
 
 import os
+import re
 import glob
 import json
 import asyncio
@@ -16,25 +19,35 @@ from starlette.concurrency import run_in_threadpool
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from starlette.routing import Route
-
 from api.context import (
-    UPLOADS_DIR,
     SOPS_DIR,
     DRAFTS_DIR,
     LOGS_DIR,
-    MANIFEST_PATH,
     governance_ledger,
+    retrieval_index,
     read_manifest,
+    write_manifest,
+    get_manifest_entry,
+    set_manifest_entry,
+    del_manifest_entry,
+    tenant_uploads_dir,
+    record_upload_owner,
+    resolve_tenant_upload,
+    list_tenant_uploads,
+    record_log_owner,
+    resolve_sop_access_meta,
+    resolve_draft_access_meta,
+    _build_canonical_meta_map,
     parse_yaml_frontmatter,
 )
-from utils.security import sanitize_filename, redact_sensitive_dlp, scan_raw_sop_for_ast_threats
+from auth.models import HUMAN_ROLES
+from auth.dependencies import authenticate_request
+from utils.security import sanitize_filename, sanitize_slug, redact_sensitive_dlp, scan_raw_sop_for_ast_threats
 from utils.cancellation import IngestionCancelled, bind_cancel, reset_cancel
 from config.settings import get_max_file_size_bytes, get_max_file_size_mb
 from agents.a1_ingestion import (
     validate_sop_file,
     ALLOWED_EXTENSIONS,
-    MAX_FILE_SIZE_BYTES,
     extract_ordered_sop_content,
 )
 import agents.a2_structuring.execution_planner as jit_converter
@@ -60,12 +73,14 @@ def _sha256_file(path: str, stat=None) -> str:
     return digest
 
 
-def _build_published_index():
-    """Scans knowledge_base/sops/ for live committed .md playbooks and returns (by_sop_id, by_sha)."""
+def _build_published_index(tenant_id: str):
+    """Scans knowledge_base/sops/ for live committed .md playbooks belonging to `tenant_id`."""
     by_sop_id = {}
     by_sha = {}
     if not os.path.exists(SOPS_DIR):
         return by_sop_id, by_sha
+
+    canonical_map = _build_canonical_meta_map()
 
     for path in glob.glob(os.path.join(SOPS_DIR, "**", "*.md"), recursive=True):
         if os.path.basename(path).lower() == "index.md":
@@ -74,8 +89,16 @@ def _build_published_index():
             with open(path, "r", encoding="utf-8") as f:
                 fm, _ = parse_yaml_frontmatter(f.read())
             sid = str(fm.get("sop_id") or os.path.splitext(os.path.basename(path))[0]).strip()
-            sha = str(fm.get("source_file_sha256") or fm.get("source_sha256") or "").strip()
-            rec = {"sop_id": sid, "path": path, "source_sha256": sha}
+            access_meta = resolve_sop_access_meta(sid, canonical_map=canonical_map, frontmatter=fm)
+            if access_meta["tenant_id"] != tenant_id:
+                continue
+            sha = str(
+                access_meta.get("source_sha256")
+                or fm.get("source_file_sha256")
+                or fm.get("source_sha256")
+                or ""
+            ).strip()
+            rec = {"sop_id": sid, "path": path, "source_sha256": sha, "tenant_id": tenant_id}
             if sid:
                 by_sop_id[sid.lower()] = rec
             if sha:
@@ -88,6 +111,9 @@ def _build_published_index():
             with open(path, "r", encoding="utf-8") as f:
                 cdata = json.load(f)
             sid = str(cdata.get("sop_id") or "").strip()
+            access_meta = resolve_sop_access_meta(sid, canonical_map=canonical_map)
+            if access_meta["tenant_id"] != tenant_id:
+                continue
             src = cdata.get("source") or {}
             text_sha = str(src.get("sha256") or "").strip()
             file_sha = str(src.get("file_sha256") or "").strip()
@@ -114,11 +140,46 @@ def _allocate_job_id(content_hash: str) -> str:
     return f"{base}_r{idx}"
 
 
-def _latest_jobs_by_sha():
-    """Selects the latest non-duplicate job per content SHA-256 (falling back to duplicate only if sole record)."""
+def _sop_id_owned_by_other_tenant(candidate_sop_id: str, tenant_id: str) -> bool:
+    draft_path = os.path.join(DRAFTS_DIR, f"{candidate_sop_id}.draft.json")
+    if os.path.isfile(draft_path):
+        d_meta = resolve_draft_access_meta(candidate_sop_id)
+        if d_meta["tenant_id"] != tenant_id:
+            return True
+    for p in glob.glob(os.path.join(SOPS_DIR, "**", "*.md"), recursive=True):
+        if os.path.splitext(os.path.basename(p))[0].lower() == candidate_sop_id.lower():
+            if resolve_sop_access_meta(candidate_sop_id)["tenant_id"] != tenant_id:
+                return True
+    idx = retrieval_index._index.get(candidate_sop_id)
+    if idx and idx.tenant_id != tenant_id:
+        return True
+    for job in list(governance_ledger._jobs.values()):
+        if job.sop_id.lower() == candidate_sop_id.lower() and job.tenant_id != tenant_id:
+            return True
+    return False
+
+
+def _allocate_sop_id(content_hash: str, tenant_id: str, override_sop_id: str = None) -> str:
+    base = sanitize_slug(override_sop_id) if override_sop_id else f"SOP-{content_hash[:6].upper()}"
+    if not _sop_id_owned_by_other_tenant(base, tenant_id):
+        return base
+    t_tag = re.sub(r"[^A-Za-z0-9]", "", tenant_id)[-4:].upper() or "TN"
+    cand = f"{base}_{t_tag}"
+    if not _sop_id_owned_by_other_tenant(cand, tenant_id):
+        return cand
+    n = 2
+    while _sop_id_owned_by_other_tenant(f"{cand}_{n}", tenant_id):
+        n += 1
+    return f"{cand}_{n}"
+
+
+def _latest_jobs_by_sha(tenant_id: str):
+    """Selects the latest non-duplicate job per content SHA-256 within `tenant_id`."""
     non_dup = {}
     dup_only = {}
     for job in list(governance_ledger._jobs.values()):
+        if job.tenant_id != tenant_id:
+            continue
         sha = job.content_sha256
         ts = job.updated_at or job.created_at or ""
         if job.current_state == "duplicate":
@@ -135,14 +196,21 @@ def _latest_jobs_by_sha():
 
 
 async def api_list_uploads(request: Request):
+    principal = authenticate_request(
+        request,
+        allowed_roles=HUMAN_ROLES,
+        human_only=True,
+        check_csrf=False,
+    )
+    tenant_id = principal.tenant_id
     manifest = read_manifest()
     manifest_updated = False
     files = []
 
-    pub_by_sop_id, pub_by_sha = _build_published_index()
-    latest_jobs_by_sha = _latest_jobs_by_sha()
+    pub_by_sop_id, pub_by_sha = _build_published_index(tenant_id)
+    latest_jobs_by_sha = _latest_jobs_by_sha(tenant_id)
 
-    # Build draft index: raw_filename -> {sop_id, modified, task_id, job_id, mtime}
+    # Build draft index scoped strictly to caller's tenant
     drafts_by_file = {}
     if os.path.exists(DRAFTS_DIR):
         for df_name in os.listdir(DRAFTS_DIR):
@@ -152,10 +220,14 @@ async def api_list_uploads(request: Request):
                     mtime = os.stat(df_path).st_mtime
                     with open(df_path, "r", encoding="utf-8") as f:
                         d_data = json.load(f)
+                    d_sid = d_data.get("sop_id") or os.path.splitext(df_name)[0].replace(".draft", "")
+                    d_meta = resolve_draft_access_meta(d_sid, draft_data=d_data)
+                    if d_meta["tenant_id"] != tenant_id:
+                        continue
                     raw_fn = d_data.get("raw_filename")
                     if raw_fn and (raw_fn not in drafts_by_file or mtime >= drafts_by_file[raw_fn]["mtime"]):
                         drafts_by_file[raw_fn] = {
-                            "sop_id": d_data.get("sop_id"),
+                            "sop_id": d_sid,
                             "task_id": d_data.get("task_id"),
                             "job_id": d_data.get("job_id"),
                             "mtime": mtime,
@@ -164,165 +236,160 @@ async def api_list_uploads(request: Request):
                 except Exception:
                     pass
 
-    if os.path.exists(UPLOADS_DIR):
-        for name in sorted(os.listdir(UPLOADS_DIR)):
-            if name.startswith("_") or os.path.isdir(os.path.join(UPLOADS_DIR, name)):
-                continue
+    for name, full_path in list_tenant_uploads(tenant_id):
+        stat = os.stat(full_path)
+        ext = os.path.splitext(name)[1].lower()
+        file_sha = _sha256_file(full_path, stat)
+        _m_key, manifest_info = get_manifest_entry(manifest, tenant_id, name)
+        manifest_sha = manifest_info.get("sha256")
+        manifest_matches_sha = (not manifest_sha) or (manifest_sha == file_sha)
 
-            full_path = os.path.join(UPLOADS_DIR, name)
-            stat = os.stat(full_path)
-            ext = os.path.splitext(name)[1].lower()
-            file_sha = _sha256_file(full_path, stat)
-            manifest_info = manifest.get(name, {})
-            manifest_sha = manifest_info.get("sha256")
-            manifest_matches_sha = (not manifest_sha) or (manifest_sha == file_sha)
+        latest_job = latest_jobs_by_sha.get(file_sha)
+        pub_rec = pub_by_sha.get(file_sha)
+        if not pub_rec and latest_job and latest_job.sop_id:
+            cand = pub_by_sop_id.get(latest_job.sop_id.lower())
+            if cand and latest_job.current_state == "published":
+                pub_rec = cand
+        if not pub_rec and manifest_matches_sha and manifest_info.get("sop_id"):
+            cand = pub_by_sop_id.get(str(manifest_info["sop_id"]).lower())
+            if cand and (manifest_info.get("published") or manifest_info.get("status") == "success"):
+                pub_rec = cand
+        if not pub_rec:
+            cand = pub_by_sop_id.get(f"sop-{file_sha[:6].lower()}")
+            if cand:
+                pub_rec = cand
 
-            latest_job = latest_jobs_by_sha.get(file_sha)
-            pub_rec = pub_by_sha.get(file_sha)
-            if not pub_rec and latest_job and latest_job.sop_id:
-                cand = pub_by_sop_id.get(latest_job.sop_id.lower())
-                if cand and latest_job.current_state == "published":
-                    pub_rec = cand
-            if not pub_rec and manifest_matches_sha and manifest_info.get("sop_id"):
-                cand = pub_by_sop_id.get(str(manifest_info["sop_id"]).lower())
-                if cand and (manifest_info.get("published") or manifest_info.get("status") == "success"):
-                    pub_rec = cand
-            if not pub_rec:
-                cand = pub_by_sop_id.get(f"sop-{file_sha[:6].lower()}")
-                if cand:
-                    pub_rec = cand
+        playbook_exists = pub_rec is not None
+        status = "pending"
+        sop_id = None
+        job_id = latest_job.job_id if latest_job else (manifest_info.get("job_id") if manifest_matches_sha else None)
+        job_state = latest_job.current_state if latest_job else None
+        task_id = ((latest_job.review_task or {}).get("task_id") if latest_job else None) or (
+            manifest_info.get("task_id") if manifest_matches_sha else None
+        )
+        processed_at = manifest_info.get("processed_at") if manifest_matches_sha else None
+        reason = None
+        reingest_allowed = True
 
-            playbook_exists = pub_rec is not None
-            status = "pending"
-            sop_id = None
-            job_id = latest_job.job_id if latest_job else (manifest_info.get("job_id") if manifest_matches_sha else None)
-            job_state = latest_job.current_state if latest_job else None
-            task_id = ((latest_job.review_task or {}).get("task_id") if latest_job else None) or (
-                manifest_info.get("task_id") if manifest_matches_sha else None
+        if playbook_exists:
+            status = "success"
+            sop_id = pub_rec["sop_id"]
+            processed_at = (
+                (manifest_info.get("published_at") if manifest_matches_sha else None)
+                or (latest_job.updated_at if latest_job else processed_at)
             )
-            processed_at = manifest_info.get("processed_at") if manifest_matches_sha else None
-            reason = None
-            reingest_allowed = True
-
-            if playbook_exists:
-                status = "success"
-                sop_id = pub_rec["sop_id"]
-                processed_at = (
-                    (manifest_info.get("published_at") if manifest_matches_sha else None)
-                    or (latest_job.updated_at if latest_job else processed_at)
-                )
-                reingest_allowed = False
-            elif latest_job and latest_job.current_state != "duplicate":
-                js = latest_job.current_state
-                sop_id = latest_job.sop_id
-                processed_at = latest_job.updated_at or processed_at
-                if js in ("awaiting_review", "changes_requested", "approved"):
-                    status = js
-                    if latest_job.approval_decision and js == "changes_requested":
-                        reason = latest_job.approval_decision.get("notes")
-                    # Repair legacy manifest entries that incorrectly marked awaiting_review as success
-                    if manifest.get(name, {}).get("status") == "success":
-                        manifest[name] = {
-                            "status": js,
-                            "sop_id": sop_id,
-                            "job_id": job_id,
-                            "task_id": task_id,
-                            "sha256": file_sha,
-                            "processed_at": processed_at,
-                        }
-                        manifest_updated = True
-                elif js == "rejected":
-                    hist_reason = (latest_job.history[-1].get("reason") if latest_job.history else "") or ""
-                    dec_notes = (latest_job.approval_decision or {}).get("notes") or ""
-                    if manifest_matches_sha and manifest_info.get("status") == "unactionable":
-                        status = "unactionable"
-                        reason = manifest_info.get("reason") or hist_reason
-                    else:
-                        status = "rejected"
-                        reason = dec_notes or hist_reason
-                elif js == "quarantined":
-                    status = "quarantined"
-                    inc = latest_job.incident or {}
-                    reason = f"Quarantined ({inc.get('secrets_count', 0)} secret(s) detected)" if inc else "Secret gate quarantine"
-                elif js in ("failed", "blocked"):
-                    status = "failed"
-                    reason = (latest_job.history[-1].get("reason") if latest_job.history else None) or "Pipeline execution failed"
-                elif js in ("soft_deleted", "archived", "deactivated"):
-                    status = "pending"
-                    sop_id = None
-                elif js == "published":
-                    status = "failed"
-                    reason = "Playbook file missing from disk (published record orphaned)"
-                elif name in _INGESTS:
-                    status = "awaiting_review" if js == "assessing" else js
-                else:
-                    status = "failed"
-                    reason = f"Interrupted in '{js}' state"
-            elif name in drafts_by_file and manifest_matches_sha:
-                d_info = drafts_by_file[name]
-                status = "awaiting_review"
-                sop_id = d_info.get("sop_id")
-                task_id = task_id or d_info.get("task_id")
-                job_id = job_id or d_info.get("job_id")
-                processed_at = d_info.get("modified")
-                if manifest.get(name, {}).get("status") != "awaiting_review":
-                    manifest[name] = {
-                        "status": "awaiting_review",
+            reingest_allowed = False
+        elif latest_job and latest_job.current_state != "duplicate":
+            js = latest_job.current_state
+            sop_id = latest_job.sop_id
+            processed_at = latest_job.updated_at or processed_at
+            if js in ("awaiting_review", "changes_requested", "approved"):
+                status = js
+                if latest_job.approval_decision and js == "changes_requested":
+                    reason = latest_job.approval_decision.get("notes")
+                if manifest_info.get("status") == "success":
+                    set_manifest_entry(manifest, tenant_id, name, {
+                        "status": js,
                         "sop_id": sop_id,
                         "job_id": job_id,
                         "task_id": task_id,
                         "sha256": file_sha,
+                        "tenant_id": tenant_id,
                         "processed_at": processed_at,
-                    }
+                    })
                     manifest_updated = True
-            elif manifest_info and manifest_matches_sha:
-                m_stat = manifest_info.get("status", "pending")
-                if m_stat == "success":
-                    # Playbook file no longer exists on disk and no live job exists
-                    status = "pending"
-                    sop_id = None
-                    del manifest[name]
+            elif js == "rejected":
+                hist_reason = (latest_job.history[-1].get("reason") if latest_job.history else "") or ""
+                dec_notes = (latest_job.approval_decision or {}).get("notes") or ""
+                if manifest_matches_sha and manifest_info.get("status") == "unactionable":
+                    status = "unactionable"
+                    reason = manifest_info.get("reason") or hist_reason
+                else:
+                    status = "rejected"
+                    reason = dec_notes or hist_reason
+            elif js == "quarantined":
+                status = "quarantined"
+                inc = latest_job.incident or {}
+                reason = f"Quarantined ({inc.get('secrets_count', 0)} secret(s) detected)" if inc else "Secret gate quarantine"
+            elif js in ("failed", "blocked"):
+                status = "failed"
+                reason = (latest_job.history[-1].get("reason") if latest_job.history else None) or "Pipeline execution failed"
+            elif js in ("soft_deleted", "archived", "deactivated"):
+                status = "pending"
+                sop_id = None
+            elif js == "published":
+                status = "failed"
+                reason = "Playbook file missing from disk (published record orphaned)"
+            elif (tenant_id, name) in _INGESTS:
+                status = "awaiting_review" if js == "assessing" else js
+            else:
+                status = "failed"
+                reason = f"Interrupted in '{js}' state"
+        elif name in drafts_by_file and manifest_matches_sha:
+            d_info = drafts_by_file[name]
+            status = "awaiting_review"
+            sop_id = d_info.get("sop_id")
+            task_id = task_id or d_info.get("task_id")
+            job_id = job_id or d_info.get("job_id")
+            processed_at = d_info.get("modified")
+            if manifest_info.get("status") != "awaiting_review":
+                set_manifest_entry(manifest, tenant_id, name, {
+                    "status": "awaiting_review",
+                    "sop_id": sop_id,
+                    "job_id": job_id,
+                    "task_id": task_id,
+                    "sha256": file_sha,
+                    "tenant_id": tenant_id,
+                    "processed_at": processed_at,
+                })
+                manifest_updated = True
+        elif manifest_info and manifest_matches_sha:
+            m_stat = manifest_info.get("status", "pending")
+            if m_stat == "success":
+                status = "pending"
+                sop_id = None
+                if del_manifest_entry(manifest, tenant_id, name):
                     manifest_updated = True
-                elif m_stat in ("awaiting_review", "changes_requested", "approved", "rejected", "quarantined", "failed", "unactionable"):
-                    status = m_stat
-                    sop_id = manifest_info.get("sop_id")
-                    reason = manifest_info.get("reason") or manifest_info.get("error")
-            elif name in manifest and not manifest_matches_sha:
-                del manifest[name]
+            elif m_stat in ("awaiting_review", "changes_requested", "approved", "rejected", "quarantined", "failed", "unactionable"):
+                status = m_stat
+                sop_id = manifest_info.get("sop_id")
+                reason = manifest_info.get("reason") or manifest_info.get("error")
+        elif manifest_info and not manifest_matches_sha:
+            if del_manifest_entry(manifest, tenant_id, name):
                 manifest_updated = True
 
-            # Pre-validate file against Gate 1
-            is_valid_gate1, gate1_err, meta = validate_sop_file(full_path)
+        is_valid_gate1, gate1_err, meta = validate_sop_file(full_path)
 
-            files.append({
-                "filename": name,
-                "extension": ext,
-                "size_bytes": stat.st_size,
-                "sha256": file_sha,
-                "modified": datetime.datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                "status": status,
-                "sop_id": sop_id,
-                "job_id": job_id,
-                "job_state": job_state,
-                "task_id": task_id,
-                "playbook_exists": playbook_exists,
-                "reingest_allowed": reingest_allowed and is_valid_gate1,
-                "reason": reason,
-                "processed_at": processed_at,
-                "gate1_passed": is_valid_gate1,
-                "gate1_error": gate1_err,
-                "page_count": meta.get("page_count"),
-                "mime_type": meta.get("mime_type"),
-            })
+        files.append({
+            "filename": name,
+            "tenant_id": tenant_id,
+            "extension": ext,
+            "size_bytes": stat.st_size,
+            "sha256": file_sha,
+            "modified": datetime.datetime.fromtimestamp(stat.st_mtime).isoformat(),
+            "status": status,
+            "sop_id": sop_id,
+            "job_id": job_id,
+            "job_state": job_state,
+            "task_id": task_id,
+            "playbook_exists": playbook_exists,
+            "reingest_allowed": reingest_allowed and is_valid_gate1,
+            "reason": reason,
+            "processed_at": processed_at,
+            "gate1_passed": is_valid_gate1,
+            "gate1_error": gate1_err,
+            "page_count": meta.get("page_count"),
+            "mime_type": meta.get("mime_type"),
+        })
 
     if manifest_updated:
         try:
-            with open(MANIFEST_PATH, "w", encoding="utf-8") as mf:
-                json.dump(manifest, mf, indent=2)
+            write_manifest(manifest)
         except Exception:
             pass
 
     return JSONResponse({
+        "tenant_id": tenant_id,
         "files": files,
         "total_files": len(files),
         "allowed_extensions": sorted(list(ALLOWED_EXTENSIONS)),
@@ -331,7 +398,13 @@ async def api_list_uploads(request: Request):
 
 
 async def api_upload_file(request: Request):
-    """Receive uploaded file and save to knowledge_base/_uploads/."""
+    """Receive uploaded file and save strictly inside knowledge_base/_uploads/<tenant_id>/."""
+    principal = authenticate_request(
+        request,
+        allowed_roles=HUMAN_ROLES,
+        human_only=True,
+        check_csrf=True,
+    )
     try:
         form = await request.form()
         upload = form.get("file")
@@ -355,16 +428,22 @@ async def api_upload_file(request: Request):
                 "error": f"File size ({len(content)/(1024*1024):.1f}MB) exceeds {max_mb:.0f}MB limit."
             }, status_code=400)
 
-        dest_path = os.path.join(UPLOADS_DIR, safe_name)
+        dest_dir = tenant_uploads_dir(principal.tenant_id)
+        os.makedirs(dest_dir, exist_ok=True)
+        dest_path = os.path.join(dest_dir, safe_name)
         with open(dest_path, "wb") as f:
             f.write(content)
 
-        # Immediate Gate 1 validation check
+        file_sha = hashlib.sha256(content).hexdigest()
+        record_upload_owner(principal.tenant_id, safe_name, principal.identity, sha256=file_sha)
+
         is_valid, err, meta = validate_sop_file(dest_path)
 
         return JSONResponse({
             "success": True,
             "filename": safe_name,
+            "tenant_id": principal.tenant_id,
+            "uploaded_by": principal.identity,
             "size_bytes": len(content),
             "gate1_passed": is_valid,
             "gate1_error": err,
@@ -374,32 +453,27 @@ async def api_upload_file(request: Request):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-# ---------------------------------------------------------------------------
-# Cancellation. An ingestion runs its slow LLM work in a worker thread, which cannot be killed
-# mid-call. "Stop" therefore (1) sets a flag the pipeline checks before every LLM call and
-# (2) lets this request return immediately; the thread stops at its next checkpoint and its
-# result is discarded. Everything that is saved happens in this request, after the thread.
-# ---------------------------------------------------------------------------
-
 class _IngestControl:
     def __init__(self, actor: str):
         self.event = threading.Event()
         self.actor = actor
 
 
-_INGESTS: dict = {}          # safe filename -> _IngestControl, for ingestions currently running
+_INGESTS: dict = {}  # (tenant_id, safe_name) -> _IngestControl
 
 
-def _begin_ingest(name: str, actor: str):
-    if name in _INGESTS:
+def _begin_ingest(tenant_id: str, name: str, actor: str):
+    key = (tenant_id, name)
+    if key in _INGESTS:
         return None
-    ctl = _INGESTS[name] = _IngestControl(actor)
+    ctl = _INGESTS[key] = _IngestControl(actor)
     return ctl
 
 
-def _end_ingest(name: str, ctl) -> None:
-    if _INGESTS.get(name) is ctl:
-        del _INGESTS[name]
+def _end_ingest(tenant_id: str, name: str, ctl) -> None:
+    key = (tenant_id, name)
+    if _INGESTS.get(key) is ctl:
+        del _INGESTS[key]
 
 
 async def _wait_for(event: threading.Event) -> None:
@@ -408,18 +482,16 @@ async def _wait_for(event: threading.Event) -> None:
 
 
 def _swallow(task) -> None:
-    """Ignore the outcome of a worker thread whose result nobody is waiting for any more."""
     if not task.cancelled():
         task.exception()
 
 
 async def _run_cancellable(ctl, fn, *args, **kwargs):
-    """Run blocking `fn` in a worker thread; give control back at once if the user cancels."""
     if ctl.event.is_set():
         raise IngestionCancelled()
 
     def call():
-        token = bind_cancel(ctl.event)       # lets the pipeline's check_cancelled() see this flag
+        token = bind_cancel(ctl.event)
         try:
             return fn(*args, **kwargs)
         finally:
@@ -430,49 +502,56 @@ async def _run_cancellable(ctl, fn, *args, **kwargs):
     done, _ = await asyncio.wait({work, watcher}, return_when=asyncio.FIRST_COMPLETED)
     if work in done:
         watcher.cancel()
-        return work.result()                 # re-raises the worker's own error, if any
-    work.add_done_callback(_swallow)         # cancelled: the thread winds down in the background
+        return work.result()
+    work.add_done_callback(_swallow)
     raise IngestionCancelled()
 
 
 async def api_cancel_ingest(request: Request):
-    """Ask a running ingestion to stop. Body: {"filename": "...", "actor": "<who>"}."""
+    """Ask a running ingestion in caller's tenant to stop."""
+    principal = authenticate_request(
+        request,
+        allowed_roles=HUMAN_ROLES,
+        human_only=True,
+        check_csrf=True,
+    )
     try:
         body = await request.json()
     except Exception:
         body = {}
     name = sanitize_filename(os.path.basename(str(body.get("filename", "")).strip()))
-    ctl = _INGESTS.get(name)
+    ctl = _INGESTS.get((principal.tenant_id, name))
     if not ctl:
         return JSONResponse({"status": "not_running", "filename": name})
-    actor = str(body.get("actor", "")).strip()
-    if actor:
-        ctl.actor = actor
+    # Never trust actor from body
+    ctl.actor = principal.identity
     ctl.event.set()
-    return JSONResponse({"status": "cancelling", "filename": name})
+    return JSONResponse({"status": "cancelling", "filename": name, "cancelled_by": principal.identity})
 
 
 async def api_ingest_single(request: Request):
-    """Trigger complete 14-state lifecycle processing for a single uploaded document.
-    Enforces secret scanning and human-in-the-loop review gate (halts before saving to sops/).
-    """
+    """Trigger complete 14-state lifecycle processing for a single tenant-owned upload."""
+    principal = authenticate_request(
+        request,
+        allowed_roles=HUMAN_ROLES,
+        human_only=True,
+        check_csrf=True,
+    )
     try:
         body = await request.json()
     except Exception:
         body = {}
 
-    filename = body.get("filename", "").strip()
+    filename = str(body.get("filename", "")).strip()
     if not filename:
         return JSONResponse({"error": "filename is required"}, status_code=400)
 
-    # Sanitize and resolve file path
     safe_name = sanitize_filename(os.path.basename(filename))
-    target_path = os.path.join(UPLOADS_DIR, safe_name)
+    target_path = resolve_tenant_upload(principal.tenant_id, safe_name)
 
-    if not os.path.exists(target_path):
+    if not target_path or not os.path.exists(target_path):
         return JSONResponse({"error": f"File '{safe_name}' not found in uploads directory"}, status_code=404)
 
-    # Gate 1 check
     is_valid, err_msg, meta = validate_sop_file(target_path)
     if not is_valid:
         return JSONResponse({
@@ -482,15 +561,22 @@ async def api_ingest_single(request: Request):
             "metadata": meta
         }, status_code=400)
 
-    ctl = _begin_ingest(safe_name, body.get("uploaded_by", "analyst@example.com"))
+    # Ignore body.uploaded_by & body.tenant_id strictly; derive both from token!
+    actor = principal.identity
+    tenant_id = principal.tenant_id
+
+    ctl = _begin_ingest(tenant_id, safe_name, actor)
     if ctl is None:
-        return JSONResponse({"success": False, "status": "already_running",
-                             "error": f"'{safe_name}' is already being processed."}, status_code=409)
+        return JSONResponse({
+            "success": False,
+            "status": "already_running",
+            "error": f"'{safe_name}' is already being processed."
+        }, status_code=409)
+
     job = None
     job_id = None
     content_hash = None
     try:
-        auto_approve = body.get("auto_approve", False)
         override_sop_id = body.get("sop_id")
         reingest = bool(body.get("reingest", False))
 
@@ -498,11 +584,9 @@ async def api_ingest_single(request: Request):
             content_bytes = f.read()
         content_hash = hashlib.sha256(content_bytes).hexdigest()
 
-        tenant_id = body.get("tenant_id", "tn_northwind")
-        sop_id = override_sop_id or f"SOP-{content_hash[:6].upper()}"
+        sop_id = _allocate_sop_id(content_hash, tenant_id, override_sop_id=override_sop_id)
 
-        # Never silently re-ingest if a live published playbook already exists on disk
-        pub_by_sop_id, pub_by_sha = _build_published_index()
+        pub_by_sop_id, pub_by_sha = _build_published_index(tenant_id)
         live_pub = pub_by_sha.get(content_hash) or pub_by_sop_id.get(sop_id.lower())
         if live_pub:
             return JSONResponse({
@@ -512,7 +596,6 @@ async def api_ingest_single(request: Request):
                 "message": f"Playbook {live_pub['sop_id']} is already published on disk. Delete the playbook first before re-ingesting.",
             }, status_code=409)
 
-        # If explicitly re-ingesting and no playbook exists on disk, retire any orphaned 'published' ledger job
         if reingest:
             for existing in list(governance_ledger._jobs.values()):
                 if (
@@ -524,7 +607,7 @@ async def api_ingest_single(request: Request):
                         governance_ledger.transition_state(
                             existing.job_id,
                             "soft_deleted",
-                            actor=body.get("uploaded_by", "analyst@example.com"),
+                            actor=actor,
                             reason="Rescued orphaned published ledger record during re-ingestion (playbook absent on disk).",
                         )
                     except Exception:
@@ -535,7 +618,6 @@ async def api_ingest_single(request: Request):
         parser_type, segments = await _run_cancellable(ctl, extract_ordered_sop_content, target_path)
         raw_text = "\n\n".join(s["content"] for s in segments if s.get("type") == "text")
 
-        # Secret Scanning Gate (Section 10)
         _, dlp_stats = redact_sensitive_dlp(raw_text)
         secrets_count = dlp_stats.get("passwords", 0) + dlp_stats.get("api_keys", 0) + dlp_stats.get("private_keys", 0)
 
@@ -544,7 +626,7 @@ async def api_ingest_single(request: Request):
             sop_id=sop_id,
             tenant_id=tenant_id,
             content_sha256=content_hash,
-            uploaded_by=body.get("uploaded_by", "analyst@example.com"),
+            uploaded_by=actor,
             allow_supersede=reingest,
         )
 
@@ -562,11 +644,12 @@ async def api_ingest_single(request: Request):
                     continue
                 df_path = os.path.join(DRAFTS_DIR, df_name)
                 try:
-                    remove_it = df_name == f"{sop_id}.draft.json"
-                    if not remove_it:
-                        with open(df_path, "r", encoding="utf-8") as df:
-                            d_data = json.load(df)
-                        remove_it = d_data.get("raw_filename") == safe_name
+                    with open(df_path, "r", encoding="utf-8") as df:
+                        d_data = json.load(df)
+                    d_sid = d_data.get("sop_id") or os.path.splitext(df_name)[0].replace(".draft", "")
+                    if resolve_draft_access_meta(d_sid, draft_data=d_data)["tenant_id"] != tenant_id:
+                        continue
+                    remove_it = df_name == f"{sop_id}.draft.json" or d_data.get("raw_filename") == safe_name
                     if remove_it:
                         os.remove(df_path)
                 except Exception:
@@ -585,17 +668,17 @@ async def api_ingest_single(request: Request):
             )
             try:
                 cur_manifest = read_manifest()
-                cur_manifest[safe_name] = {
+                set_manifest_entry(cur_manifest, tenant_id, safe_name, {
                     "status": "quarantined",
                     "reason": f"Live credentials detected ({secrets_count}).",
                     "incident_id": incident.incident_id,
                     "job_id": job.job_id,
                     "sop_id": sop_id,
                     "sha256": content_hash,
-                    "processed_at": datetime.datetime.now().isoformat(),
-                }
-                with open(MANIFEST_PATH, "w", encoding="utf-8") as mf:
-                    json.dump(cur_manifest, mf, indent=2)
+                    "tenant_id": tenant_id,
+                    "processed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                })
+                write_manifest(cur_manifest)
             except Exception:
                 pass
             return JSONResponse({
@@ -607,7 +690,7 @@ async def api_ingest_single(request: Request):
                 "incident": incident.__dict__,
             }, status_code=403)
 
-        # Stage 2 AST Sandbox Check (Section 10 parity with CLI runner — halts before any AI calls)
+        # Stage 2 AST Sandbox Check
         ast_threats = scan_raw_sop_for_ast_threats(raw_text)
         if ast_threats:
             unique_descs = list(dict.fromkeys(
@@ -627,7 +710,7 @@ async def api_ingest_single(request: Request):
             )
             try:
                 cur_manifest = read_manifest()
-                cur_manifest[safe_name] = {
+                set_manifest_entry(cur_manifest, tenant_id, safe_name, {
                     "status": "failed",
                     "error_code": "ast_threat_detected",
                     "reason": block_reason,
@@ -635,10 +718,10 @@ async def api_ingest_single(request: Request):
                     "job_id": job.job_id,
                     "sop_id": sop_id,
                     "sha256": content_hash,
-                    "processed_at": datetime.datetime.now().isoformat(),
-                }
-                with open(MANIFEST_PATH, "w", encoding="utf-8") as mf:
-                    json.dump(cur_manifest, mf, indent=2)
+                    "tenant_id": tenant_id,
+                    "processed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                })
+                write_manifest(cur_manifest)
             except Exception:
                 pass
             return JSONResponse({
@@ -652,26 +735,36 @@ async def api_ingest_single(request: Request):
 
         governance_ledger.transition_state(job_id, "structuring")
 
-        draft = await _run_cancellable(ctl, jit_converter.plan_okf_from_raw, target_path, override_sop_id=sop_id, pre_extracted_text=raw_text)
+        draft = await _run_cancellable(
+            ctl,
+            jit_converter.plan_okf_from_raw,
+            target_path,
+            override_sop_id=sop_id,
+            pre_extracted_text=raw_text,
+        )
 
         if isinstance(draft, dict) and not draft.get("raw_text"):
             draft["raw_text"] = raw_text
 
         if draft.get("is_executable") is False or draft.get("frontmatter", {}).get("is_executable") is False:
-            unexec_reason = draft.get("unexecutable_reason") or draft.get("frontmatter", {}).get("unexecutable_reason") or "SOP is not actionable as an automated procedure."
+            unexec_reason = (
+                draft.get("unexecutable_reason")
+                or draft.get("frontmatter", {}).get("unexecutable_reason")
+                or "SOP is not actionable as an automated procedure."
+            )
             governance_ledger.transition_state(job_id, "rejected", reason=unexec_reason)
             try:
                 cur_manifest = read_manifest()
-                cur_manifest[safe_name] = {
+                set_manifest_entry(cur_manifest, tenant_id, safe_name, {
                     "status": "unactionable",
                     "reason": unexec_reason,
                     "job_id": job.job_id,
                     "sop_id": sop_id,
                     "sha256": content_hash,
-                    "processed_at": datetime.datetime.now().isoformat(),
-                }
-                with open(MANIFEST_PATH, "w", encoding="utf-8") as mf:
-                    json.dump(cur_manifest, mf, indent=2)
+                    "tenant_id": tenant_id,
+                    "processed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                })
+                write_manifest(cur_manifest)
             except Exception:
                 pass
             return JSONResponse({
@@ -689,7 +782,7 @@ async def api_ingest_single(request: Request):
             draft,
             raw_text=raw_text,
             tenant_id=tenant_id,
-            uploaded_by=body.get("uploaded_by", "analyst@example.com"),
+            uploaded_by=actor,
             vlm_reports=draft.get("vlm_reports") if isinstance(draft, dict) else None,
         )
         if isinstance(canonical_draft.get("source"), dict):
@@ -701,7 +794,6 @@ async def api_ingest_single(request: Request):
         if ctl.event.is_set():
             raise IngestionCancelled()
 
-        # Human-in-the-Loop review gate (A5 Coordinator) — HALT HERE BEFORE COMMITTING TO DISK!
         task = governance_ledger.create_review_task(
             job_id=job_id,
             confidentiality_score=conf_score,
@@ -714,28 +806,29 @@ async def api_ingest_single(request: Request):
                 "draft": draft,
                 "canonical_draft": canonical_draft,
                 "raw_filename": safe_name,
+                "tenant_id": tenant_id,
+                "uploaded_by": actor,
                 "task_id": task.task_id,
                 "job_id": job_id,
                 "sop_id": sop_id,
             }, df, indent=2)
 
-        # Update processed files manifest
         try:
             cur_manifest = read_manifest()
-            cur_manifest[safe_name] = {
+            set_manifest_entry(cur_manifest, tenant_id, safe_name, {
                 "status": "awaiting_review",
                 "sop_id": sop_id,
                 "job_id": job_id,
                 "task_id": task.task_id,
                 "sha256": content_hash,
-                "processed_at": datetime.datetime.now().isoformat(),
-            }
-            with open(MANIFEST_PATH, "w", encoding="utf-8") as mf:
-                json.dump(cur_manifest, mf, indent=2)
+                "tenant_id": tenant_id,
+                "processed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            })
+            write_manifest(cur_manifest)
         except Exception:
             pass
 
-        # Write Comprehensive Ingestion Audit & Debug Trace to knowledge_base/logs/debug/
+        # Write Debug Audit Trace & record tenant ownership
         try:
             os.makedirs(LOGS_DIR, exist_ok=True)
             now_str = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
@@ -752,8 +845,8 @@ async def api_ingest_single(request: Request):
                 f"  Source Document:      {safe_name}",
                 f"  Content SHA-256:      {content_hash}",
                 f"  Tenant ID:            {tenant_id}",
-                f"  Uploaded By:          {body.get('uploaded_by', 'analyst@example.com')}",
-                f"  Execution Time:       {datetime.datetime.now().isoformat()}",
+                f"  Uploaded By:          {actor}",
+                f"  Execution Time:       {datetime.datetime.now(datetime.timezone.utc).isoformat()}",
                 "=" * 70,
                 "",
                 "--- PHASE 1: EXTRACTION & PARSING (AGENT A1) ---",
@@ -776,9 +869,9 @@ async def api_ingest_single(request: Request):
             for st in steps_list:
                 log_lines.append(f"    • Step {st.get('step_number')}: {st.get('sop_step_description')}")
                 log_lines.append(f"      - Command/Action: {st.get('command') or st.get('function_name')}")
-                if st.get('step_reasoning'):
+                if st.get("step_reasoning"):
                     log_lines.append(f"      - Reasoning:      {st.get('step_reasoning')}")
-                if st.get('source_quote'):
+                if st.get("source_quote"):
                     log_lines.append(f"      - Source Quote:   \"{st.get('source_quote')}\"")
             log_lines.extend([
                 "",
@@ -798,12 +891,15 @@ async def api_ingest_single(request: Request):
             ])
             with open(debug_log_path, "w", encoding="utf-8") as dlf:
                 dlf.write("\n".join(log_lines))
+            record_log_owner(debug_log_name, tenant_id)
         except Exception:
             pass
 
         return JSONResponse({
             "success": True,
             "status": "awaiting_review",
+            "tenant_id": tenant_id,
+            "uploaded_by": actor,
             "job_id": job.job_id,
             "sop_id": sop_id,
             "task_id": task.task_id,
@@ -816,7 +912,6 @@ async def api_ingest_single(request: Request):
             "message": "SOP successfully structured and assessed. Human review required before saving to knowledge base."
         })
     except IngestionCancelled:
-
         if job is not None and job.current_state != "duplicate":
             try:
                 governance_ledger.transition_state(job_id, "failed", actor=ctl.actor, reason=f"Cancelled by {ctl.actor}")
@@ -836,16 +931,16 @@ async def api_ingest_single(request: Request):
                 pass
         try:
             cur_manifest = read_manifest()
-            cur_manifest[safe_name] = {
+            set_manifest_entry(cur_manifest, tenant_id, safe_name, {
                 "status": "failed",
                 "error": str(e),
                 "reason": str(e),
                 "job_id": job.job_id if job is not None else None,
                 "sha256": content_hash,
-                "processed_at": datetime.datetime.now().isoformat(),
-            }
-            with open(MANIFEST_PATH, "w", encoding="utf-8") as mf:
-                json.dump(cur_manifest, mf, indent=2)
+                "tenant_id": tenant_id,
+                "processed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            })
+            write_manifest(cur_manifest)
         except Exception:
             pass
         return JSONResponse({
@@ -854,10 +949,16 @@ async def api_ingest_single(request: Request):
             "error": str(e)
         }, status_code=500)
     finally:
-        _end_ingest(safe_name, ctl)
+        _end_ingest(tenant_id, safe_name, ctl)
 
 
 async def api_run_scan_cycle(request: Request):
+    authenticate_request(
+        request,
+        allowed_roles=HUMAN_ROLES,
+        human_only=True,
+        check_csrf=True,
+    )
     return JSONResponse(
         {
             "success": False,
@@ -874,19 +975,25 @@ async def api_run_scan_cycle(request: Request):
 
 
 async def api_plan_preview(request: Request):
+    principal = authenticate_request(
+        request,
+        allowed_roles=HUMAN_ROLES,
+        human_only=True,
+        check_csrf=True,
+    )
     try:
         body = await request.json()
     except Exception:
         body = {}
 
-    filename = body.get("filename", "").strip()
+    filename = str(body.get("filename", "")).strip()
     if not filename:
         return JSONResponse({"error": "filename is required"}, status_code=400)
 
     safe_name = sanitize_filename(os.path.basename(filename))
-    target_path = os.path.join(UPLOADS_DIR, safe_name)
+    target_path = resolve_tenant_upload(principal.tenant_id, safe_name)
 
-    if not os.path.exists(target_path):
+    if not target_path or not os.path.exists(target_path):
         return JSONResponse({"error": f"File '{safe_name}' not found"}, status_code=404)
 
     try:
@@ -894,11 +1001,11 @@ async def api_plan_preview(request: Request):
         return JSONResponse({
             "success": True,
             "draft": draft,
-            "filename": safe_name
+            "filename": safe_name,
+            "tenant_id": principal.tenant_id,
         })
     except Exception as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
-
 
 
 ingestion_router = APIRouter(tags=["Document Ingestion & Staging"])
@@ -910,4 +1017,3 @@ ingestion_router.add_api_route("/api/uploads/scan", api_run_scan_cycle, methods=
 ingestion_router.add_api_route("/api/plan-preview", api_plan_preview, methods=["POST"], summary="Dry-Run JIT Execution Plan Preview")
 
 ingestion_routes = list(ingestion_router.routes)
-

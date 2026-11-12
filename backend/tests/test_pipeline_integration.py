@@ -11,6 +11,7 @@ import os
 import sys
 import json
 import uuid
+import glob
 import tempfile
 import unittest
 from starlette.testclient import TestClient
@@ -19,6 +20,8 @@ from starlette.testclient import TestClient
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from server import app, governance_ledger, retrieval_index
+from auth.models import AuthPrincipal
+from auth.tokens import create_access_token
 from agents.a2_structuring.canonical_builder import (
     build_canonical_sop_from_draft,
     write_canonical_sop_json,
@@ -28,11 +31,32 @@ from utils.security import verify_playbook_before_execution
 from schemas.canonical_sop_schema import validate_canonical_sop_dict
 
 
+def _make_auth_header(identity: str, roles, *, tenant_id="tn_northwind", clearance="L1", actor_type="human"):
+    principal = AuthPrincipal(
+        sub=f"usr_{uuid.uuid4().hex[:10]}",
+        identity=identity,
+        display_name=identity,
+        roles=roles,
+        tenant_id=tenant_id,
+        clearance=clearance,
+        actor_type=actor_type,
+        agent_id=identity if actor_type == "agent" else None,
+    )
+    token, _, _ = create_access_token(principal, ttl_seconds=600)
+    return {"Authorization": f"Bearer {token}"}
+
+
 class TestPipelineIntegration(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
         os.environ["ELONE_ALLOW_INSECURE_DEV_KEY"] = "1"
+        cls.hdr_alice = _make_auth_header("alice@example.com", ["process_owner"], clearance="L1")
+        cls.hdr_bob = _make_auth_header("bob@example.com", ["process_owner"], clearance="L1")
+        cls.hdr_charlie = _make_auth_header("charlie@example.com", ["security_reviewer"], clearance="L2")
+        cls.hdr_reviewer = _make_auth_header("human_reviewer@corp.com", ["process_owner"], clearance="L1")
+        cls.hdr_agent_l1 = _make_auth_header("agent_l1", ["agent"], clearance="L1", actor_type="agent")
+        cls.hdr_agent_l2 = _make_auth_header("agent_l2", ["agent"], clearance="L2", actor_type="agent")
 
     def setUp(self):
         self.client = TestClient(app)
@@ -117,11 +141,11 @@ class TestPipelineIntegration(unittest.TestCase):
                 os.remove(md_path)
 
     def test_03_api_governance_jobs_and_review_tasks(self):
-        """REST APIs return jobs list and review tasks with live overdue status."""
-        uid = uuid.uuid4().hex[:6]
+        """REST APIs return tenant/clearance-filtered jobs list and review tasks with live overdue status."""
+        uid = uuid.uuid4().hex[:6].upper()
         job_id = f"job_api_{uid}"
         sop_id = f"SOP-API-{uid}"
-        job = governance_ledger.start_job(
+        governance_ledger.start_job(
             job_id=job_id,
             sop_id=sop_id,
             tenant_id="tn_northwind",
@@ -135,14 +159,14 @@ class TestPipelineIntegration(unittest.TestCase):
         task = governance_ledger.create_review_task(job_id, 35, "L1")
 
         # 1. GET /api/governance/jobs
-        resp = self.client.get("/api/governance/jobs")
+        resp = self.client.get("/api/governance/jobs", headers=self.hdr_bob)
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertIn("jobs", data)
         self.assertTrue(any(j["job_id"] == job_id for j in data["jobs"]))
 
         # 2. GET /api/governance/review-tasks
-        resp = self.client.get("/api/governance/review-tasks")
+        resp = self.client.get("/api/governance/review-tasks", headers=self.hdr_bob)
         self.assertEqual(resp.status_code, 200)
         tasks_data = resp.json()
         self.assertIn("tasks", tasks_data)
@@ -151,11 +175,11 @@ class TestPipelineIntegration(unittest.TestCase):
         self.assertIn("is_overdue", matching_task)
 
     def test_04_api_record_decision_separation_of_duties_enforced(self):
-        """Self-approval is rejected by API with 403 and error_code 'separation_of_duties'."""
-        uid = uuid.uuid4().hex[:6]
+        """Self-approval is rejected with 403 separation_of_duties even if body spoofs another reviewer."""
+        uid = uuid.uuid4().hex[:6].upper()
         job_id = f"job_sod_{uid}"
         sop_id = f"SOP-SOD-{uid}"
-        job = governance_ledger.start_job(
+        governance_ledger.start_job(
             job_id=job_id,
             sop_id=sop_id,
             tenant_id="tn_northwind",
@@ -168,39 +192,40 @@ class TestPipelineIntegration(unittest.TestCase):
         governance_ledger.transition_state(job_id, "assessing")
         task = governance_ledger.create_review_task(job_id, 20, "L0")
 
-        # Alice attempts to approve her own document -> 403 Forbidden!
+        # Alice uses her own token (even trying to spoof reviewer=bob@example.com in body) -> 403 Forbidden!
         resp = self.client.post(
             f"/api/governance/review-tasks/{task.task_id}/decision",
+            headers=self.hdr_alice,
             json={
                 "decision": "approve",
-                "reviewer": "alice@example.com",
+                "reviewer": "bob@example.com",
                 "actor_type": "human",
             },
         )
         self.assertEqual(resp.status_code, 403)
         self.assertEqual(resp.json().get("error_code"), "separation_of_duties")
 
-        # Bob (independent human) approves -> 200 Success!
+        # Bob (independent authenticated human) approves -> 200 Success, stamped with Bob's token identity
         resp = self.client.post(
             f"/api/governance/review-tasks/{task.task_id}/decision",
+            headers=self.hdr_bob,
             json={
                 "decision": "approve",
-                "reviewer": "bob@example.com",
-                "actor_type": "human",
                 "traceability_pct": 95.0,
                 "completeness_pct": 90.0,
             },
         )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json().get("job_state"), "approved")
+        self.assertEqual(resp.json().get("reviewer"), "bob@example.com")
 
     def test_05_api_publish_and_downstream_search(self):
-        """Approved SOP publishes via API and becomes searchable with clearance filtering."""
-        uid = uuid.uuid4().hex[:6]
+        """Approved SOP publishes via API and becomes searchable strictly by token clearance."""
+        uid = uuid.uuid4().hex[:6].upper()
         job_id = f"job_pub_{uid}"
         sop_id = f"SOP-PUB-{uid}"
         content_hash = f"hash_pub_{uid}"
-        job = governance_ledger.start_job(
+        governance_ledger.start_job(
             job_id=job_id,
             sop_id=sop_id,
             tenant_id="tn_northwind",
@@ -211,17 +236,15 @@ class TestPipelineIntegration(unittest.TestCase):
         governance_ledger.transition_state(job_id, "scanning")
         governance_ledger.transition_state(job_id, "structuring")
         governance_ledger.transition_state(job_id, "assessing")
-        task = governance_ledger.create_review_task(job_id, 55, "L2")  # L2 Confidential
+        task = governance_ledger.create_review_task(job_id, 55, "L2")  # L2 Confidential -> Security reviewer
 
-        # Approve
-        self.client.post(
+        # Security reviewer Charlie (L2) approves
+        dec_resp = self.client.post(
             f"/api/governance/review-tasks/{task.task_id}/decision",
-            json={
-                "decision": "approve",
-                "reviewer": "charlie@example.com",
-                "actor_type": "human",
-            },
+            headers=self.hdr_charlie,
+            json={"decision": "approve"},
         )
+        self.assertEqual(dec_resp.status_code, 200, dec_resp.text)
 
         # Publish via POST /api/governance/sops/{sop_id}/publish
         canonical_sop = {
@@ -239,6 +262,7 @@ class TestPipelineIntegration(unittest.TestCase):
         }
         resp = self.client.post(
             f"/api/governance/sops/{sop_id}/publish",
+            headers=self.hdr_charlie,
             json={"canonical_sop": canonical_sop},
         )
         self.assertEqual(resp.status_code, 200)
@@ -246,27 +270,26 @@ class TestPipelineIntegration(unittest.TestCase):
         self.assertEqual(data.get("status"), "published")
         self.assertTrue(data.get("citation").startswith(f"{sop_id}@v1#"))
 
-        # Test Downstream Search: L1 agent cannot see L2 SOP
+        # Test Downstream Search: L1 agent cannot see L2 SOP even if spoofing clearance_level=L2 in body
         resp_l1 = self.client.post(
             "/api/governance/downstream/search",
-            json={
-                "query": f"vault tokens {uid}",
-                "tenant_id": "tn_northwind",
-                "clearance_level": "L1",
-            },
-        )
-        self.assertEqual(resp_l1.status_code, 200)
-        returned_l1_ids = {r["sop_id"] for r in resp_l1.json()["results"]}
-        self.assertNotIn(sop_id, returned_l1_ids)
-
-        # Test Downstream Search: L2 agent CAN see L2 SOP
-        resp_l2 = self.client.post(
-            "/api/governance/downstream/search",
+            headers=self.hdr_agent_l1,
             json={
                 "query": f"vault tokens {uid}",
                 "tenant_id": "tn_northwind",
                 "clearance_level": "L2",
             },
+        )
+        self.assertEqual(resp_l1.status_code, 200)
+        returned_l1_ids = {r["sop_id"] for r in resp_l1.json()["results"]}
+        self.assertNotIn(sop_id, returned_l1_ids)
+        self.assertEqual(resp_l1.json().get("caller_clearance"), "L1")
+
+        # Test Downstream Search: L2 agent CAN see L2 SOP
+        resp_l2 = self.client.post(
+            "/api/governance/downstream/search",
+            headers=self.hdr_agent_l2,
+            json={"query": f"vault tokens {uid}"},
         )
         self.assertEqual(resp_l2.status_code, 200)
         returned_l2_ids = {r["sop_id"] for r in resp_l2.json()["results"]}
@@ -274,12 +297,13 @@ class TestPipelineIntegration(unittest.TestCase):
 
     def test_06_human_in_the_loop_before_saving(self):
         """Ingestion creates review task and halts at awaiting_review without saving to sops/."""
-        import glob
         from unittest.mock import patch
-        uid = uuid.uuid4().hex[:6]
+        uid = uuid.uuid4().hex[:6].upper()
         sop_id = f"SOP-TEST-{uid}"
         filename = f"test_sop_{uid}.txt"
-        uploads_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "knowledge_base", "_uploads"))
+        uploads_dir = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "knowledge_base", "_uploads", "tn_northwind")
+        )
         filepath = os.path.join(uploads_dir, filename)
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         with open(filepath, "w", encoding="utf-8") as f:
@@ -328,46 +352,50 @@ class TestPipelineIntegration(unittest.TestCase):
             "validation_errors": [],
         }
 
+        sops_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "knowledge_base", "sops"))
         try:
             with patch("api.routes_ingestion.jit_converter.plan_okf_from_raw", return_value=mock_draft):
-                resp = self.client.post("/api/uploads/ingest", json={"filename": filename, "sop_id": sop_id})
-            self.assertEqual(resp.status_code, 200)
+                resp = self.client.post(
+                    "/api/uploads/ingest",
+                    headers=self.hdr_alice,
+                    json={"filename": filename, "sop_id": sop_id},
+                )
+            self.assertEqual(resp.status_code, 200, resp.text)
             data = resp.json()
             self.assertEqual(data.get("status"), "awaiting_review")
             self.assertIn("task_id", data)
-            resp_sop_id = data.get("sop_id")
-            self.assertEqual(resp_sop_id, sop_id)
+            self.assertEqual(data.get("uploaded_by"), "alice@example.com")
+            self.assertEqual(data.get("sop_id"), sop_id)
 
             # Check that the playbook was NOT saved to sops/ yet!
-            sops_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "knowledge_base", "sops"))
             playbook_matches = glob.glob(os.path.join(sops_dir, "**", f"{sop_id}.md"), recursive=True)
             self.assertEqual(len(playbook_matches), 0, "Playbook should not be committed to sops/ before human approval!")
 
-            # Approve via Review Task
+            # Approve via Review Task using independent human reviewer token
             task_id = data.get("task_id")
             app_resp = self.client.post(
                 f"/api/governance/review-tasks/{task_id}/decision",
-                json={
-                    "decision": "approve",
-                    "reviewer": "human_reviewer@corp.com",
-                    "actor_type": "human",
-                },
+                headers=self.hdr_reviewer,
+                json={"decision": "approve"},
             )
-            self.assertEqual(app_resp.status_code, 200)
+            self.assertEqual(app_resp.status_code, 200, app_resp.text)
 
             # Publish
-            pub_resp = self.client.post(f"/api/governance/sops/{sop_id}/publish", json={})
-            self.assertEqual(pub_resp.status_code, 200)
+            pub_resp = self.client.post(
+                f"/api/governance/sops/{sop_id}/publish",
+                headers=self.hdr_reviewer,
+                json={},
+            )
+            self.assertEqual(pub_resp.status_code, 200, pub_resp.text)
 
             # NOW verify that the playbook is committed to disk!
             committed_matches = glob.glob(os.path.join(sops_dir, "**", f"{sop_id}.md"), recursive=True)
             self.assertEqual(len(committed_matches), 1, "Playbook must be committed to sops/ after human publication!")
-
-            # Cleanup committed file
-            for p in committed_matches:
-                if os.path.exists(p):
-                    os.remove(p)
         finally:
+            for pattern in (f"{sop_id}.md", f"{sop_id}.canonical.json"):
+                for p in glob.glob(os.path.join(sops_dir, "**", pattern), recursive=True):
+                    if os.path.exists(p):
+                        os.remove(p)
             if os.path.exists(filepath):
                 os.remove(filepath)
 

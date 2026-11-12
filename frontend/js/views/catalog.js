@@ -1,11 +1,11 @@
 /**
- * Catalog — what downstream agents can retrieve. Published-SOP counts per
- * clearance tier plus a search probe that behaves exactly like an agent query
- * (tenant isolation + clearance gating, every query audited).
+ * Catalog — published-SOP counts per clearance tier plus a retrieval probe
+ * scoped strictly to the signed-in caller's token tenant and clearance tier.
  */
 
 import { api } from '../api.js';
-import { esc, icon, fmt, store, busy, tierBadge, registerActions, emptyState, jsonBlock } from '../ui.js';
+import { getUser } from '../auth.js';
+import { esc, icon, fmt, store, busy, tierBadge, registerActions, emptyState } from '../ui.js';
 
 const TIERS = [
   ['L0', 'Public', 'Anyone, any agent'],
@@ -16,9 +16,9 @@ const TIERS = [
 
 function resultsHtml(res) {
   const results = res.results || [];
-  const caller = `<span class="tiny muted">Searched as tenant <b>${esc(res.caller_tenant)}</b> at clearance ${tierBadge(res.caller_clearance)}</span>`;
+  const caller = `<span class="tiny muted">Searched as <b>${esc(res.caller_identity || 'session')}</b> · tenant <b>${esc(res.caller_tenant)}</b> at clearance ${tierBadge(res.caller_clearance)}</span>`;
   if (!results.length) {
-    return `<div class="panel-pad">${caller}${emptyState({ icon: 'search', title: 'No SOPs visible', text: 'Nothing matched, or matching SOPs sit above this clearance tier or belong to another tenant.' })}</div>`;
+    return `<div class="panel-pad">${caller}${emptyState({ icon: 'search', title: 'No SOPs visible', text: 'Nothing matched, or matching SOPs sit above your clearance tier or belong to another tenant.' })}</div>`;
   }
   return `
     <div class="panel-pad stack-sm">${caller}</div>
@@ -49,11 +49,11 @@ registerActions({
   'catalog-search': async el => {
     const v = id => document.getElementById(id).value.trim();
     const form = {
-      query: v('cat-query'), tenant_id: v('cat-tenant'), agent_id: v('cat-agent'),
-      agent_persona: v('cat-persona') || undefined, department: v('cat-dept') || undefined,
-      clearance_level: v('cat-clearance'), limit: Number(v('cat-limit')) || 10,
+      query: v('cat-query'),
+      department: v('cat-dept') || undefined,
+      limit: Number(v('cat-limit')) || 10,
     };
-    store.set('catalog-form', form);
+    store.set('catalog-probe', form);
     const out = document.getElementById('cat-results');
     const done = busy(el);
     try {
@@ -69,20 +69,28 @@ export default {
   label: 'Agent catalog',
   icon: 'search',
   title: 'Downstream agent catalog',
-  subtitle: 'Published SOPs as downstream agents see them, gated by tenant and clearance tier.',
+  subtitle: 'Published SOPs visible at your tenant and clearance tier.',
 
   load: () => api.getDownstreamStats(),
 
   render(stats) {
+    const user = getUser() || {};
+    const tenantId = stats.tenant_id || user.tenant_id || '—';
+    const userTier = user.clearance || 'L1';
     const tiers = stats.by_tier || {};
-    const f = { query: '', tenant_id: 'tn_northwind', agent_id: 'dashboard_probe', agent_persona: '', department: '', clearance_level: 'L1', limit: 10, ...store.get('catalog-form', {}) };
+    const saved = store.get('catalog-probe', {});
+    const f = {
+      query: saved.query || '',
+      department: saved.department || '',
+      limit: saved.limit || 10,
+    };
     return `
       <div class="view-stack">
         <div class="panel panel-flush">
           <div class="panel-header">
             <div>
               <div class="panel-title">${icon('database')}Published SOPs by clearance tier</div>
-              <div class="panel-subtitle">An agent can only retrieve SOPs at or below its own clearance, within its own tenant.</div>
+              <div class="panel-subtitle">Downstream agents and operators only retrieve SOPs at or below their token clearance within <b>${esc(tenantId)}</b>.</div>
             </div>
             <span class="badge-tag">${fmt.num(stats.total_published || 0)} published</span>
           </div>
@@ -104,19 +112,19 @@ export default {
         <div class="panel panel-flush">
           <div class="panel-header">
             <div>
-              <div class="panel-title">${icon('flask')}Simulate an agent query</div>
-              <div class="panel-subtitle">Searches are added to the retrieval audit trail, exactly like a real agent's.</div>
+              <div class="panel-title">${icon('flask')}Search downstream catalog</div>
+              <div class="panel-subtitle">Tenant and clearance are enforced server-side from your signed-in token.</div>
             </div>
           </div>
           <div class="panel-pad stack">
+            <div class="meta-grid">
+              <div class="meta-item"><div class="meta-label">Caller (token)</div><div class="meta-value mono">${esc(user.identity || '—')}</div></div>
+              <div class="meta-item"><div class="meta-label">Tenant (token)</div><div class="meta-value mono">${esc(tenantId)}</div></div>
+              <div class="meta-item"><div class="meta-label">Max clearance (token)</div><div class="meta-value">${tierBadge(userTier)}</div></div>
+            </div>
             <div class="form-grid">
               <div class="field" style="grid-column:1/-1"><label for="cat-query">Query</label><input id="cat-query" class="input" value="${esc(f.query)}" placeholder="e.g. reset a locked account"></div>
-              <div class="field"><label for="cat-tenant">Tenant</label><input id="cat-tenant" class="input" value="${esc(f.tenant_id)}"></div>
-              <div class="field"><label for="cat-agent">Agent ID</label><input id="cat-agent" class="input" value="${esc(f.agent_id)}"></div>
-              <div class="field"><label for="cat-persona">Persona <span class="muted" style="text-transform:none">(optional)</span></label><input id="cat-persona" class="input" value="${esc(f.agent_persona)}" placeholder="e.g. l1_support"></div>
               <div class="field"><label for="cat-dept">Department <span class="muted" style="text-transform:none">(optional)</span></label><input id="cat-dept" class="input" value="${esc(f.department)}"></div>
-              <div class="field"><label for="cat-clearance">Clearance</label>
-                <select id="cat-clearance" class="select">${TIERS.map(([t, n]) => `<option value="${t}" ${f.clearance_level === t ? 'selected' : ''}>${t} — ${n}</option>`).join('')}</select></div>
               <div class="field"><label for="cat-limit">Max results</label><input id="cat-limit" class="input" type="number" min="1" max="50" value="${esc(f.limit)}"></div>
             </div>
             <div><button class="btn btn-primary" data-action="catalog-search">${icon('search')}Search</button></div>
@@ -127,7 +135,7 @@ export default {
   },
 
   mount(root, _d, ctx) {
-    root.querySelectorAll('#cat-query, #cat-tenant, #cat-agent, #cat-persona, #cat-dept, #cat-limit').forEach(i =>
+    root.querySelectorAll('#cat-query, #cat-dept, #cat-limit').forEach(i =>
       i.addEventListener('keydown', e => { if (e.key === 'Enter') root.querySelector('[data-action="catalog-search"]').click(); }, { signal: ctx.signal }));
   },
 };

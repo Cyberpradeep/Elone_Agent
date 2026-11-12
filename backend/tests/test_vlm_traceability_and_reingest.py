@@ -864,11 +864,33 @@ sys.path.insert(0, backend_dir)
 import server
 import api.context as ctx
 import api.routes_ingestion as routes_ingestion
+from auth.models import AuthPrincipal
+from auth.tokens import create_access_token
 
 client = TestClient(server.app)
 
+def _hdr(sub, identity, roles, clearance="L1"):
+    p = AuthPrincipal(
+        sub=sub,
+        identity=identity,
+        display_name=identity,
+        roles=roles,
+        tenant_id="tn_northwind",
+        clearance=clearance,
+        actor_type="human",
+    )
+    tok, _, _ = create_access_token(p, ttl_seconds=600)
+    return {"Authorization": f"Bearer {tok}"}
+
+HDR_ALICE = _hdr("usr_vlm_alice", "alice@corp.com", ["process_owner"], "L1")
+HDR_SEC = _hdr("usr_vlm_sec", "sec.rev1@corp.com", ["security_reviewer"], "L2")
+HDR_EDITOR = _hdr("usr_vlm_ed", "human.editor@corp.com", ["process_owner"], "L1")
+HDR_FINAL = _hdr("usr_vlm_fin", "final.reviewer@corp.com", ["process_owner"], "L1")
+HDR_OWNER = _hdr("usr_vlm_own", "owner@corp.com", ["process_owner"], "L1")
+
 def write_upload(name, text):
-    p = os.path.join(ctx.UPLOADS_DIR, name)
+    p = os.path.join(ctx.tenant_uploads_dir("tn_northwind"), name)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
     with open(p, "w", encoding="utf-8") as f:
         f.write(text)
     return p
@@ -953,7 +975,7 @@ def fake_plan(filepath, override_sop_id=None, feedback_override=None, pre_extrac
     }
 
 def get_upload_item(name):
-    res = client.get("/api/uploads")
+    res = client.get("/api/uploads", headers=HDR_ALICE)
     assert res.status_code == 200, res.text
     for item in res.json()["files"]:
         if item["filename"] == name:
@@ -962,7 +984,7 @@ def get_upload_item(name):
 
 with patch.object(routes_ingestion.jit_converter, "plan_okf_from_raw", side_effect=fake_plan):
     # --- A: Ingest -> awaiting_review + legacy manifest repair ---
-    r1 = client.post("/api/uploads/ingest", json={"filename": "airvpn_test.txt"})
+    r1 = client.post("/api/uploads/ingest", headers=HDR_ALICE, json={"filename": "airvpn_test.txt"})
     assert r1.status_code == 200, r1.text
     d1 = r1.json()
     assert d1["status"] == "awaiting_review"
@@ -975,7 +997,8 @@ with patch.object(routes_ingestion.jit_converter, "plan_okf_from_raw", side_effe
 
     # Simulate legacy bug where _processed_manifest had status='success' while playbook wasn't published
     m = ctx.read_manifest()
-    m["airvpn_test.txt"]["status"] = "success"
+    mkey = ctx.manifest_key("tn_northwind", "airvpn_test.txt")
+    m[mkey]["status"] = "success"
     with open(ctx.MANIFEST_PATH, "w", encoding="utf-8") as mf:
         json.dump(m, mf)
 
@@ -984,15 +1007,16 @@ with patch.object(routes_ingestion.jit_converter, "plan_okf_from_raw", side_effe
     assert up_a["playbook_exists"] is False
     assert up_a["reingest_allowed"] is True
     assert up_a["task_id"] == task_1
-    assert ctx.read_manifest()["airvpn_test.txt"]["status"] == "awaiting_review"
+    assert ctx.read_manifest()[mkey]["status"] == "awaiting_review"
 
     # --- B: Duplicate block (reingest=False), then Reject -> Re-ingest creates _r2 ---
-    r_dup = client.post("/api/uploads/ingest", json={"filename": "airvpn_test.txt"})
+    r_dup = client.post("/api/uploads/ingest", headers=HDR_ALICE, json={"filename": "airvpn_test.txt"})
     assert r_dup.status_code == 409, r_dup.text
     assert r_dup.json()["status"] == "duplicate"
 
     dec_rej = client.post(
         f"/api/governance/review-tasks/{task_1}/decision",
+        headers=HDR_SEC,
         json={"decision": "reject", "reviewer": "sec.rev1@corp.com", "notes": "Missing proxy step"},
     )
     assert dec_rej.status_code == 200, dec_rej.text
@@ -1001,7 +1025,7 @@ with patch.object(routes_ingestion.jit_converter, "plan_okf_from_raw", side_effe
     assert "Missing proxy step" in (up_rej["reason"] or "")
     assert up_rej["reingest_allowed"] is True
 
-    r2 = client.post("/api/uploads/ingest", json={"filename": "airvpn_test.txt", "reingest": True})
+    r2 = client.post("/api/uploads/ingest", headers=HDR_ALICE, json={"filename": "airvpn_test.txt", "reingest": True})
     assert r2.status_code == 200, r2.text
     d2 = r2.json()
     job_2 = d2["job_id"]
@@ -1011,26 +1035,27 @@ with patch.object(routes_ingestion.jit_converter, "plan_okf_from_raw", side_effe
     assert d2["sop_id"] == sop_id
 
     # Prior rejected & duplicate jobs preserved in ledger history
-    jobs = client.get("/api/governance/jobs").json()["jobs"]
+    jobs = client.get("/api/governance/jobs", headers=HDR_ALICE).json()["jobs"]
     by_id = {j["job_id"]: j for j in jobs}
     assert by_id[job_1]["current_state"] == "rejected"
     assert by_id[f"{job_1}_r2"]["current_state"] == "duplicate"
     assert by_id[job_2]["current_state"] == "awaiting_review"
 
     # --- C: Supersede active awaiting_review with reingest=True -> _r4 ---
-    r3 = client.post("/api/uploads/ingest", json={"filename": "airvpn_test.txt", "reingest": True})
+    r3 = client.post("/api/uploads/ingest", headers=HDR_ALICE, json={"filename": "airvpn_test.txt", "reingest": True})
     assert r3.status_code == 200, r3.text
     d3 = r3.json()
     job_3 = d3["job_id"]
     task_3 = d3["task_id"]
     assert job_3 == f"{job_1}_r4", job_3
-    jobs = {j["job_id"]: j for j in client.get("/api/governance/jobs").json()["jobs"]}
+    jobs = {j["job_id"]: j for j in client.get("/api/governance/jobs", headers=HDR_ALICE).json()["jobs"]}
     assert jobs[job_2]["current_state"] == "rejected"
     assert jobs[job_2]["review_task"]["status"] == "superseded"
 
     # --- D: Reviewer step edit preserves vlm_reports, media, and visual_inspection evidence ---
     edit_res = client.put(
         f"/api/governance/drafts/{sop_id}/steps",
+        headers=HDR_EDITOR,
         json={
             "actor": "human.editor@corp.com",
             "steps": [
@@ -1058,11 +1083,12 @@ with patch.object(routes_ingestion.jit_converter, "plan_okf_from_raw", side_effe
     # --- E: Approve (distinct reviewer != uploader & != editor) + Publish -> locked from re-ingest ---
     dec_app = client.post(
         f"/api/governance/review-tasks/{task_3}/decision",
+        headers=HDR_FINAL,
         json={"decision": "approve", "reviewer": "final.reviewer@corp.com", "confirmed_classification": True},
     )
     assert dec_app.status_code == 200, dec_app.text
 
-    pub_res = client.post(f"/api/governance/sops/{sop_id}/publish", json={"actor": "final.reviewer@corp.com"})
+    pub_res = client.post(f"/api/governance/sops/{sop_id}/publish", headers=HDR_FINAL, json={"actor": "final.reviewer@corp.com"})
     assert pub_res.status_code == 200, pub_res.text
     pub_json = pub_res.json()
     assert pub_json["status"] == "published"
@@ -1085,26 +1111,27 @@ with patch.object(routes_ingestion.jit_converter, "plan_okf_from_raw", side_effe
     assert up_pub["reingest_allowed"] is False
 
     # Both reingest=False and reingest=True must block while live playbook exists on disk
-    assert client.post("/api/uploads/ingest", json={"filename": "airvpn_test.txt", "reingest": False}).status_code == 409
-    assert client.post("/api/uploads/ingest", json={"filename": "airvpn_test.txt", "reingest": True}).status_code == 409
+    assert client.post("/api/uploads/ingest", headers=HDR_ALICE, json={"filename": "airvpn_test.txt", "reingest": False}).status_code == 409
+    assert client.post("/api/uploads/ingest", headers=HDR_ALICE, json={"filename": "airvpn_test.txt", "reingest": True}).status_code == 409
 
     # --- F: Delete via API -> resets /api/uploads to pending -> re-ingest succeeds ---
-    del_res = client.request("DELETE", f"/api/sops/{sop_id}", json={"actor": "owner@corp.com", "reason": "Retire old draft"})
+    del_res = client.request("DELETE", f"/api/sops/{sop_id}", headers=HDR_OWNER, json={"actor": "owner@corp.com", "reason": "Retire old draft"})
     assert del_res.status_code == 200, del_res.text
     up_del = get_upload_item("airvpn_test.txt")
     assert up_del["status"] == "pending", up_del
     assert up_del["playbook_exists"] is False
     assert up_del["reingest_allowed"] is True
 
-    r4 = client.post("/api/uploads/ingest", json={"filename": "airvpn_test.txt"})
+    r4 = client.post("/api/uploads/ingest", headers=HDR_ALICE, json={"filename": "airvpn_test.txt"})
     assert r4.status_code == 200, r4.text
     d4 = r4.json()
     task_4 = d4["task_id"]
     assert client.post(
         f"/api/governance/review-tasks/{task_4}/decision",
+        headers=HDR_FINAL,
         json={"decision": "approve", "reviewer": "final.reviewer@corp.com", "confirmed_classification": True},
     ).status_code == 200
-    pub4 = client.post(f"/api/governance/sops/{sop_id}/publish", json={"actor": "final.reviewer@corp.com"})
+    pub4 = client.post(f"/api/governance/sops/{sop_id}/publish", headers=HDR_FINAL, json={"actor": "final.reviewer@corp.com"})
     assert pub4.status_code == 200, pub4.text
     md_path_4 = pub4.json()["playbook_path"]
 
@@ -1117,7 +1144,7 @@ with patch.object(routes_ingestion.jit_converter, "plan_okf_from_raw", side_effe
 
     # Next re-ingest exits unactionable -> must also purge stale/orphaned state & record unactionable
     mode["value"] = "unactionable"
-    r5 = client.post("/api/uploads/ingest", json={"filename": "airvpn_test.txt", "reingest": True})
+    r5 = client.post("/api/uploads/ingest", headers=HDR_ALICE, json={"filename": "airvpn_test.txt", "reingest": True})
     assert r5.status_code == 200, r5.text
     assert r5.json()["status"] == "unactionable"
     up_unact = get_upload_item("airvpn_test.txt")
@@ -1126,27 +1153,27 @@ with patch.object(routes_ingestion.jit_converter, "plan_okf_from_raw", side_effe
 
     # Retry again after unhandled exception -> failed -> retry succeeds
     mode["value"] = "boom"
-    r6 = client.post("/api/uploads/ingest", json={"filename": "airvpn_test.txt", "reingest": True})
+    r6 = client.post("/api/uploads/ingest", headers=HDR_ALICE, json={"filename": "airvpn_test.txt", "reingest": True})
     assert r6.status_code == 500, r6.text
     up_fail = get_upload_item("airvpn_test.txt")
     assert up_fail["status"] == "failed", up_fail
     assert up_fail["reingest_allowed"] is True
 
     mode["value"] = "vlm_ok"
-    r7 = client.post("/api/uploads/ingest", json={"filename": "airvpn_test.txt", "reingest": True})
+    r7 = client.post("/api/uploads/ingest", headers=HDR_ALICE, json={"filename": "airvpn_test.txt", "reingest": True})
     assert r7.status_code == 200, r7.text
     assert r7.json()["status"] == "awaiting_review"
 
     # Re-ingesting as unactionable while draft exists must purge stale .draft.json so no ghost awaiting_review remains
     mode["value"] = "unactionable"
-    r8 = client.post("/api/uploads/ingest", json={"filename": "airvpn_test.txt", "reingest": True})
+    r8 = client.post("/api/uploads/ingest", headers=HDR_ALICE, json={"filename": "airvpn_test.txt", "reingest": True})
     assert r8.status_code == 200, r8.text
     assert not os.path.exists(os.path.join(ctx.DRAFTS_DIR, f"{sop_id}.draft.json"))
     assert get_upload_item("airvpn_test.txt")["status"] == "unactionable"
 
     # --- H: Secret Quarantine test ---
     write_upload("secret_sop.txt", "Login step\npassword = \"SuperSecretPass123!\"\napi_key = \"sk_live_51abcdef1234567890\"\n")
-    r_sec = client.post("/api/uploads/ingest", json={"filename": "secret_sop.txt"})
+    r_sec = client.post("/api/uploads/ingest", headers=HDR_ALICE, json={"filename": "secret_sop.txt"})
     assert r_sec.status_code == 403, r_sec.text
     assert r_sec.json()["status"] == "quarantined"
     up_sec = get_upload_item("secret_sop.txt")
@@ -1157,7 +1184,7 @@ with patch.object(routes_ingestion.jit_converter, "plan_okf_from_raw", side_effe
     write_upload("airvpn_test.txt", sop_text + "\n4. Modified step line on disk\n")
     up_mod = get_upload_item("airvpn_test.txt")
     assert up_mod["status"] == "pending", up_mod
-    assert "airvpn_test.txt" not in ctx.read_manifest()
+    assert mkey not in ctx.read_manifest() and "airvpn_test.txt" not in ctx.read_manifest()
 
 print("ALL_FASTAPI_REINGESTION_LIFECYCLE_ASSERTIONS_PASSED")
 '''

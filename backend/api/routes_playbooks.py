@@ -1,7 +1,8 @@
 """
 Playbooks API Route Handlers
 ============================
-Handles OKF playbook listing, details, and cryptographic HMAC-SHA256 integrity verification.
+Handles OKF playbook listing, details, cryptographic HMAC-SHA256 integrity verification,
+and tenant/clearance-enforced soft deletion (admin & process_owner only).
 """
 
 import os
@@ -12,7 +13,6 @@ import shutil
 import datetime
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
-from starlette.routing import Route
 
 from api.context import (
     KB_DIR,
@@ -20,21 +20,50 @@ from api.context import (
     PATTERNS_DIR,
     PROJECT_ROOT,
     DRAFTS_DIR,
-    MANIFEST_PATH,
     read_manifest,
+    write_manifest,
     governance_ledger,
     retrieval_index,
     parse_yaml_frontmatter,
+    resolve_sop_access_meta,
+    _build_canonical_meta_map,
+    _inside,
+)
+from auth.config import get_default_tenant
+from auth.models import (
+    ROLE_SET,
+    ROLE_ADMIN,
+    ROLE_PROCESS_OWNER,
+)
+from auth.dependencies import (
+    AuthAccessError,
+    authenticate_request,
+    enforce_tenant_access,
+    enforce_clearance_access,
 )
 from utils.security import verify_playbook_before_execution
 
 # Deleted playbooks are moved here (never erased) so a mistaken delete can be undone by hand.
 TRASH_DIR = os.path.join(KB_DIR, "_trash")
-# Lifecycle states from which the ledger allows a soft delete.
-SOFT_DELETABLE_STATES = {"published", "deactivated", "archived"}
+_SOP_ID_RE = re.compile(r"[A-Za-z0-9_-]+")
+
+
+def _rel(path: str) -> str:
+    """Project-relative path for display; falls back to the full path if it is on another drive."""
+    try:
+        return os.path.relpath(path, PROJECT_ROOT).replace("\\", "/")
+    except ValueError:
+        return path.replace("\\", "/")
 
 
 async def api_list_sops(request: Request):
+    principal = authenticate_request(
+        request,
+        allowed_roles=ROLE_SET,
+        human_only=False,
+        check_csrf=False,
+    )
+    canonical_map = _build_canonical_meta_map()
     playbook_files = glob.glob(os.path.join(SOPS_DIR, "**", "*.md"), recursive=True)
     playbooks = []
 
@@ -50,8 +79,20 @@ async def api_list_sops(request: Request):
             category = frontmatter.get("category", os.path.basename(os.path.dirname(path)))
             sop_id = frontmatter.get("sop_id", os.path.splitext(os.path.basename(path))[0])
 
+            access_meta = resolve_sop_access_meta(
+                sop_id,
+                canonical_map=canonical_map,
+                frontmatter=frontmatter,
+            )
+            if access_meta["tenant_id"] != principal.tenant_id:
+                continue
+            if not principal.can_access_tier(access_meta["classification_level"]):
+                continue
+            if not principal.is_human and access_meta.get("state") != "published":
+                continue
+
             # Integrity verification
-            is_valid_sig, sig_reason, meta = verify_playbook_before_execution(path)
+            is_valid_sig, sig_reason, _ = verify_playbook_before_execution(path)
 
             playbooks.append({
                 "sop_id": sop_id,
@@ -60,11 +101,13 @@ async def api_list_sops(request: Request):
                 "category": category,
                 "target_os": frontmatter.get("target_os", "windows"),
                 "description": frontmatter.get("description", ""),
+                "tenant_id": access_meta["tenant_id"],
+                "classification_level": access_meta["classification_level"],
                 "confidence_score": frontmatter.get("confidence_score", 0.95),
                 "confidence_level": frontmatter.get("confidence_level", "High"),
                 "step_count": len(frontmatter.get("steps", [])),
                 "steps": frontmatter.get("steps", []),
-                "file_path": os.path.relpath(path, PROJECT_ROOT).replace("\\", "/"),
+                "file_path": _rel(path),
                 "integrity": {
                     "is_valid": is_valid_sig,
                     "reason": sig_reason,
@@ -81,10 +124,17 @@ async def api_list_sops(request: Request):
 
 
 async def api_get_sop(request: Request):
+    principal = authenticate_request(
+        request,
+        allowed_roles=ROLE_SET,
+        human_only=False,
+        check_csrf=False,
+    )
     sop_id = request.path_params.get("sop_id", "").strip()
     clean_id = sop_id.replace(".md", "")
+    if not clean_id or clean_id.lower() == "index" or not _SOP_ID_RE.fullmatch(clean_id):
+        return JSONResponse({"error": "Invalid SOP id."}, status_code=400)
 
-    # Search for playbook file
     playbook_files = glob.glob(os.path.join(SOPS_DIR, "**", "*.md"), recursive=True)
     target_path = None
     for p in playbook_files:
@@ -101,25 +151,33 @@ async def api_get_sop(request: Request):
             content = f.read()
 
         frontmatter, body = parse_yaml_frontmatter(content)
+        real_sop_id = frontmatter.get("sop_id", clean_id)
+        access_meta = resolve_sop_access_meta(real_sop_id, frontmatter=frontmatter)
+
+        enforce_tenant_access(principal, access_meta["tenant_id"], request=request)
+        enforce_clearance_access(principal, access_meta["classification_level"], request=request)
+        if not principal.is_human and access_meta.get("state") != "published":
+            raise AuthAccessError(403, "Agents may only read published playbooks.", "not_authorized")
+
         category = frontmatter.get("category", os.path.basename(os.path.dirname(target_path)))
 
-        # Integrity verification
-        is_valid_sig, sig_reason, meta = verify_playbook_before_execution(target_path)
+        is_valid_sig, sig_reason, _ = verify_playbook_before_execution(target_path)
 
-        # Check for Reflection Rulebook
-        rulebook_path = os.path.join(PATTERNS_DIR, category, f"rules_{frontmatter.get('sop_id', clean_id)}.md")
+        rulebook_path = os.path.join(PATTERNS_DIR, category, f"rules_{real_sop_id}.md")
         rulebook_content = None
         if os.path.exists(rulebook_path):
             with open(rulebook_path, "r", encoding="utf-8") as rf:
                 rulebook_content = rf.read()
 
         return JSONResponse({
-            "sop_id": frontmatter.get("sop_id", clean_id),
+            "sop_id": real_sop_id,
+            "tenant_id": access_meta["tenant_id"],
+            "classification_level": access_meta["classification_level"],
             "frontmatter": frontmatter,
             "markdown_body": body,
             "raw_content": content,
             "steps": frontmatter.get("steps", []),
-            "file_path": os.path.relpath(target_path, PROJECT_ROOT).replace("\\", "/"),
+            "file_path": _rel(target_path),
             "integrity": {
                 "is_valid": is_valid_sig,
                 "status": "VALID_HMAC_SHA256" if is_valid_sig else "FAILED_VERIFICATION",
@@ -127,17 +185,27 @@ async def api_get_sop(request: Request):
             },
             "rulebook": {
                 "exists": os.path.exists(rulebook_path),
-                "path": os.path.relpath(rulebook_path, PROJECT_ROOT).replace("\\", "/") if os.path.exists(rulebook_path) else None,
+                "path": _rel(rulebook_path) if os.path.exists(rulebook_path) else None,
                 "content": rulebook_content,
             }
         })
+    except AuthAccessError:
+        raise
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
 async def api_verify_sop_integrity(request: Request):
+    principal = authenticate_request(
+        request,
+        allowed_roles=ROLE_SET,
+        human_only=False,
+        check_csrf=True,
+    )
     sop_id = request.path_params.get("sop_id", "").strip()
     clean_id = sop_id.replace(".md", "")
+    if not clean_id or clean_id.lower() == "index" or not _SOP_ID_RE.fullmatch(clean_id):
+        return JSONResponse({"error": "Invalid SOP id."}, status_code=400)
 
     playbook_files = glob.glob(os.path.join(SOPS_DIR, "**", "*.md"), recursive=True)
     target_path = None
@@ -150,53 +218,52 @@ async def api_verify_sop_integrity(request: Request):
     if not target_path or not os.path.exists(target_path):
         return JSONResponse({"error": f"SOP '{sop_id}' not found"}, status_code=404)
 
+    with open(target_path, "r", encoding="utf-8") as f:
+        frontmatter, _ = parse_yaml_frontmatter(f.read())
+    real_sop_id = frontmatter.get("sop_id", clean_id)
+    access_meta = resolve_sop_access_meta(real_sop_id, frontmatter=frontmatter)
+
+    enforce_tenant_access(principal, access_meta["tenant_id"], request=request)
+    enforce_clearance_access(principal, access_meta["classification_level"], request=request)
+    if not principal.is_human and access_meta.get("state") != "published":
+        raise AuthAccessError(403, "Agents may only verify published playbooks.", "not_authorized")
+
     is_valid, reason, meta = verify_playbook_before_execution(target_path)
     return JSONResponse({
-        "sop_id": clean_id,
+        "sop_id": real_sop_id,
+        "tenant_id": access_meta["tenant_id"],
+        "classification_level": access_meta["classification_level"],
         "is_valid": is_valid,
         "status": "AUTHENTIC" if is_valid else "TAMPERED_OR_CORRUPT",
         "reason": reason,
         "metadata": meta,
-        "checked_at": datetime.datetime.now().isoformat()
+        "checked_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
     })
 
 
-def _inside(path: str, root: str) -> bool:
-    """True if `path` really lives under `root` (guards against symlinks / odd ids)."""
-    real, base = os.path.realpath(path), os.path.realpath(root)
-    return real == base or real.startswith(base + os.sep)
-
-
-def _rel(path: str) -> str:
-    """Project-relative path for display; falls back to the full path if it is on another drive."""
-    try:
-        return os.path.relpath(path, PROJECT_ROOT).replace("\\", "/")
-    except ValueError:
-        return path.replace("\\", "/")
-
-
 async def api_delete_sop(request: Request):
-    """Deletes a playbook: moves its files to knowledge_base/_trash/, removes it from the downstream
-    agent catalog, soft-deletes its lifecycle job, and refreshes the category index pages.
-
-    Body: {"actor": "<who is deleting>", "reason": "<optional>"}. Nothing is erased; see the
-    manifest written next to the moved files for how to restore them.
-    """
+    """Soft-deletes a playbook. Restricted strictly to 'admin' and 'process_owner' within matching tenant & clearance."""
+    principal = authenticate_request(
+        request,
+        allowed_roles=(ROLE_ADMIN, ROLE_PROCESS_OWNER),
+        human_only=True,
+        check_csrf=True,
+    )
     sop_id = request.path_params.get("sop_id", "").strip()
     clean_id = sop_id.replace(".md", "")
+    if not clean_id or clean_id.lower() == "index" or not _SOP_ID_RE.fullmatch(clean_id):
+        return JSONResponse({"error": "Invalid SOP id."}, status_code=400)
+
     try:
         body = await request.json()
     except Exception:
         body = {}
-    actor = str(body.get("actor", "")).strip()
+
+    # Never trust actor or role from the client body; always derive from verified token.
+    actor = principal.identity
+    ledger_role = principal.ledger_delete_role() or "owner"
     reason = str(body.get("reason", "")).strip()
 
-    if not clean_id or clean_id.lower() == "index":
-        return JSONResponse({"error": "Invalid SOP id."}, status_code=400)
-    if not actor:
-        return JSONResponse({"error": "'actor' (who is deleting this playbook) is required."}, status_code=400)
-
-    # Every playbook file with this id (the same id can exist under more than one category folder).
     playbooks = [
         p for p in glob.glob(os.path.join(SOPS_DIR, "**", "*.md"), recursive=True)
         if os.path.splitext(os.path.basename(p))[0].lower() == clean_id.lower()
@@ -204,7 +271,16 @@ async def api_delete_sop(request: Request):
     if not playbooks:
         return JSONResponse({"error": f"SOP '{sop_id}' not found"}, status_code=404)
 
-    # Everything that belongs to it: canonical JSON, rules, and source content hashes.
+    first_fm = {}
+    try:
+        with open(playbooks[0], "r", encoding="utf-8") as f:
+            first_fm, _ = parse_yaml_frontmatter(f.read())
+    except Exception:
+        pass
+    access_meta = resolve_sop_access_meta(first_fm.get("sop_id", clean_id), frontmatter=first_fm)
+    enforce_tenant_access(principal, access_meta["tenant_id"], request=request)
+    enforce_clearance_access(principal, access_meta["classification_level"], request=request)
+
     files, catalog_ids, source_shas = set(playbooks), {clean_id}, set()
     for md in playbooks:
         try:
@@ -218,11 +294,14 @@ async def api_delete_sop(request: Request):
             pass
     for p in glob.glob(os.path.join(SOPS_DIR, "**", "*.canonical.json"), recursive=True):
         if os.path.basename(p)[: -len(".canonical.json")].lower() == clean_id.lower():
-            files.add(p)
             try:
                 with open(p, "r", encoding="utf-8") as f:
                     cdata = json.load(f)
-                sha = cdata.get("source", {}).get("sha256")
+                c_tenant = cdata.get("tenant_id")
+                if c_tenant and c_tenant != "default_tenant" and c_tenant != principal.tenant_id:
+                    continue
+                files.add(p)
+                sha = cdata.get("source", {}).get("file_sha256") or cdata.get("source", {}).get("sha256")
                 if sha:
                     source_shas.add(str(sha))
             except Exception:
@@ -232,7 +311,7 @@ async def api_delete_sop(request: Request):
             files.add(p)
     files = sorted(f for f in files if _inside(f, KB_DIR))
 
-    # Also inspect _drafts for associated hashes
+    # Collect SHA hashes only from drafts in this tenant
     if os.path.exists(DRAFTS_DIR):
         for df_name in os.listdir(DRAFTS_DIR):
             if df_name.endswith(".draft.json"):
@@ -240,6 +319,9 @@ async def api_delete_sop(request: Request):
                 try:
                     with open(df_path, "r", encoding="utf-8") as df_file:
                         d_data = json.load(df_file)
+                    d_tenant = (d_data.get("canonical_draft") or {}).get("tenant_id")
+                    if d_tenant and d_tenant != "default_tenant" and d_tenant != principal.tenant_id:
+                        continue
                     d_sop = str(d_data.get("sop_id", "")).lower()
                     d_canon = str(d_data.get("canonical_draft", {}).get("sop_id", "")).lower()
                     if clean_id.lower() in (d_sop, d_canon):
@@ -264,7 +346,11 @@ async def api_delete_sop(request: Request):
             moved.append(rel.replace("\\", "/"))
         with open(os.path.join(trash, "_manifest.json"), "w", encoding="utf-8") as mf:
             json.dump({
-                "sop_id": clean_id, "deleted_by": actor, "reason": reason,
+                "sop_id": clean_id,
+                "tenant_id": principal.tenant_id,
+                "deleted_by": actor,
+                "deleted_role": ledger_role,
+                "reason": reason,
                 "deleted_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 "files": moved,
                 "source_shas": list(source_shas),
@@ -276,22 +362,22 @@ async def api_delete_sop(request: Request):
     # 2. Stop downstream agents retrieving it.
     purged = any(retrieval_index.purge_sop(i, reason="deleted") for i in catalog_ids)
 
-    # 3. Lifecycle: soft-delete the job(s) that were live (matching by ID, review task ID, or source content SHA).
+    # 3. Lifecycle: soft-delete matching tenant jobs ONLY via GovernanceLedger.soft_delete_sop (never bypass).
     soft_deleted = []
     all_target_ids = {clean_id.lower(), *[str(c).lower() for c in catalog_ids if c]}
     for job in list(governance_ledger._jobs.values()):
-        matches_id = job.sop_id.lower() in all_target_ids or (job.review_task and str(job.review_task.get("sop_id", "")).lower() in all_target_ids)
+        if job.tenant_id != principal.tenant_id:
+            continue
+        matches_id = job.sop_id.lower() in all_target_ids or (
+            job.review_task and str(job.review_task.get("sop_id", "")).lower() in all_target_ids
+        )
         matches_sha = job.content_sha256 in source_shas
         if matches_id or matches_sha:
             try:
-                governance_ledger.soft_delete_sop(job.job_id, actor=actor, role="owner")
+                governance_ledger.soft_delete_sop(job.job_id, actor=actor, role=ledger_role)
                 soft_deleted.append(job.job_id)
             except Exception as e:
-                try:
-                    governance_ledger.transition_state(job.job_id, "soft_deleted", actor=actor, reason="SOP deleted by owner.")
-                    soft_deleted.append(job.job_id)
-                except Exception as e2:
-                    warnings.append(f"Ledger: could not soft-delete job {job.job_id}: {e2}")
+                warnings.append(f"Ledger: could not soft-delete job {job.job_id}: {e}")
 
     # 4. Refresh the index.md pages that listed it.
     try:
@@ -300,19 +386,24 @@ async def api_delete_sop(request: Request):
     except Exception as e:
         warnings.append(f"Index pages not refreshed: {e}")
 
-    # 5. Clean processed manifest and drafts so ingestion button re-enables cleanly
+    # 5. Clean processed manifest (tenant-scoped) and drafts so ingestion re-enables cleanly.
     try:
         manifest = read_manifest()
+        prefix = f"{principal.tenant_id}::"
+        is_default = principal.tenant_id == get_default_tenant()
         to_del = []
         for fn, info in manifest.items():
-            info_sop = str(info.get("sop_id", "")).lower()
+            if "::" in fn and not fn.startswith(prefix):
+                continue
+            if "::" not in fn and not is_default:
+                continue
+            info_sop = str((info or {}).get("sop_id", "")).lower()
             if info_sop in all_target_ids:
                 to_del.append(fn)
         for fn in to_del:
             del manifest[fn]
         if to_del:
-            with open(MANIFEST_PATH, "w", encoding="utf-8") as mf:
-                json.dump(manifest, mf, indent=2)
+            write_manifest(manifest)
 
         if os.path.exists(DRAFTS_DIR):
             for df_name in os.listdir(DRAFTS_DIR):
@@ -321,6 +412,9 @@ async def api_delete_sop(request: Request):
                     try:
                         with open(df_path, "r", encoding="utf-8") as df_file:
                             d_data = json.load(df_file)
+                        d_tenant = (d_data.get("canonical_draft") or {}).get("tenant_id")
+                        if d_tenant and d_tenant != "default_tenant" and d_tenant != principal.tenant_id:
+                            continue
                         d_sop = str(d_data.get("sop_id", "")).lower()
                         d_canon = str(d_data.get("canonical_draft", {}).get("sop_id", "")).lower()
                         d_sha = str(d_data.get("canonical_draft", {}).get("source", {}).get("sha256", ""))
@@ -336,7 +430,9 @@ async def api_delete_sop(request: Request):
     return JSONResponse({
         "status": "deleted",
         "sop_id": clean_id,
+        "tenant_id": principal.tenant_id,
         "deleted_by": actor,
+        "deleted_role": ledger_role,
         "moved": moved,
         "trash_dir": _rel(trash),
         "removed_from_agent_catalog": bool(purged),

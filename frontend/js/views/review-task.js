@@ -1,15 +1,18 @@
 /**
  * Review task page — #/review/<task_id>
- * Everything a reviewer needs on one screen: the SOP's content with the evidence behind each
- * step, its classification and quality, the job history, and the decision form.
- * The decision itself is submitted by the shared `submit-decision` action in review.js.
+ * Displays the SOP content with evidence quotes, classification, quality, job history,
+ * draft editor, and SoD/clearance-aware decision panel (reviewer stamped from token).
  */
 
 import { api } from '../api.js';
+import { getUser, hasAnyRole } from '../auth.js';
 import {
-  esc, icon, fmt, pill, jobPill, tierBadge, store, bindTabs, registerActions, emptyState, jsonBlock, prettyJson, busy, toast, confirmDialog,
+  esc, icon, fmt, pill, jobPill, tierBadge, bindTabs, registerActions,
+  emptyState, jsonBlock, prettyJson, busy, toast, confirmDialog,
 } from '../ui.js';
-import { classificationCard, qualityCard, timelineHtml, taskStatus, taskStatusPill } from './review.js';
+import { classificationCard, qualityCard, timelineHtml, taskStatusPill } from './review.js';
+
+const TIER_RANK = { L0: 0, L1: 1, L2: 2, L3: 3 };
 
 // ---------------------------------------------------------------------------
 // Evidence helpers
@@ -109,9 +112,8 @@ function documentTab(c) {
 // Decision card (always visible beside the content)
 // ---------------------------------------------------------------------------
 
-function decisionCard(task, c) {
+function decisionCard(task, c, draft) {
   if (task.status !== 'pending') {
-    const approved = taskStatus(task.status).tone === 'success';
     return `
       <div class="panel">
         <div class="panel-header"><div class="panel-title">${icon('check')}Decision recorded</div>${taskStatusPill(task.status)}</div>
@@ -122,38 +124,68 @@ function decisionCard(task, c) {
         ${task.notes ? `<div class="field-label" style="margin-top:12px">Notes</div><p class="secondary small" style="margin-top:4px">${esc(task.notes)}</p>` : ''}
       </div>`;
   }
-  const q = c?.quality; const cl = c?.classification;
+
+  const user = getUser() || {};
+  const myId = String(user.identity || '').trim().toLowerCase();
+  const uploader = String(task.uploaded_by || '').trim().toLowerCase();
+  const lastEditor = String(c?.lifecycle?.last_editor || draft?.last_editor || '').trim().toLowerCase();
+  const assignedLower = String(task.assigned_role || 'Process owner').trim().toLowerCase();
+  const sopTier = String(task.sop_tier || c?.classification?.level || 'L1').toUpperCase();
+  const userTier = String(user.clearance || 'L1').toUpperCase();
+
+  const blockers = [];
+  if (myId && myId === uploader) {
+    blockers.push(`You uploaded this SOP (${user.identity}). Separation of duties requires a different reviewer.`);
+  }
+  if (myId && lastEditor && myId === lastEditor) {
+    blockers.push(`You last edited this draft (${user.identity}). Separation of duties requires a different reviewer.`);
+  }
+  if (assignedLower === 'security reviewer' && !hasAnyRole(['security_reviewer', 'admin'])) {
+    blockers.push(`This task is assigned to Security reviewer; your role (${(user.roles || []).join(', ')}) cannot decide it.`);
+  }
+  if ((TIER_RANK[sopTier] ?? 1) > (TIER_RANK[userTier] ?? 1)) {
+    blockers.push(`SOP confidentiality is ${sopTier}, which exceeds your ${userTier} clearance.`);
+  }
+
+  const canDecide = blockers.length === 0;
+  const disAttr = canDecide ? '' : 'disabled';
+  const q = c?.quality;
+  const cl = c?.classification;
+
   return `
     <form id="decision-form" class="panel stack" data-page="true" data-task="${esc(task.task_id)}" data-sop="${esc(task.sop_id)}" novalidate>
       <div class="panel-title">${icon('review')}Your decision</div>
-      <div class="callout">${icon('info')}<div><b>Separation of duties.</b> You must be a different person from the uploader (<b>${esc(task.uploaded_by)}</b>) and the last editor. Automated approvals are rejected.</div></div>
 
-      <div class="field">
-        <label for="dec-reviewer">Your name or ID</label>
-        <input id="dec-reviewer" class="input" value="${esc(store.get('reviewer', ''))}" placeholder="e.g. security.reviewer@company.com" autocomplete="username">
+      <div class="meta-grid">
+        <div class="meta-item"><div class="meta-label">Reviewing as (token)</div><div class="meta-value mono">${esc(user.identity || '—')}</div></div>
+        <div class="meta-item"><div class="meta-label">Your clearance</div><div class="meta-value">${tierBadge(userTier)}</div></div>
       </div>
+
+      ${canDecide
+        ? `<div class="callout">${icon('info')}<div><b>Separation of duties verified.</b> Uploader (${esc(task.uploaded_by)})${lastEditor ? ` and last editor (${esc(c?.lifecycle?.last_editor || draft?.last_editor)}) differ from your session.` : ' differs from your session.'}</div></div>`
+        : `<div class="callout danger">${icon('lock')}<div><b>Decision locked for your account</b><ul>${blockers.map(b => `<li>${esc(b)}</li>`).join('')}</ul></div></div>`}
 
       <div class="field">
         <span class="field-label">Decision</span>
         <div class="radio-cards" role="radiogroup" aria-label="Decision" style="grid-template-columns:1fr">
-          <label class="radio-card approve"><input type="radio" name="decision" value="approve" checked><span class="rc-body"><span class="rc-title">Approve</span><span class="rc-desc">Passes the 6 publication gates</span></span></label>
-          <label class="radio-card changes"><input type="radio" name="decision" value="changes_requested"><span class="rc-body"><span class="rc-title">Request changes</span><span class="rc-desc">Send back for correction</span></span></label>
-          <label class="radio-card reject"><input type="radio" name="decision" value="reject"><span class="rc-body"><span class="rc-title">Reject</span><span class="rc-desc">Do not publish</span></span></label>
+          <label class="radio-card approve"><input type="radio" name="decision" value="approve" checked ${disAttr}><span class="rc-body"><span class="rc-title">Approve</span><span class="rc-desc">Passes the 6 publication gates</span></span></label>
+          <label class="radio-card changes"><input type="radio" name="decision" value="changes_requested" ${disAttr}><span class="rc-body"><span class="rc-title">Request changes</span><span class="rc-desc">Send back for correction</span></span></label>
+          <label class="radio-card reject"><input type="radio" name="decision" value="reject" ${disAttr}><span class="rc-body"><span class="rc-title">Reject</span><span class="rc-desc">Do not publish</span></span></label>
         </div>
       </div>
 
       <div class="field">
         <label for="dec-notes">Notes <span id="dec-notes-req" class="muted" style="text-transform:none;font-weight:500">(optional)</span></label>
-        <textarea id="dec-notes" class="textarea" rows="3" placeholder="What did you check? What needs to change?"></textarea>
+        <textarea id="dec-notes" class="textarea" rows="3" placeholder="What did you check? What needs to change?" ${disAttr}></textarea>
       </div>
 
-      <label class="row" style="gap:10px;flex-wrap:nowrap;align-items:flex-start;cursor:pointer">
-        <span class="switch"><input type="checkbox" id="dec-classif" ${cl?.level ? '' : 'checked'}><span></span></span>
+      <label class="row" style="gap:10px;flex-wrap:nowrap;align-items:flex-start;cursor:${canDecide ? 'pointer' : 'not-allowed'}">
+        <span class="switch"><input type="checkbox" id="dec-classif" ${cl?.level ? '' : 'checked'} ${disAttr}><span></span></span>
         <span class="small secondary">I confirm the confidentiality tier${cl?.level ? ` <b>${esc(cl.level)}</b>` : ''} is correct (publication gate 6).</span>
       </label>
 
       <div id="dec-error" class="field-error" role="alert"></div>
-      <button type="button" class="btn btn-primary" data-action="submit-decision" data-quality='${esc(JSON.stringify(q || {}))}'>${icon('check')}Submit decision</button>
+      <button type="button" class="btn btn-primary" data-action="submit-decision" data-quality='${esc(JSON.stringify(q || {}))}' ${disAttr}>${icon('check')}Submit decision</button>
     </form>`;
 }
 
@@ -163,9 +195,6 @@ registerActions({
     document.getElementById('rt-steps')?.classList.toggle('only-unverified', on);
   },
 });
-
-// ---------------------------------------------------------------------------
-
 
 // ---------------------------------------------------------------------------
 // Inline step editor (Steps tab). Edits go to the draft only; nothing is published.
@@ -288,8 +317,6 @@ registerActions({
 
   'rt-save-steps': async (el, _e, ctx) => {
     showEditError([]);
-    const actor = document.getElementById('rt-actor').value.trim();
-    if (!actor) { showEditError('Enter your name or ID so the edit can be attributed.'); document.getElementById('rt-actor').focus(); return; }
     const steps = collectEditedSteps();
     const problems = [];
     if (!steps.length) problems.push('An SOP needs at least one step.');
@@ -301,14 +328,14 @@ registerActions({
     if (problems.length) { showEditError(problems); return; }
 
     const sop = document.getElementById('rt-edit').dataset.sop;
+    const editor = getUser()?.identity || 'You';
     const done = busy(el);
     try {
-      const res = await api.saveDraftSteps(sop, { actor, steps });
-      store.set('reviewer', actor);
+      const res = await api.saveDraftSteps(sop, { steps });
       const cs = res.canonical_draft?.steps || [];
       const found = cs.filter(s => s.verified).length;
       editDirty = false;
-      toast(`Steps saved. ${found} of ${cs.length} quotes found in the document. ${actor} can no longer approve this SOP — a different reviewer must.`, 'success', 8000);
+      toast(`Steps saved as ${res.last_editor || editor}. ${found} of ${cs.length} quotes found in the document. A different reviewer must now approve this SOP.`, 'success', 8000);
       (res.warnings || []).forEach(w => toast(w, 'warning', 9000));
       await ctx.reload();
     } catch (e) {
@@ -362,19 +389,17 @@ registerActions({
 
   'rt-json-save': async (el, _e, ctx) => {
     showJsonError([]);
-    const actor = document.getElementById('rt-json-actor').value.trim();
-    if (!actor) { showJsonError('Enter your name or ID so the edit can be attributed.'); document.getElementById('rt-json-actor').focus(); return; }
     let canonical;
     try { canonical = JSON.parse(document.getElementById('rt-json-text').value); }
     catch (e) { showJsonError(`This isn't valid JSON yet: ${e.message}`); return; }
 
+    const editor = getUser()?.identity || 'You';
     const done = busy(el);
     try {
-      const res = await api.saveDraftCanonical(document.getElementById('rt-json-edit').dataset.sop, { actor, canonical });
-      store.set('reviewer', actor);
+      const res = await api.saveDraftCanonical(document.getElementById('rt-json-edit').dataset.sop, { canonical });
       const cs = res.canonical_draft?.steps || [];
       jsonDirty = false;
-      toast(`JSON saved. ${cs.filter(s => s.verified).length} of ${cs.length} step quotes found in the document. ${actor} can no longer approve this SOP — a different reviewer must.`, 'success', 8000);
+      toast(`JSON saved as ${res.last_editor || editor}. ${cs.filter(s => s.verified).length} of ${cs.length} step quotes found in the document. A different reviewer must now approve this SOP.`, 'success', 8000);
       (res.warnings || []).forEach(w => toast(w, 'warning', 9000));
       await ctx.reload();
     } catch (e) {
@@ -408,9 +433,10 @@ export default {
   render({ id, task, canonical: c, job, draft }) {
     const back = '<a class="breadcrumb" href="#/review">← Review queue</a>';
     if (!task) {
-      return `<div class="view-stack">${back}<div class="panel">${emptyState({ icon: 'review', title: `Review task ${id} not found`, text: 'It may have been decided already, or the server was restarted. Open the review queue to see current tasks.', action: '<a class="btn btn-primary" href="#/review">Back to the queue</a>' })}</div></div>`;
+      return `<div class="view-stack">${back}<div class="panel">${emptyState({ icon: 'review', title: `Review task ${id} not found`, text: 'It may have been decided already, belong to another tenant, or exceed your clearance.', action: '<a class="btn btn-primary" href="#/review">Back to the queue</a>' })}</div></div>`;
     }
 
+    const user = getUser() || {};
     const steps = c?.steps || [];
     const found = steps.filter(s => s.verified).length;
     const pct = steps.length ? Math.round((found / steps.length) * 100) : 0;
@@ -425,7 +451,7 @@ export default {
           <div class="stack-sm">
             <div class="row" style="gap:10px">
               <h3 style="font-family:var(--font-heading);font-size:22px;letter-spacing:-0.01em">${esc(c?.title || task.sop_id)}</h3>
-              ${c?.classification ? tierBadge(c.classification.level) : ''}
+              ${c?.classification ? tierBadge(c.classification.level) : (task.sop_tier ? tierBadge(task.sop_tier) : '')}
               ${task.status === 'pending' ? pill('PENDING REVIEW', 'warning') : taskStatusPill(task.status)}
             </div>
             <div class="tiny muted"><span class="mono">${esc(task.sop_id)}</span> · v${esc(task.version)} · task <span class="mono">${esc(task.task_id)}</span> · uploaded by ${esc(task.uploaded_by)} · assigned to <b>${esc(task.assigned_role)}</b> · due ${fmt.date(task.due_date)} ${task.is_overdue ? pill('OVERDUE', 'danger', { dot: false }) : ''}</div>
@@ -474,7 +500,7 @@ export default {
                     <div style="margin-top:12px"><button type="button" class="btn btn-outline" data-action="rt-add-step">+ Add step</button></div>
                     <div id="rt-edit-error" style="margin-top:12px" role="alert"></div>
                     <div class="savebar" style="margin-top:16px">
-                      <div class="field" style="flex-direction:row;align-items:center;gap:10px"><label for="rt-actor" style="margin:0">Your name or ID</label><input id="rt-actor" class="input" style="width:240px" value="${esc(store.get('reviewer', ''))}" autocomplete="username"></div>
+                      <div class="small secondary">Saving as <span class="mono strong">${esc(user.identity || '—')}</span></div>
                       <div class="row"><button type="button" class="btn btn-outline" data-action="rt-edit-cancel">Cancel</button><button type="button" class="btn btn-primary" data-action="rt-save-steps">${icon('check')}Save steps</button></div>
                     </div>
                   </div>` : ''}
@@ -506,7 +532,7 @@ export default {
                       <div class="row-between"><span id="rt-json-status" class="tiny"></span><button type="button" class="btn btn-sm btn-ghost" data-action="rt-json-format">Format JSON</button></div>
                       <div id="rt-json-error" role="alert"></div>
                       <div class="savebar">
-                        <div class="field" style="flex-direction:row;align-items:center;gap:10px"><label for="rt-json-actor" style="margin:0">Your name or ID</label><input id="rt-json-actor" class="input" style="width:240px" value="${esc(store.get('reviewer', ''))}" autocomplete="username"></div>
+                        <div class="small secondary">Saving as <span class="mono strong">${esc(user.identity || '—')}</span></div>
                         <div class="row"><button type="button" class="btn btn-outline" data-action="rt-json-cancel">Cancel</button><button type="button" class="btn btn-primary" data-action="rt-json-save">${icon('check')}Save JSON</button></div>
                       </div>
                     </div>
@@ -517,7 +543,7 @@ export default {
           </div>
 
           <div class="stack sticky-side">
-            ${decisionCard(task, c)}
+            ${decisionCard(task, c, draft)}
             ${c ? classificationCard(c.classification) + qualityCard(c.quality) : ''}
           </div>
         </div>
@@ -535,7 +561,7 @@ export default {
     root.querySelector('#rt-json-text')?.addEventListener('input', () => { jsonDirty = true; jsonStatus(); }, { signal: ctx.signal });
     const notesReq = root.querySelector('#dec-notes-req');
     root.querySelector('.radio-cards')?.addEventListener('change', e => {
-      notesReq.textContent = e.target.value !== 'approve' ? '(required)' : '(optional)';
+      if (notesReq) notesReq.textContent = e.target.value !== 'approve' ? '(required)' : '(optional)';
     }, { signal: ctx.signal });
   },
 };

@@ -2,13 +2,12 @@
  * Live ingestion progress.
  *
  * `POST /api/uploads/ingest` only answers when the whole pipeline is finished, so while it runs
- * we watch two read-only endpoints instead:
- *   - /api/governance/jobs  -> the job's current lifecycle state and its transition history
- *   - /api/telemetry        -> every LLM call made since we started (triage, draft, validate…)
- * The job is found by diffing the job list against a snapshot taken just before the request.
+ * we watch /api/governance/jobs (and optionally /api/telemetry when authorized) instead.
+ * Cancellation derives actor identity strictly from the signed-in session token on the server.
  */
 
 import { api } from './api.js';
+import { hasCapability } from './auth.js';
 import { esc, icon, fmt, openModal, registerActions, toast } from './ui.js';
 
 const STAGES = [
@@ -127,7 +126,7 @@ const FOOTER = {
   stopping: `<span class="small muted" style="margin-right:auto"><span class="spinner" style="vertical-align:-3px"></span> Stopping… the step in progress can't be interrupted, but nothing further will run and nothing will be saved.</span>`,
 };
 
-let active = null;      // the ingestion this dialog is showing: { file, actor, requestStop }
+let active = null;      // the ingestion this dialog is showing: { file, requestStop }
 const setFooter = html => { const f = document.getElementById('modal-footer'); if (f) f.innerHTML = html; };
 
 registerActions({
@@ -138,7 +137,7 @@ registerActions({
     setFooter(FOOTER.stopping);
     active.requestStop();
     try {
-      const r = await api.cancelIngest(active.file, active.actor);
+      const r = await api.cancelIngest(active.file);
       if (r.status === 'not_running') toast('It had already finished.', 'info');
     } catch (err) {
       setFooter(FOOTER.run);
@@ -151,8 +150,9 @@ registerActions({
  * Open the progress dialog and start watching. Call `finish()` when the ingest request settles.
  * @returns {{stop: () => void, finish: (pauseMs?: number) => Promise<void>}}
  */
-export function trackIngest(file, { actor = '' } = {}) {
+export function trackIngest(file) {
   const startedAt = Date.now();
+  const canTelemetry = hasCapability('can_view_telemetry');
   let job = null;
   let calls = [];
   let lastActive = 0;
@@ -178,7 +178,7 @@ export function trackIngest(file, { actor = '' } = {}) {
   };
 
   openModal({ title: 'Ingesting…', size: 'md', body: progressHtml({ file, job: null, calls: [], startedAt }), footer: FOOTER.run });
-  active = { file, actor, requestStop() { stopping = true; paint(); } };
+  active = { file, requestStop() { stopping = true; paint(); } };
   lastHtml = body().innerHTML;
   tick();
 
@@ -189,11 +189,13 @@ export function trackIngest(file, { actor = '' } = {}) {
       changed.sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
       if (changed[0]) job = changed[0];
     } catch { /* keep the last known state */ }
-    try {
-      const t = await api.getTelemetry();
-      const all = t.today?.call_history || [];
-      calls = all.slice(callBase).filter(c => c.caller !== 'test_runner');
-    } catch { /* telemetry is optional */ }
+    if (canTelemetry) {
+      try {
+        const t = await api.getTelemetry();
+        const all = t.today?.call_history || [];
+        calls = all.slice(callBase).filter(c => c.caller !== 'test_runner');
+      } catch { /* telemetry is optional */ }
+    }
     if (!stopped) paint();
   };
 
@@ -202,7 +204,9 @@ export function trackIngest(file, { actor = '' } = {}) {
       const { jobs = [] } = await api.getGovernanceJobs();
       before = new Map(jobs.map(j => [j.job_id, j.updated_at]));
     } catch { /* first poll will treat everything as new; harmless */ }
-    try { callBase = ((await api.getTelemetry()).today?.call_history || []).length; } catch { /* ignore */ }
+    if (canTelemetry) {
+      try { callBase = ((await api.getTelemetry()).today?.call_history || []).length; } catch { /* ignore */ }
+    }
     if (stopped) return;
     await poll();
     const pollTimer = setInterval(() => { if (stopped) clearInterval(pollTimer); else poll(); }, 1000);
