@@ -166,7 +166,6 @@ function decisionCard(task, c, draft, job) {
 
   const canDecide = blockers.length === 0;
   const disAttr = canDecide ? '' : 'disabled';
-  const q = c?.quality;
   const cl = c?.classification;
 
   return `
@@ -197,12 +196,12 @@ function decisionCard(task, c, draft, job) {
       </div>
 
       <label class="row" style="gap:10px;flex-wrap:nowrap;align-items:flex-start;cursor:${canDecide ? 'pointer' : 'not-allowed'}">
-        <span class="switch"><input type="checkbox" id="dec-classif" ${cl?.level ? '' : 'checked'} ${disAttr}><span></span></span>
+        <span class="switch"><input type="checkbox" id="dec-classif" ${disAttr}><span></span></span>
         <span class="small secondary">I confirm the confidentiality tier${cl?.level ? ` <b>${esc(cl.level)}</b>` : ''} is correct (publication gate 6).</span>
       </label>
 
       <div id="dec-error" class="field-error" role="alert"></div>
-      <button type="button" class="btn btn-primary" data-action="submit-decision" data-quality='${esc(JSON.stringify(q || {}))}' ${disAttr}>${icon('check')}Submit decision</button>
+      <button type="button" class="btn btn-primary" data-action="submit-decision" ${disAttr}>${icon('check')}Submit decision</button>
     </form>`;
 }
 
@@ -512,7 +511,7 @@ export default {
         </div>
 
         ${isChangesRequestedActive ? `<div class="callout warn">${icon('alert')}<div><b>Changes requested${feedback?.reviewer ? ` by ${esc(feedback.reviewer)}` : ''}.</b>${feedback?.notes ? ` “${esc(feedback.notes)}”` : ''}${canEditDraft ? ' Edit the steps or JSON below, save your updates, then click <b>Resubmit for security review</b>.' : ' Waiting for a Process Owner to revise the draft and resubmit.'}</div></div>` : ''}
-        ${c ? '' : `<div class="callout warn">${icon('alert')}<div><b>The draft couldn't be loaded</b>, so the SOP content and quality metrics are unavailable. The server will apply its default gate values if you decide now.</div></div>`}
+        ${c ? '' : `<div class="callout warn">${icon('alert')}<div><b>The draft couldn't be loaded</b>, so the SOP content and quality metrics are unavailable. Approvals require a valid draft on the server and will fail closed until the draft can be loaded.</div></div>`}
         ${c?.lifecycle?.last_editor ? `<div class="callout warn">${icon('alert')}<div><b>Draft was edited by ${esc(c.lifecycle.last_editor)}</b> (${fmt.date(c.lifecycle.last_edited_at)}). Under separation of duties, ${esc(c.lifecycle.last_editor)} cannot approve this SOP — an independent Security Reviewer must decide.</div></div>` : ''}
         ${issues.length ? `<div class="callout danger">${icon('alert')}<div><b>${issues.length} open issue${issues.length > 1 ? 's' : ''} recorded on this SOP.</b> They block approval until resolved — see the Issues tab.</div></div>` : ''}
 

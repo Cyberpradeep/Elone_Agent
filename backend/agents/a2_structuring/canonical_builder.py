@@ -451,6 +451,7 @@ def build_canonical_sop_from_draft(
             "evidence_categories": conf_res["evidence_categories"],
             "rule_level": conf_res["rule_level"],
             "ai_suggested_level": conf_res["ai_suggested_level"],
+            "conflict": bool(conf_res.get("conflict", False)),
             "rationale": "Deterministic rule classification",
             "confirmed": False,
         },

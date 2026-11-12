@@ -513,6 +513,77 @@ class TestOrchestratorState(unittest.TestCase):
             )
         self.assertEqual(exc.exception.error_code, "stale_approval")
 
+        # 3. Missing canonical_sha256 rejected when require_canonical_hash=True (C4 legacy stamp block)
+        with self.assertRaises(StaleApprovalError) as exc:
+            ledger.publish_approved_sop(
+                job_id="job_stale",
+                current_content_sha256="original_hash",
+                current_version=1,
+                publication_gate_check=gates,
+                current_canonical_sha256="c" * 64,
+                require_canonical_hash=True,
+            )
+        self.assertEqual(exc.exception.error_code, "stale_approval")
+
+    def test_13b_canonical_and_draft_hash_binding_verified_at_publish(self):
+        """Verify canonical_sha256 & draft_sha256 recorded at approval are re-checked at publish (C4)."""
+        ledger = OrchestratorLedger()
+        ledger.start_job("job_c4", "SOP-C4", "t1", "src_hash_1", "uploader@company.com")
+        ledger.transition_state("job_c4", STATE_EXTRACTING)
+        ledger.transition_state("job_c4", STATE_SCANNING)
+        ledger.transition_state("job_c4", STATE_STRUCTURING)
+        ledger.transition_state("job_c4", STATE_ASSESSING)
+        ledger.create_review_task("job_c4", 20, "L0")
+
+        gates = evaluate_publication_gates(0, False, True, 0, 95.0, 90.0, 0, True)
+        dec = ledger.record_review_decision(
+            "job_c4",
+            "approve",
+            "reviewer@company.com",
+            publication_gate_check=gates,
+            canonical_sha256="a" * 64,
+            draft_sha256="b" * 64,
+        )
+        self.assertEqual(dec.canonical_sha256, "a" * 64)
+        self.assertEqual(dec.draft_sha256, "b" * 64)
+
+        with self.assertRaises(StaleApprovalError) as exc_c:
+            ledger.publish_approved_sop(
+                job_id="job_c4",
+                current_content_sha256="src_hash_1",
+                current_version=1,
+                publication_gate_check=gates,
+                current_canonical_sha256="f" * 64,
+                current_draft_sha256="b" * 64,
+                require_canonical_hash=True,
+            )
+        self.assertEqual(exc_c.exception.error_code, "stale_approval")
+
+        with self.assertRaises(StaleApprovalError) as exc_d:
+            ledger.publish_approved_sop(
+                job_id="job_c4",
+                current_content_sha256="src_hash_1",
+                current_version=1,
+                publication_gate_check=gates,
+                current_canonical_sha256="a" * 64,
+                current_draft_sha256="e" * 64,
+                require_canonical_hash=True,
+            )
+        self.assertEqual(exc_d.exception.error_code, "stale_approval")
+
+        self.assertTrue(
+            ledger.publish_approved_sop(
+                job_id="job_c4",
+                current_content_sha256="src_hash_1",
+                current_version=1,
+                publication_gate_check=gates,
+                current_canonical_sha256="a" * 64,
+                current_draft_sha256="b" * 64,
+                require_canonical_hash=True,
+            )
+        )
+        self.assertEqual(ledger.get_job("job_c4").current_state, STATE_PUBLISHED)
+
     def test_14_unauthorized_lifecycle_roles_rejected(self):
         """Verify that deactivation/archival/deletion requires role 'admin' or 'owner'."""
         ledger = OrchestratorLedger()

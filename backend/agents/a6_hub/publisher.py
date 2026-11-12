@@ -14,6 +14,8 @@ from schemas.governance_models import (
 )
 from agents.a5_review.sod_policy import (
     evaluate_publication_gates,
+    evaluate_draft_publication_gates,
+    compute_canonical_sha256,
 )
 from agents.a2_structuring.okf_builder import (
     write_okf_playbook,
@@ -21,6 +23,8 @@ from agents.a2_structuring.okf_builder import (
 
 __all__ = [
     "evaluate_publication_gates",
+    "evaluate_draft_publication_gates",
+    "compute_canonical_sha256",
     "PublicationGateResult",
     "GateFailureError",
     "write_okf_playbook",

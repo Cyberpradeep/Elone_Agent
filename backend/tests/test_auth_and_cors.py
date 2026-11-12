@@ -963,7 +963,7 @@ with patch.object(routes_ingestion.jit_converter, "plan_okf_from_raw", side_effe
     task_nw_2 = resub.json()["task_id"]
     assert task_nw_2 != task_nw
 
-    assert client.post(f"/api/governance/review-tasks/{task_nw_2}/decision", headers=hdrs["sec_a"], json={"decision": "approve"}).status_code == 200
+    assert client.post(f"/api/governance/review-tasks/{task_nw_2}/decision", headers=hdrs["sec_a"], json={"decision": "approve", "confirmed_classification": True}).status_code == 200
     # Security reviewer & Admin cannot publish; cross-tenant process_owner blocked; Process Owner publishes
     assert client.post("/api/governance/sops/SOP-NW-L1/publish", headers=hdrs["sec_a"], json={}).status_code == 403
     assert client.post("/api/governance/sops/SOP-NW-L1/publish", headers=hdrs["admin_a"], json={}).status_code == 403
@@ -971,22 +971,40 @@ with patch.object(routes_ingestion.jit_converter, "plan_okf_from_raw", side_effe
     assert client.post("/api/governance/sops/SOP-NW-L1/publish", headers=hdrs["alice_a"], json={}).status_code == 200
 
     # Tenant B L1 SOP: Security Reviewer approves, Process Owner publishes (Admin blocked on both)
-    assert client.post(f"/api/governance/review-tasks/{task_glx}/decision", headers=hdrs["admin_b"], json={"decision": "approve"}).status_code == 403
-    assert client.post(f"/api/governance/review-tasks/{task_glx}/decision", headers=hdrs["sec_b"], json={"decision": "approve"}).status_code == 200
+    assert client.post(f"/api/governance/review-tasks/{task_glx}/decision", headers=hdrs["admin_b"], json={"decision": "approve", "confirmed_classification": True}).status_code == 403
+    assert client.post(f"/api/governance/review-tasks/{task_glx}/decision", headers=hdrs["sec_b"], json={"decision": "approve", "confirmed_classification": True}).status_code == 200
     assert client.post("/api/governance/sops/SOP-GLX-L1/publish", headers=hdrs["admin_b"], json={}).status_code == 403
     assert client.post("/api/governance/sops/SOP-GLX-L1/publish", headers=hdrs["sec_b"], json={}).status_code == 403
     assert client.post("/api/governance/sops/SOP-GLX-L1/publish", headers=hdrs["carol_b"], json={}).status_code == 200
 
     # Defense-in-depth SoD check for security_reviewer: seeded job uploaded by sec_a blocks sec_a with 403 separation_of_duties
+    from agents.a2_structuring.canonical_builder import build_canonical_sop_from_draft as _build_canon
+    _sod_raw = "Title: SoD Security Seed\n1. Check system clock\n"
+    _sod_draft = {
+        "raw_text": _sod_raw,
+        "frontmatter": {
+            "sop_id": "SOP-SOD-SEC",
+            "title": "SoD Security Seed",
+            "category": "system",
+            "platform": "system",
+            "description": "Seeded SoD verification SOP.",
+            "steps": [{"step_number": 1, "step_type": "command", "sop_step_description": "Check system clock", "command": "Get-Date", "source_quote": "1. Check system clock"}],
+        },
+    }
+    _sod_canon = _build_canon(_sod_draft, raw_text=_sod_raw, tenant_id="tn_northwind", uploaded_by="sec_a@tn_northwind.example")
+    _sod_canon.setdefault("source", {})["file_sha256"] = "sodsechash"
+    _sod_canon.setdefault("classification", {})["level"] = "L1"
+    with open(os.path.join(ctx.DRAFTS_DIR, "SOP-SOD-SEC.draft.json"), "w", encoding="utf-8") as _df:
+        json.dump({"sop_id": "SOP-SOD-SEC", "tenant_id": "tn_northwind", "uploaded_by": "sec_a@tn_northwind.example", "raw_filename": "sod_sec.txt", "draft": _sod_draft, "canonical_draft": _sod_canon}, _df)
     server.governance_ledger.start_job("job_sod_sec", "SOP-SOD-SEC", "tn_northwind", "sodsechash", "sec_a@tn_northwind.example")
     server.governance_ledger.transition_state("job_sod_sec", "extracting")
     server.governance_ledger.transition_state("job_sod_sec", "scanning")
     server.governance_ledger.transition_state("job_sod_sec", "structuring")
     server.governance_ledger.transition_state("job_sod_sec", "assessing")
     t_sod_sec = server.governance_ledger.create_review_task("job_sod_sec", 20, "L1")
-    r_sec_sod = client.post(f"/api/governance/review-tasks/{t_sod_sec.task_id}/decision", headers=hdrs["sec_a"], json={"decision": "approve"})
+    r_sec_sod = client.post(f"/api/governance/review-tasks/{t_sod_sec.task_id}/decision", headers=hdrs["sec_a"], json={"decision": "approve", "confirmed_classification": True})
     assert r_sec_sod.status_code == 403 and r_sec_sod.json()["error_code"] == "separation_of_duties", r_sec_sod.text
-    assert client.post(f"/api/governance/review-tasks/{t_sod_sec.task_id}/decision", headers=hdrs["sec_a_l3"], json={"decision": "approve"}).status_code == 200
+    assert client.post(f"/api/governance/review-tasks/{t_sod_sec.task_id}/decision", headers=hdrs["sec_a_l3"], json={"decision": "approve", "confirmed_classification": True}).status_code == 200
 
     # Clearance & role routing: vault_l2 triggers L2/Security reviewer task; L1/L2 process_owner & admin blocked on decision
     ing_l2 = client.post("/api/uploads/ingest", headers=hdrs["alice_a"], json={"filename": "vault_l2.txt", "sop_id": "SOP-NW-L2"})
@@ -996,10 +1014,10 @@ with patch.object(routes_ingestion.jit_converter, "plan_okf_from_raw", side_effe
     assert jl2["confidentiality"]["level"] == "L2", jl2
     assert jl2["assigned_role"] == "Security reviewer", jl2
     assert not any(t["task_id"] == task_l2 for t in client.get("/api/governance/review-tasks", headers=hdrs["bob_a"]).json()["tasks"])
-    assert client.post(f"/api/governance/review-tasks/{task_l2}/decision", headers=hdrs["bob_a"], json={"decision": "approve"}).status_code == 403
-    assert client.post(f"/api/governance/review-tasks/{task_l2}/decision", headers=hdrs["po_l2_a"], json={"decision": "approve"}).status_code == 403
+    assert client.post(f"/api/governance/review-tasks/{task_l2}/decision", headers=hdrs["bob_a"], json={"decision": "approve", "confirmed_classification": True}).status_code == 403
+    assert client.post(f"/api/governance/review-tasks/{task_l2}/decision", headers=hdrs["po_l2_a"], json={"decision": "approve", "confirmed_classification": True}).status_code == 403
     # L2 Security Reviewer approves; L1 process_owner blocked by clearance on publish; L2 process_owner publishes
-    assert client.post(f"/api/governance/review-tasks/{task_l2}/decision", headers=hdrs["sec_a"], json={"decision": "approve"}).status_code == 200
+    assert client.post(f"/api/governance/review-tasks/{task_l2}/decision", headers=hdrs["sec_a"], json={"decision": "approve", "confirmed_classification": True}).status_code == 200
     assert client.post("/api/governance/sops/SOP-NW-L2/publish", headers=hdrs["alice_a"], json={}).status_code == 403
     assert client.post("/api/governance/sops/SOP-NW-L2/publish", headers=hdrs["sec_a"], json={}).status_code == 403
     assert client.post("/api/governance/sops/SOP-NW-L2/publish", headers=hdrs["po_l2_a"], json={}).status_code == 200
@@ -1010,10 +1028,10 @@ with patch.object(routes_ingestion.jit_converter, "plan_okf_from_raw", side_effe
     jl3 = ing_l3.json()
     assert jl3["confidentiality"]["level"] == "L3", jl3
     task_l3 = jl3["task_id"]
-    r_l2_clr = client.post(f"/api/governance/review-tasks/{task_l3}/decision", headers=hdrs["sec_a"], json={"decision": "approve"})
+    r_l2_clr = client.post(f"/api/governance/review-tasks/{task_l3}/decision", headers=hdrs["sec_a"], json={"decision": "approve", "confirmed_classification": True})
     assert r_l2_clr.status_code == 403 and r_l2_clr.json()["error_code"] == "insufficient_clearance", r_l2_clr.text
-    assert client.post(f"/api/governance/review-tasks/{task_l3}/decision", headers=hdrs["admin_a"], json={"decision": "approve"}).status_code == 403
-    assert client.post(f"/api/governance/review-tasks/{task_l3}/decision", headers=hdrs["sec_a_l3"], json={"decision": "approve"}).status_code == 200
+    assert client.post(f"/api/governance/review-tasks/{task_l3}/decision", headers=hdrs["admin_a"], json={"decision": "approve", "confirmed_classification": True}).status_code == 403
+    assert client.post(f"/api/governance/review-tasks/{task_l3}/decision", headers=hdrs["sec_a_l3"], json={"decision": "approve", "confirmed_classification": True}).status_code == 200
 
     # Secret quarantine -> tenant-isolated incidents
     r_q = client.post("/api/uploads/ingest", headers=hdrs["alice_a"], json={"filename": "secret_a.txt"})

@@ -19,6 +19,7 @@ from starlette.testclient import TestClient
 # Ensure backend root is on sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+import api.context as api_ctx
 from server import app, governance_ledger, retrieval_index
 from auth.models import AuthPrincipal
 from auth.tokens import create_access_token
@@ -62,6 +63,71 @@ class TestPipelineIntegration(unittest.TestCase):
 
     def setUp(self):
         self.client = TestClient(app)
+
+    def _stage_valid_draft(
+        self,
+        sop_id: str,
+        content_hash: str,
+        *,
+        title: str = "Standard Endpoint Maintenance",
+        purpose: str = "Verifies endpoint service state safely.",
+        level: str = "L1",
+        score: int = 25,
+        uploaded_by: str = "alice@example.com",
+        tenant_id: str = "tn_northwind",
+    ) -> str:
+        raw_text = (
+            f"Title: {title}\n"
+            f"Purpose: {purpose}\n"
+            f"Step 1: Check host date and time status\n"
+        )
+        draft_payload = {
+            "raw_text": raw_text,
+            "frontmatter": {
+                "sop_id": sop_id,
+                "title": title,
+                "category": "system",
+                "platform": "system",
+                "description": purpose,
+                "steps": [
+                    {
+                        "step_number": 1,
+                        "step_type": "command",
+                        "sop_step_description": "Check host date and time status",
+                        "command": "Get-Date",
+                        "shell": "powershell",
+                        "source_quote": "Step 1: Check host date and time status",
+                    }
+                ],
+            },
+        }
+        canon = build_canonical_sop_from_draft(
+            draft_payload,
+            raw_text=raw_text,
+            tenant_id=tenant_id,
+            uploaded_by=uploaded_by,
+        )
+        canon["sop_id"] = sop_id
+        canon["tenant_id"] = tenant_id
+        canon.setdefault("source", {})["file_sha256"] = content_hash
+        canon.setdefault("classification", {})["level"] = level
+        canon["classification"]["score"] = score
+        os.makedirs(api_ctx.DRAFTS_DIR, exist_ok=True)
+        path = os.path.join(api_ctx.DRAFTS_DIR, f"{sop_id}.draft.json")
+        with open(path, "w", encoding="utf-8") as df:
+            json.dump(
+                {
+                    "sop_id": sop_id,
+                    "tenant_id": tenant_id,
+                    "uploaded_by": uploaded_by,
+                    "raw_filename": f"{sop_id.lower()}.txt",
+                    "draft": draft_payload,
+                    "canonical_draft": canon,
+                },
+                df,
+                indent=2,
+            )
+        return path
 
     def test_01_build_canonical_sop_from_draft(self):
         """Dual export builder generates valid Canonical SOP JSON 1.0 from OKF draft."""
@@ -194,6 +260,7 @@ class TestPipelineIntegration(unittest.TestCase):
         uid = uuid.uuid4().hex[:6].upper()
         job_id = f"job_sod_{uid}"
         sop_id = f"SOP-SOD-{uid}"
+        draft_1 = self._stage_valid_draft(sop_id, f"hash_sod_{uid}", level="L0", score=10, uploaded_by="alice@example.com")
         governance_ledger.start_job(
             job_id=job_id,
             sop_id=sop_id,
@@ -212,7 +279,7 @@ class TestPipelineIntegration(unittest.TestCase):
             r_role = self.client.post(
                 f"/api/governance/review-tasks/{task.task_id}/decision",
                 headers=forbidden_hdr,
-                json={"decision": "approve", "reviewer": "sec_reviewer2@corp.com", "actor_type": "human"},
+                json={"decision": "approve", "reviewer": "sec_reviewer2@corp.com", "actor_type": "human", "confirmed_classification": True},
             )
             self.assertEqual(r_role.status_code, 403)
             self.assertEqual(r_role.json().get("error_code"), "insufficient_role")
@@ -220,130 +287,147 @@ class TestPipelineIntegration(unittest.TestCase):
         # Defense-in-depth SoD: a security_reviewer matching uploaded_by is blocked with 403 separation_of_duties
         job_id_2 = f"job_sod2_{uid}"
         sop_id_2 = f"SOP-SOD2-{uid}"
-        governance_ledger.start_job(
-            job_id=job_id_2,
-            sop_id=sop_id_2,
-            tenant_id="tn_northwind",
-            content_sha256=f"hash_sod2_{uid}",
-            uploaded_by="charlie@example.com",
-        )
-        governance_ledger.transition_state(job_id_2, "extracting")
-        governance_ledger.transition_state(job_id_2, "scanning")
-        governance_ledger.transition_state(job_id_2, "structuring")
-        governance_ledger.transition_state(job_id_2, "assessing")
-        task_2 = governance_ledger.create_review_task(job_id_2, 20, "L0")
+        draft_2 = self._stage_valid_draft(sop_id_2, f"hash_sod2_{uid}", level="L0", score=10, uploaded_by="charlie@example.com")
+        try:
+            governance_ledger.start_job(
+                job_id=job_id_2,
+                sop_id=sop_id_2,
+                tenant_id="tn_northwind",
+                content_sha256=f"hash_sod2_{uid}",
+                uploaded_by="charlie@example.com",
+            )
+            governance_ledger.transition_state(job_id_2, "extracting")
+            governance_ledger.transition_state(job_id_2, "scanning")
+            governance_ledger.transition_state(job_id_2, "structuring")
+            governance_ledger.transition_state(job_id_2, "assessing")
+            task_2 = governance_ledger.create_review_task(job_id_2, 20, "L0")
 
-        resp_sod = self.client.post(
-            f"/api/governance/review-tasks/{task_2.task_id}/decision",
-            headers=self.hdr_charlie,
-            json={"decision": "approve", "reviewer": "sec_reviewer2@corp.com", "actor_type": "human"},
-        )
-        self.assertEqual(resp_sod.status_code, 403)
-        self.assertEqual(resp_sod.json().get("error_code"), "separation_of_duties")
+            resp_sod = self.client.post(
+                f"/api/governance/review-tasks/{task_2.task_id}/decision",
+                headers=self.hdr_charlie,
+                json={"decision": "approve", "reviewer": "sec_reviewer2@corp.com", "actor_type": "human", "confirmed_classification": True},
+            )
+            self.assertEqual(resp_sod.status_code, 403)
+            self.assertEqual(resp_sod.json().get("error_code"), "separation_of_duties")
 
-        # Independent Security Reviewer approves -> 200 Success, stamped with token identity
-        resp = self.client.post(
-            f"/api/governance/review-tasks/{task.task_id}/decision",
-            headers=self.hdr_charlie,
-            json={
-                "decision": "approve",
-                "traceability_pct": 95.0,
-                "completeness_pct": 90.0,
-            },
-        )
-        self.assertEqual(resp.status_code, 200, resp.text)
-        self.assertEqual(resp.json().get("job_state"), "approved")
-        self.assertEqual(resp.json().get("reviewer"), "charlie@example.com")
+            # Independent Security Reviewer approves -> 200 Success, stamped with token identity
+            resp = self.client.post(
+                f"/api/governance/review-tasks/{task.task_id}/decision",
+                headers=self.hdr_charlie,
+                json={
+                    "decision": "approve",
+                    "confirmed_classification": True,
+                },
+            )
+            self.assertEqual(resp.status_code, 200, resp.text)
+            self.assertEqual(resp.json().get("job_state"), "approved")
+            self.assertEqual(resp.json().get("reviewer"), "charlie@example.com")
+        finally:
+            for p in (draft_1, draft_2):
+                if os.path.exists(p):
+                    os.remove(p)
 
     def test_05_api_publish_and_downstream_search(self):
-        """Approved SOP publishes via API and becomes searchable strictly by token clearance."""
+        """Approved SOP publishes strictly from stored draft and becomes searchable by token clearance."""
         uid = uuid.uuid4().hex[:6].upper()
         job_id = f"job_pub_{uid}"
         sop_id = f"SOP-PUB-{uid}"
         content_hash = f"hash_pub_{uid}"
-        governance_ledger.start_job(
-            job_id=job_id,
-            sop_id=sop_id,
-            tenant_id="tn_northwind",
-            content_sha256=content_hash,
+        draft_path = self._stage_valid_draft(
+            sop_id,
+            content_hash,
+            title=f"Secure Secret Storage Configuration {uid}",
+            purpose=f"Configures enterprise vault tokens {uid}.",
+            level="L2",
+            score=55,
             uploaded_by="alice@example.com",
         )
-        governance_ledger.transition_state(job_id, "extracting")
-        governance_ledger.transition_state(job_id, "scanning")
-        governance_ledger.transition_state(job_id, "structuring")
-        governance_ledger.transition_state(job_id, "assessing")
-        task = governance_ledger.create_review_task(job_id, 55, "L2")  # L2 Confidential -> Security reviewer
+        sops_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "knowledge_base", "sops"))
+        try:
+            governance_ledger.start_job(
+                job_id=job_id,
+                sop_id=sop_id,
+                tenant_id="tn_northwind",
+                content_sha256=content_hash,
+                uploaded_by="alice@example.com",
+            )
+            governance_ledger.transition_state(job_id, "extracting")
+            governance_ledger.transition_state(job_id, "scanning")
+            governance_ledger.transition_state(job_id, "structuring")
+            governance_ledger.transition_state(job_id, "assessing")
+            task = governance_ledger.create_review_task(job_id, 55, "L2")  # L2 Confidential -> Security reviewer
 
-        # Security reviewer Charlie (L2) approves
-        dec_resp = self.client.post(
-            f"/api/governance/review-tasks/{task.task_id}/decision",
-            headers=self.hdr_charlie,
-            json={"decision": "approve"},
-        )
-        self.assertEqual(dec_resp.status_code, 200, dec_resp.text)
+            # Security reviewer Charlie (L2) approves with explicit confirmation
+            dec_resp = self.client.post(
+                f"/api/governance/review-tasks/{task.task_id}/decision",
+                headers=self.hdr_charlie,
+                json={"decision": "approve", "confirmed_classification": True},
+            )
+            self.assertEqual(dec_resp.status_code, 200, dec_resp.text)
 
-        # Publish via POST /api/governance/sops/{sop_id}/publish
-        canonical_sop = {
-            "schema_version": "1.0",
-            "sop_id": sop_id,
-            "version": 1,
-            "tenant_id": "tn_northwind",
-            "title": f"Secure Secret Storage Configuration {uid}",
-            "department": {"value": "Security"},
-            "classification": {"level": "L2", "score": 55},
-            "lifecycle": {"state": "published"},
-            "purpose": {"text": f"Configures enterprise vault tokens {uid}."},
-            "source": {"sha256": content_hash},
-            "steps": [],
-        }
-        # Option A: security_reviewer and admin cannot publish; L1 process_owner blocked by L2 clearance; L2 process_owner succeeds
-        self.assertEqual(
-            self.client.post(f"/api/governance/sops/{sop_id}/publish", headers=self.hdr_charlie, json={"canonical_sop": canonical_sop}).status_code,
-            403,
-        )
-        self.assertEqual(
-            self.client.post(f"/api/governance/sops/{sop_id}/publish", headers=self.hdr_admin, json={"canonical_sop": canonical_sop}).status_code,
-            403,
-        )
-        self.assertEqual(
-            self.client.post(f"/api/governance/sops/{sop_id}/publish", headers=self.hdr_alice, json={"canonical_sop": canonical_sop}).status_code,
-            403,
-        )
+            # Body canonical_sop (e.g. L0 downgrade or forged title) MUST be ignored (C4)
+            forged_body = {
+                "canonical_sop": {
+                    "sop_id": sop_id,
+                    "title": f"Forged Public Override {uid}",
+                    "classification": {"level": "L0", "score": 5},
+                }
+            }
+            # Option A: security_reviewer and admin cannot publish; L1 process_owner blocked by L2 stored clearance; L2 process_owner succeeds
+            self.assertEqual(
+                self.client.post(f"/api/governance/sops/{sop_id}/publish", headers=self.hdr_charlie, json=forged_body).status_code,
+                403,
+            )
+            self.assertEqual(
+                self.client.post(f"/api/governance/sops/{sop_id}/publish", headers=self.hdr_admin, json=forged_body).status_code,
+                403,
+            )
+            self.assertEqual(
+                self.client.post(f"/api/governance/sops/{sop_id}/publish", headers=self.hdr_alice, json=forged_body).status_code,
+                403,
+            )
 
-        resp = self.client.post(
-            f"/api/governance/sops/{sop_id}/publish",
-            headers=self.hdr_po_l2,
-            json={"canonical_sop": canonical_sop},
-        )
-        self.assertEqual(resp.status_code, 200, resp.text)
-        data = resp.json()
-        self.assertEqual(data.get("status"), "published")
-        self.assertTrue(data.get("citation").startswith(f"{sop_id}@v1#"))
+            resp = self.client.post(
+                f"/api/governance/sops/{sop_id}/publish",
+                headers=self.hdr_po_l2,
+                json=forged_body,
+            )
+            self.assertEqual(resp.status_code, 200, resp.text)
+            data = resp.json()
+            self.assertEqual(data.get("status"), "published")
+            self.assertTrue(data.get("citation").startswith(f"{sop_id}@v1#"))
 
-        # Test Downstream Search: L1 agent cannot see L2 SOP even if spoofing clearance_level=L2 in body
-        resp_l1 = self.client.post(
-            "/api/governance/downstream/search",
-            headers=self.hdr_agent_l1,
-            json={
-                "query": f"vault tokens {uid}",
-                "tenant_id": "tn_northwind",
-                "clearance_level": "L2",
-            },
-        )
-        self.assertEqual(resp_l1.status_code, 200)
-        returned_l1_ids = {r["sop_id"] for r in resp_l1.json()["results"]}
-        self.assertNotIn(sop_id, returned_l1_ids)
-        self.assertEqual(resp_l1.json().get("caller_clearance"), "L1")
+            # Test Downstream Search: L1 agent cannot see L2 SOP even if spoofing clearance_level=L2 in body
+            resp_l1 = self.client.post(
+                "/api/governance/downstream/search",
+                headers=self.hdr_agent_l1,
+                json={
+                    "query": f"vault tokens {uid}",
+                    "tenant_id": "tn_northwind",
+                    "clearance_level": "L2",
+                },
+            )
+            self.assertEqual(resp_l1.status_code, 200)
+            returned_l1_ids = {r["sop_id"] for r in resp_l1.json()["results"]}
+            self.assertNotIn(sop_id, returned_l1_ids)
+            self.assertEqual(resp_l1.json().get("caller_clearance"), "L1")
 
-        # Test Downstream Search: L2 agent CAN see L2 SOP
-        resp_l2 = self.client.post(
-            "/api/governance/downstream/search",
-            headers=self.hdr_agent_l2,
-            json={"query": f"vault tokens {uid}"},
-        )
-        self.assertEqual(resp_l2.status_code, 200)
-        returned_l2_ids = {r["sop_id"] for r in resp_l2.json()["results"]}
-        self.assertIn(sop_id, returned_l2_ids)
+            # Test Downstream Search: L2 agent CAN see L2 SOP from stored approved draft
+            resp_l2 = self.client.post(
+                "/api/governance/downstream/search",
+                headers=self.hdr_agent_l2,
+                json={"query": f"vault tokens {uid}"},
+            )
+            self.assertEqual(resp_l2.status_code, 200)
+            returned_l2_ids = {r["sop_id"] for r in resp_l2.json()["results"]}
+            self.assertIn(sop_id, returned_l2_ids)
+        finally:
+            if os.path.exists(draft_path):
+                os.remove(draft_path)
+            for pattern in (f"{sop_id}.md", f"{sop_id}.canonical.json"):
+                for p in glob.glob(os.path.join(sops_dir, "**", pattern), recursive=True):
+                    if os.path.exists(p):
+                        os.remove(p)
 
     def test_06_human_in_the_loop_before_saving(self):
         """Ingestion creates review task and halts at awaiting_review without saving to sops/."""
@@ -426,7 +510,7 @@ class TestPipelineIntegration(unittest.TestCase):
             app_resp = self.client.post(
                 f"/api/governance/review-tasks/{task_id}/decision",
                 headers=self.hdr_charlie,
-                json={"decision": "approve"},
+                json={"decision": "approve", "confirmed_classification": True},
             )
             self.assertEqual(app_resp.status_code, 200, app_resp.text)
 

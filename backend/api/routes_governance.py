@@ -55,6 +55,8 @@ from schemas.governance_models import (
     NotApprovedError,
 )
 from agents.a6_hub.publisher import (
+    compute_canonical_sha256,
+    evaluate_draft_publication_gates,
     evaluate_publication_gates,
     write_okf_playbook,
 )
@@ -67,6 +69,7 @@ from agents.a2_structuring.canonical_builder import (
     write_canonical_sop_json,
     _locate_quote,
 )
+from schemas.canonical_sop_schema import validate_canonical_sop_dict
 from agents.a4_verification.quote_tracer import verify_quote_trace
 from agents.a3_security.ast_sandbox import scan_commands_for_ast_threats
 
@@ -75,12 +78,62 @@ def _read_draft(sop_id: str):
     return read_draft_file(sop_id)
 
 
+_SYSTEM_ACTORS = frozenset({
+    "orchestrator",
+    "a1_ingestion",
+    "a2_structuring",
+    "a3_scanner",
+    "a3_ast_sandbox",
+    "a4_verification",
+    "a5_coordinator",
+    "a6_hub",
+})
+
+
+def _resolve_server_last_editor(job=None, draft_data=None, sop_id: str = None):
+    """Derives last_editor strictly from server-side draft metadata and job audit history."""
+    if draft_data is None and sop_id:
+        try:
+            _, draft_data = _read_draft(sop_id)
+        except Exception:
+            draft_data = None
+    if isinstance(draft_data, dict):
+        top_editor = str(draft_data.get("last_editor") or "").strip()
+        if top_editor:
+            return top_editor
+        canon = draft_data.get("canonical_draft")
+        if isinstance(canon, dict):
+            lc = canon.get("lifecycle")
+            if isinstance(lc, dict):
+                lc_editor = str(lc.get("last_editor") or "").strip()
+                if lc_editor:
+                    return lc_editor
+    if job is not None:
+        for h in reversed(getattr(job, "history", None) or []):
+            if not isinstance(h, dict):
+                continue
+            actor = str(h.get("actor") or "").strip()
+            if not actor or actor.lower() in _SYSTEM_ACTORS:
+                continue
+            details = h.get("details") if isinstance(h.get("details"), dict) else {}
+            reason_l = str(h.get("reason") or "").strip().lower()
+            is_draft_edit = (
+                details.get("draft_edit") is True
+                or reason_l.startswith((
+                    "steps edited by process owner",
+                    "steps revised by process owner",
+                    "canonical json edited by process owner",
+                    "canonical json revised by process owner",
+                ))
+                or (h.get("from_state") == "awaiting_review" and h.get("to_state") == "awaiting_review")
+            )
+            if is_draft_edit:
+                return actor
+    return None
+
+
 def _draft_last_editor(sop_id: str):
-    try:
-        _, data = _read_draft(sop_id)
-        return (data or {}).get("last_editor")
-    except Exception:
-        return None
+    return _resolve_server_last_editor(sop_id=sop_id)
 
 
 def _job_for_sop(sop_id: str, tenant_id: str = None, preferred_states=None):
@@ -185,7 +238,7 @@ async def api_governance_review_tasks(request: Request):
 
         # Under Option A Single-Gate RBAC, only security_reviewer accounts decide review tasks.
         role_ok = principal.has_role(ROLE_SECURITY_REVIEWER)
-        last_ed = draft_meta.get("last_editor")
+        last_ed = _resolve_server_last_editor(job=job, sop_id=job.sop_id) or draft_meta.get("last_editor")
         sod_conflict = (
             principal.identity.strip().lower() == str(job.uploaded_by or "").strip().lower()
             or (bool(last_ed) and principal.identity.strip().lower() == str(last_ed).strip().lower())
@@ -213,10 +266,13 @@ async def api_governance_record_decision(request: Request):
         body = await request.json()
     except Exception:
         body = {}
+    if not isinstance(body, dict):
+        body = {}
 
-    decision = body.get("decision", "approve")
-    notes = body.get("notes", "")
-    confirmed_classif = body.get("confirmed_classification", True)
+    decision = str(body.get("decision", "approve") or "approve")
+    notes = str(body.get("notes", "") or "")
+    # Strictly require explicit boolean True from caller; default False (never auto-confirm Gate 6).
+    confirmed_classif = body.get("confirmed_classification") is True
 
     target_job = None
     for job in list(governance_ledger._jobs.values()):
@@ -228,28 +284,76 @@ async def api_governance_record_decision(request: Request):
         return JSONResponse({"error": f"Review task '{task_id}' not found."}, status_code=404)
 
     enforce_tenant_access(principal, target_job.tenant_id, request=request)
-    draft_meta = resolve_draft_access_meta(target_job.sop_id, job=target_job)
+    draft_path, saved_draft_data = _read_draft(target_job.sop_id)
+    safe_draft_for_meta = saved_draft_data if isinstance(saved_draft_data, dict) else {}
+    draft_meta = resolve_draft_access_meta(target_job.sop_id, draft_data=safe_draft_for_meta, job=target_job)
     sop_tier = draft_meta["classification_level"]
     enforce_review_task_eligibility(principal, target_job.review_task, sop_tier, request=request)
 
-    # Ignore client-supplied reviewer, actor_type, and last_editor completely!
+    # Derive reviewer, actor_type, last_editor, and ALL 6 publication gates strictly on the server!
     reviewer = principal.identity
     actor_type = principal.actor_type
-    server_last_editor = _draft_last_editor(target_job.sop_id)
+    server_last_editor = _resolve_server_last_editor(
+        job=target_job,
+        draft_data=saved_draft_data if isinstance(saved_draft_data, dict) else None,
+        sop_id=target_job.sop_id,
+    )
 
+    clean_dec = decision.strip().lower()
     gate_check = None
-    if str(decision).lower() == "approve":
-        gate_check = evaluate_publication_gates(
-            secrets_count=body.get("secrets_count", 0),
-            is_quarantined=target_job.current_state == "quarantined",
-            schema_valid=body.get("schema_valid", True),
-            schema_errors_count=body.get("schema_errors_count", 0),
-            traceability_pct=float(body.get("traceability_pct", 95.0)),
-            completeness_pct=float(body.get("completeness_pct", 90.0)),
-            open_blocking_issues_count=int(body.get("open_blocking_issues_count", 0)),
-            classification_confirmed=bool(confirmed_classif),
-            rule_ai_conflict=bool(body.get("rule_ai_conflict", False)),
+    stamped_draft_data = None
+    canon_hash = None
+    draft_hash = None
+    if clean_dec == "approve":
+        gate_check = evaluate_draft_publication_gates(
+            target_job,
+            saved_draft_data,
+            for_publish=False,
+            body_confirmed_classification=confirmed_classif,
         )
+        if (
+            gate_check.passed
+            and draft_path
+            and isinstance(saved_draft_data, dict)
+            and isinstance(saved_draft_data.get("canonical_draft"), dict)
+            and isinstance(saved_draft_data.get("draft"), dict)
+        ):
+            now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            stamped_draft_data = copy.deepcopy(saved_draft_data)
+            stamped_canon = stamped_draft_data["canonical_draft"]
+            stamped_canon["sop_id"] = target_job.sop_id
+            stamped_canon["version"] = target_job.version
+            stamped_canon["tenant_id"] = target_job.tenant_id
+            stamped_src = stamped_canon.setdefault("source", {})
+            if isinstance(stamped_src, dict) and target_job.content_sha256:
+                stamped_src["file_sha256"] = target_job.content_sha256
+            stamped_classif = stamped_canon.setdefault("classification", {})
+            if isinstance(stamped_classif, dict):
+                stamped_classif["confirmed"] = True
+                stamped_classif["confirmed_by"] = reviewer
+                stamped_classif["confirmed_at"] = now_iso
+            stamped_lifecycle = stamped_canon.setdefault("lifecycle", {})
+            if isinstance(stamped_lifecycle, dict):
+                stamped_lifecycle["state"] = "approved"
+                approvals = stamped_lifecycle.get("approvals")
+                if not isinstance(approvals, list):
+                    approvals = []
+                approvals.append({
+                    "by": reviewer,
+                    "at": now_iso,
+                    "version": target_job.version,
+                    "content_sha256": target_job.content_sha256,
+                })
+                stamped_lifecycle["approvals"] = approvals
+            canon_hash = compute_canonical_sha256(stamped_canon)
+            draft_hash = compute_canonical_sha256(stamped_draft_data["draft"])
+
+    prev_state = target_job.current_state
+    prev_updated = target_job.updated_at
+    prev_task = copy.deepcopy(target_job.review_task)
+    prev_decision = target_job.approval_decision
+    prev_gates = target_job.gate_results
+    prev_hist_len = len(target_job.history)
 
     try:
         dec = governance_ledger.record_review_decision(
@@ -260,11 +364,32 @@ async def api_governance_record_decision(request: Request):
             notes=notes,
             publication_gate_check=gate_check,
             last_editor=server_last_editor,
+            canonical_sha256=canon_hash,
+            draft_sha256=draft_hash,
         )
+        if stamped_draft_data is not None and draft_path:
+            try:
+                tmp_df = f"{draft_path}.{os.getpid()}.tmp"
+                with open(tmp_df, "w", encoding="utf-8") as df:
+                    json.dump(stamped_draft_data, df, indent=2)
+                os.replace(tmp_df, draft_path)
+            except Exception:
+                with governance_ledger._lock:
+                    target_job.current_state = prev_state
+                    target_job.updated_at = prev_updated
+                    target_job.review_task = prev_task
+                    target_job.approval_decision = prev_decision
+                    target_job.gate_results = prev_gates
+                    del target_job.history[prev_hist_len:]
+                    governance_ledger._save_unlocked()
+                raise
+
         # Keep _processed_manifest.json synchronized with review decisions (tenant-scoped)
         try:
             m = read_manifest()
-            _, d_data = _read_draft(target_job.sop_id)
+            d_data = stamped_draft_data if stamped_draft_data is not None else (
+                saved_draft_data if isinstance(saved_draft_data, dict) else None
+            )
             target_fn = (d_data or {}).get("raw_filename")
             if not target_fn:
                 prefix = f"{target_job.tenant_id}::"
@@ -304,8 +429,11 @@ async def api_governance_record_decision(request: Request):
             "decision": dec.decision,
             "reviewer": dec.reviewer,
             "job_state": target_job.current_state,
+            "canonical_sha256": dec.canonical_sha256,
             "gate_check": gate_check.__dict__ if gate_check else None,
         })
+    except AuthAccessError:
+        raise
     except SeparationOfDutiesViolation as e:
         return JSONResponse({"error": str(e), "error_code": e.error_code}, status_code=403)
     except NotHumanActorError as e:
@@ -318,18 +446,20 @@ async def api_governance_record_decision(request: Request):
 
 
 async def api_governance_publish_sop(request: Request):
-    """Publishes an approved SOP (strictly 'process_owner' within caller tenant & clearance)."""
+    """Publishes an approved SOP strictly from its stored approved draft (never request body)."""
     principal = authenticate_request(
         request,
         allowed_roles=(ROLE_PROCESS_OWNER,),
         human_only=True,
         check_csrf=True,
     )
-    sop_id = request.path_params.get("sop_id")
+    sop_id = (request.path_params.get("sop_id") or "").strip()
+    if not _SOP_ID_RE.fullmatch(sop_id):
+        return JSONResponse({"error": "Invalid SOP id."}, status_code=400)
     try:
-        body = await request.json()
+        await request.json()
     except Exception:
-        body = {}
+        pass
 
     target_job = _job_for_sop(sop_id, tenant_id=principal.tenant_id, preferred_states={"approved"})
     if not target_job:
@@ -338,105 +468,133 @@ async def api_governance_publish_sop(request: Request):
             enforce_tenant_access(principal, any_job.tenant_id, request=request)
         return JSONResponse({"error": f"Job for SOP '{sop_id}' not found."}, status_code=404)
 
-    draft_meta = resolve_draft_access_meta(sop_id, job=target_job)
+    enforce_tenant_access(principal, target_job.tenant_id, request=request)
+    draft_path, saved_draft_data = _read_draft(sop_id)
+    safe_draft_for_meta = saved_draft_data if isinstance(saved_draft_data, dict) else {}
+    draft_meta = resolve_draft_access_meta(sop_id, draft_data=safe_draft_for_meta, job=target_job)
     enforce_clearance_access(principal, draft_meta["classification_level"], request=request)
-    body_canon = body.get("canonical_sop") if isinstance(body.get("canonical_sop"), dict) else None
-    if body_canon and isinstance(body_canon.get("classification"), dict) and body_canon["classification"].get("level"):
-        enforce_clearance_access(
-            principal,
-            normalize_clearance(body_canon["classification"]["level"]),
-            request=request,
-        )
+    if target_job.current_state == "published":
+        pub_meta = resolve_sop_access_meta(sop_id)
+        enforce_clearance_access(principal, pub_meta["classification_level"], request=request)
 
-    # Ignore body.actor; stamp identity strictly from token
+    # Ignore request body completely (actor, canonical_sop, gate metrics); use token & stored draft only.
     actor = principal.identity
 
-    gate_check = evaluate_publication_gates(
-        secrets_count=0,
-        is_quarantined=False,
-        schema_valid=True,
-        schema_errors_count=0,
-        traceability_pct=float(body.get("traceability_pct", 95.0)),
-        completeness_pct=float(body.get("completeness_pct", 90.0)),
-        open_blocking_issues_count=0,
-        classification_confirmed=True,
-    )
-
     try:
+        if target_job.current_state != "approved" or not target_job.approval_decision:
+            raise NotApprovedError(
+                f"Job is in state '{target_job.current_state}', cannot publish. Must be 'approved'."
+            )
+
+        if not draft_path or not isinstance(saved_draft_data, dict):
+            raise StaleApprovalError(
+                f"Approved staged draft for SOP '{sop_id}' is missing or corrupted; re-approval is required before publishing."
+            )
+        canon_obj = saved_draft_data.get("canonical_draft")
+        draft_obj = saved_draft_data.get("draft")
+        if not isinstance(canon_obj, dict) or not isinstance(draft_obj, dict) or not draft_obj:
+            raise StaleApprovalError(
+                f"Approved staged draft for SOP '{sop_id}' is incomplete (missing canonical_draft or draft payload); re-approval is required."
+            )
+
+        stored_classif = canon_obj.get("classification") if isinstance(canon_obj.get("classification"), dict) else {}
+        stored_level = normalize_clearance(stored_classif.get("level") or draft_meta["classification_level"])
+        enforce_clearance_access(principal, stored_level, request=request)
+
+        fm_obj = draft_obj.get("frontmatter") if isinstance(draft_obj.get("frontmatter"), dict) else draft_obj
+        stored_sop_ids = [
+            str(saved_draft_data.get("sop_id") or "").strip(),
+            str(canon_obj.get("sop_id") or "").strip(),
+            str(fm_obj.get("sop_id") or "").strip() if isinstance(fm_obj, dict) else "",
+        ]
+        if any(sid and sid != target_job.sop_id for sid in stored_sop_ids):
+            raise StaleApprovalError(
+                f"Draft SOP ID mismatch against approved job '{target_job.sop_id}'."
+            )
+        c_tenant = str(canon_obj.get("tenant_id") or saved_draft_data.get("tenant_id") or "").strip()
+        if c_tenant and c_tenant != target_job.tenant_id:
+            raise StaleApprovalError(
+                f"Draft tenant '{c_tenant}' does not match approved job tenant '{target_job.tenant_id}'."
+            )
+        src_obj = canon_obj.get("source") if isinstance(canon_obj.get("source"), dict) else {}
+        stored_file_sha = str(src_obj.get("file_sha256") or "").strip()
+        if stored_file_sha and target_job.content_sha256 and stored_file_sha != target_job.content_sha256:
+            raise StaleApprovalError(
+                "Stored draft file_sha256 does not match approved job content hash."
+            )
+
+        current_canon_hash = compute_canonical_sha256(canon_obj)
+        current_draft_hash = compute_canonical_sha256(draft_obj)
+        gate_check = evaluate_draft_publication_gates(
+            target_job,
+            saved_draft_data,
+            for_publish=True,
+        )
+
+        prev_state = target_job.current_state
+        prev_updated = target_job.updated_at
+        prev_gates = target_job.gate_results
+        prev_hist_len = len(target_job.history)
+
         governance_ledger.publish_approved_sop(
             job_id=target_job.job_id,
             current_content_sha256=target_job.content_sha256,
             current_version=target_job.version,
             publication_gate_check=gate_check,
             actor=actor,
+            current_canonical_sha256=current_canon_hash,
+            current_draft_sha256=current_draft_hash,
+            require_canonical_hash=True,
         )
 
-        canonical_sop = body.get("canonical_sop")
+        try:
+            draft_to_write = copy.deepcopy(draft_obj)
+            canonical_sop = copy.deepcopy(canon_obj)
+            safe_name = saved_draft_data.get("raw_filename") or f"{sop_id}.txt"
 
-        draft_file = os.path.join(DRAFTS_DIR, f"{sop_id}.draft.json")
-        saved_playbook_path = None
-        safe_name = None
-        if os.path.exists(draft_file):
+            if not draft_to_write.get("raw_text") and safe_name:
+                src_upload = resolve_tenant_upload(target_job.tenant_id, os.path.basename(str(safe_name)))
+                if src_upload and os.path.exists(src_upload):
+                    try:
+                        _, segs = extract_ordered_sop_content(src_upload)
+                        draft_to_write["raw_text"] = "\n\n".join(
+                            s["content"] for s in segs if s.get("type") == "text"
+                        )
+                    except Exception:
+                        pass
+
+            canonical_sop["sop_id"] = target_job.sop_id
+            canonical_sop["version"] = target_job.version
+            canonical_sop["tenant_id"] = target_job.tenant_id
+            canonical_sop.setdefault("lifecycle", {})["state"] = "published"
+            canonical_sop["lifecycle"]["published_by"] = actor
+            canonical_sop["lifecycle"]["published_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            canonical_sop.setdefault("source", {}).setdefault("file_sha256", target_job.content_sha256)
+
+            saved_playbook_path = write_okf_playbook(
+                draft_to_write,
+                raw_filename=safe_name,
+                tenant_id=target_job.tenant_id,
+                uploaded_by=target_job.uploaded_by,
+                canonical_data=canonical_sop,
+            )
+            indexed = retrieval_index.index_published_sop(canonical_sop)
+            citation = indexed.citation if hasattr(indexed, "citation") else str(indexed)
+        except Exception:
+            with governance_ledger._lock:
+                target_job.current_state = prev_state
+                target_job.updated_at = prev_updated
+                target_job.gate_results = prev_gates
+                del target_job.history[prev_hist_len:]
+                governance_ledger._save_unlocked()
+            raise
+
+        purge_staged_draft(sop_id)
+        if draft_path and os.path.exists(draft_path):
             try:
-                with open(draft_file, "r", encoding="utf-8") as df:
-                    saved_draft_data = json.load(df)
-                draft_content = saved_draft_data.get("draft", {})
-                if not canonical_sop:
-                    canonical_sop = saved_draft_data.get("canonical_draft")
-                safe_name = saved_draft_data.get("raw_filename", f"{sop_id}.txt")
-                if isinstance(draft_content, dict) and not draft_content.get("raw_text") and safe_name:
-                    src_upload = resolve_tenant_upload(target_job.tenant_id, os.path.basename(safe_name))
-                    if src_upload and os.path.exists(src_upload):
-                        try:
-                            _, segs = extract_ordered_sop_content(src_upload)
-                            draft_content["raw_text"] = "\n\n".join(s["content"] for s in segs if s.get("type") == "text")
-                        except Exception:
-                            pass
-
-                saved_playbook_path = write_okf_playbook(
-                    draft_content,
-                    raw_filename=safe_name,
-                    tenant_id=target_job.tenant_id,
-                    uploaded_by=target_job.uploaded_by,
-                )
-            except Exception as e:
-                print(f"[WARN] Failed to commit draft playbook on publish: {e}")
-
-        if not canonical_sop:
-            pattern = os.path.join(SOPS_DIR, "**", f"{sop_id}.canonical.json")
-            files = glob.glob(pattern, recursive=True)
-            if files:
-                with open(files[0], "r", encoding="utf-8") as f:
-                    canonical_sop = json.load(f)
-            else:
-                canonical_sop = {
-                    "schema_version": "1.0",
-                    "sop_id": target_job.sop_id,
-                    "version": target_job.version,
-                    "tenant_id": target_job.tenant_id,
-                    "title": target_job.sop_id,
-                    "source": {"sha256": target_job.content_sha256},
-                    "lifecycle": {"state": "published"},
-                    "classification": {"level": "L1", "score": 25},
-                    "steps": [],
-                }
-        # Always bind tenant_id from authoritative job (cannot be spoofed via canonical_sop body)
-        canonical_sop["tenant_id"] = target_job.tenant_id
-        canonical_sop.setdefault("lifecycle", {})["state"] = "published"
-        canonical_sop.setdefault("source", {}).setdefault("file_sha256", target_job.content_sha256)
-
-        if saved_playbook_path:
-            pub_category = os.path.basename(os.path.dirname(saved_playbook_path)) or "general"
-            write_canonical_sop_json(canonical_sop, category=pub_category)
-            purge_staged_draft(sop_id)
-            if os.path.exists(draft_file):
-                try:
-                    os.remove(draft_file)
-                except Exception:
-                    pass
-
-        indexed = retrieval_index.index_published_sop(canonical_sop)
-        citation = indexed.citation if hasattr(indexed, "citation") else str(indexed)
+                os.remove(draft_path)
+            except Exception:
+                pass
 
         try:
             pub_sop_id = canonical_sop.get("sop_id") or target_job.sop_id
@@ -475,7 +633,10 @@ async def api_governance_publish_sop(request: Request):
             "citation": citation,
             "job_state": target_job.current_state,
             "playbook_path": saved_playbook_path,
+            "canonical_sha256": current_canon_hash,
         })
+    except AuthAccessError:
+        raise
     except StaleApprovalError as e:
         return JSONResponse({"error": str(e), "error_code": e.error_code}, status_code=409)
     except NotApprovedError as e:
@@ -898,7 +1059,7 @@ def _apply_step_edits(path: str, data: dict, steps_in: list, actor: str, canonic
                 warnings.append(f"Step {i} only runs if variables.{var}, but no earlier step sets it.")
         known |= set(re.findall(r"variables\.(\w+)\s*=", st.get("parse_instruction") or ""))
 
-    old = data.get("canonical_draft") or {}
+    old = copy.deepcopy(data.get("canonical_draft") or {})
     draft_meta = resolve_draft_access_meta(data.get("sop_id") or old.get("sop_id") or "", draft_data=data)
     tenant_id = draft_meta["tenant_id"]
 
@@ -910,15 +1071,21 @@ def _apply_step_edits(path: str, data: dict, steps_in: list, actor: str, canonic
     _, segments = extract_ordered_sop_content(source_path)
     raw_text = "\n\n".join(s_["content"] for s_ in segments if s_.get("type") == "text")
 
-    fm["steps"] = new_steps
-    if not draft.get("raw_text"):
-        draft["raw_text"] = raw_text
+    fm_copy = copy.deepcopy(fm)
+    fm_copy["steps"] = new_steps
+    work_draft = copy.deepcopy(draft)
+    if isinstance(work_draft.get("frontmatter"), dict):
+        work_draft["frontmatter"] = fm_copy
+    else:
+        work_draft = fm_copy
+    if not work_draft.get("raw_text"):
+        work_draft["raw_text"] = raw_text
     rebuilt = build_canonical_sop_from_draft(
-        draft,
+        work_draft,
         raw_text=raw_text,
         tenant_id=tenant_id,
         uploaded_by=(old.get("lifecycle") or {}).get("uploaded_by", draft_meta.get("uploaded_by") or "author@corp.com"),
-        vlm_reports=draft.get("vlm_reports"),
+        vlm_reports=work_draft.get("vlm_reports"),
     )
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
     old["steps"] = rebuilt["steps"]
@@ -927,8 +1094,23 @@ def _apply_step_edits(path: str, data: dict, steps_in: list, actor: str, canonic
     if rebuilt.get("media"):
         old["media"] = rebuilt["media"]
     if canonical_extra:
-        _merge_document_sections(old, fm, canonical_extra, raw_text)
+        _merge_document_sections(old, fm_copy, canonical_extra, raw_text)
+    classif_old = old.get("classification")
+    if isinstance(classif_old, dict):
+        classif_old["confirmed"] = False
+        classif_old["confirmed_by"] = None
+        classif_old.pop("confirmed_at", None)
+    schema_ok, schema_errs, _ = validate_canonical_sop_dict(old)
+    if not schema_ok:
+        return {"errors": [f"Canonical schema validation failed: {e}" for e in schema_errs]}
+    old.setdefault("quality", {})["schema_valid"] = True
     old.setdefault("lifecycle", {}).update({"last_editor": actor, "last_edited_at": now})
+
+    fm["steps"] = fm_copy["steps"]
+    if "title" in fm_copy:
+        fm["title"] = fm_copy["title"]
+    if not draft.get("raw_text"):
+        draft["raw_text"] = raw_text
     data["canonical_draft"] = old
     data["last_editor"], data["last_edited_at"] = actor, now
 

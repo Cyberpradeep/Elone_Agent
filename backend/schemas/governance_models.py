@@ -216,6 +216,8 @@ class ReviewDecision:
     timestamp: str = field(default_factory=_utc_now_iso)
     notes: Optional[str] = None
     route: Optional[str] = None
+    canonical_sha256: Optional[str] = None
+    draft_sha256: Optional[str] = None
 
 
 @dataclass

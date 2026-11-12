@@ -188,16 +188,8 @@ registerActions({
     if (decision !== 'approve' && !notes) { err.textContent = 'Add a note explaining the decision.'; form.querySelector('#dec-notes').focus(); return; }
     if (decision === 'approve' && !confirmed) { err.textContent = 'Confirm the confidentiality tier to approve.'; return; }
 
-    let quality = {};
-    try { quality = JSON.parse(el.dataset.quality || '{}'); } catch { /* ignore */ }
-    // Reviewer identity and actor_type=human are derived strictly from the server token.
-    const payload = {
-      decision, notes, confirmed_classification: confirmed,
-      ...(typeof quality.traceability === 'number' ? { traceability_pct: quality.traceability } : {}),
-      ...(typeof quality.completeness === 'number' ? { completeness_pct: quality.completeness } : {}),
-      ...(typeof quality.schema_valid === 'boolean' ? { schema_valid: quality.schema_valid } : {}),
-      ...(typeof quality.blocking_issues_count === 'number' ? { open_blocking_issues_count: quality.blocking_issues_count } : {}),
-    };
+    // Reviewer identity, actor_type=human, last_editor, and all 6 gates are computed strictly on the server.
+    const payload = { decision, notes, confirmed_classification: confirmed };
 
     const done = busy(el);
     try {

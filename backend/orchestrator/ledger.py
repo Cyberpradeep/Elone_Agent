@@ -16,6 +16,7 @@ Implements Sections 8, 9, 10, and 13 of SOP Governance Hub v1.0 (Frozen Spec):
 """
 
 import os
+import hmac
 import json
 import uuid
 import datetime
@@ -445,6 +446,8 @@ class OrchestratorLedger:
         notes: str = "",
         publication_gate_check: Optional[PublicationGateResult] = None,
         last_editor: Optional[str] = None,
+        canonical_sha256: Optional[str] = None,
+        draft_sha256: Optional[str] = None,
     ) -> ReviewDecision:
         """Records a human review decision with strict Separation of Duties validation."""
         with self._lock:
@@ -509,6 +512,8 @@ class OrchestratorLedger:
                 version=job.version,
                 content_sha256=job.content_sha256,
                 notes=notes,
+                canonical_sha256=canonical_sha256,
+                draft_sha256=draft_sha256,
             )
             job.approval_decision = asdict(rec)
             if publication_gate_check:
@@ -540,8 +545,11 @@ class OrchestratorLedger:
         current_version: int,
         publication_gate_check: PublicationGateResult,
         actor: str = "A6_hub",
+        current_canonical_sha256: Optional[str] = None,
+        current_draft_sha256: Optional[str] = None,
+        require_canonical_hash: bool = False,
     ) -> bool:
-        """Publishes an approved SOP, strictly verifying version, hash integrity, and gates."""
+        """Publishes an approved SOP, strictly verifying version, content/canonical hash integrity, and gates."""
         with self._lock:
             job = self._jobs.get(job_id)
             if not job:
@@ -551,7 +559,7 @@ class OrchestratorLedger:
             if job.current_state != STATE_APPROVED:
                 raise NotApprovedError(f"Job is in state '{job.current_state}', cannot publish. Must be 'approved'.")
 
-            if not job.approval_decision:
+            if not job.approval_decision or str(job.approval_decision.get("decision") or "").strip().lower() != "approve":
                 raise NotApprovedError("No recorded approval decision found for this job.")
 
             # 2. Version & content hash consistency check (Section 5.6)
@@ -563,10 +571,32 @@ class OrchestratorLedger:
                     f"Version mismatch: Approved version is v{approved_ver}, but current version is v{current_version}."
                 )
 
-            if approved_hash != current_content_sha256:
+            if not approved_hash or not hmac.compare_digest(str(approved_hash), str(current_content_sha256 or "")):
                 raise StaleApprovalError(
                     "Content hash mismatch: Document content has been modified since human approval was recorded."
                 )
+
+            # 2b. Reviewed Canonical JSON & Draft OKF hash integrity check (C4)
+            approved_canon_hash = job.approval_decision.get("canonical_sha256")
+            approved_draft_hash = job.approval_decision.get("draft_sha256")
+            if require_canonical_hash and not approved_canon_hash:
+                raise StaleApprovalError(
+                    "Approval decision is missing canonical JSON SHA-256 hash; re-approval is required before publish."
+                )
+            if approved_canon_hash is not None:
+                if not current_canonical_sha256 or not hmac.compare_digest(
+                    str(approved_canon_hash), str(current_canonical_sha256)
+                ):
+                    raise StaleApprovalError(
+                        "Canonical JSON hash mismatch: reviewed SOP canonical JSON was modified since human approval was recorded."
+                    )
+            if approved_draft_hash is not None:
+                if not current_draft_sha256 or not hmac.compare_digest(
+                    str(approved_draft_hash), str(current_draft_sha256)
+                ):
+                    raise StaleApprovalError(
+                        "Draft OKF payload hash mismatch: staged draft was modified since human approval was recorded."
+                    )
 
             # 3. Re-verify all 6 publication gates at execution time (Section 5.6)
             if not publication_gate_check.passed:
@@ -575,13 +605,18 @@ class OrchestratorLedger:
                     publication_gate_check.failure_reasons,
                 )
 
+            prev_gates = job.gate_results
             job.gate_results = asdict(publication_gate_check)
-            self.transition_state(
-                job_id,
-                STATE_PUBLISHED,
-                actor=actor,
-                reason="All publication gates verified and content hash matches approval stamp.",
-            )
+            try:
+                self.transition_state(
+                    job_id,
+                    STATE_PUBLISHED,
+                    actor=actor,
+                    reason="All publication gates verified and content + canonical JSON hashes match approval stamp.",
+                )
+            except Exception:
+                job.gate_results = prev_gates
+                raise
             return True
 
     # -----------------------------------------------------------------------
