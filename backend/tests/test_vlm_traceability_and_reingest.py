@@ -1149,9 +1149,12 @@ with patch.object(routes_ingestion.jit_converter, "plan_okf_from_raw", side_effe
     r_sec = client.post("/api/uploads/ingest", json={"filename": "secret_sop.txt"})
     assert r_sec.status_code == 403, r_sec.text
     assert r_sec.json()["status"] == "quarantined"
-    up_sec = get_upload_item("secret_sop.txt")
-    assert up_sec["status"] == "quarantined", up_sec
-    assert up_sec["reingest_allowed"] is True
+    # H3: quarantine really deletes the secret-bearing upload; it is no longer listed,
+    # and the manifest keeps only metadata (no raw content).
+    assert not os.path.exists(os.path.join(ctx.UPLOADS_DIR, "secret_sop.txt")), "quarantined upload was not deleted"
+    listed = {f["filename"] for f in client.get("/api/uploads").json()["files"]}
+    assert "secret_sop.txt" not in listed, listed
+    assert ctx.read_manifest()["secret_sop.txt"]["status"] == "quarantined"
 
     # --- I: File content modification invalidates stale manifest -> resets to pending ---
     write_upload("airvpn_test.txt", sop_text + "\n4. Modified step line on disk\n")

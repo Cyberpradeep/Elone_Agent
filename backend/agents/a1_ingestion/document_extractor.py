@@ -36,6 +36,12 @@ def _log_parsed_text(filepath: str, parser_engine: str, raw_text: str, page_coun
     log_filename = f"{timestamp_str}_{filename}.log"
     log_path = os.path.join(LOGS_PARSER_DIR, log_filename)
 
+    # H3: never persist raw credentials. Redact before anything touches disk.
+    try:
+        raw_text, _ = redact_sensitive_dlp(raw_text)
+    except Exception:
+        raw_text = "[REDACTED: DLP redaction failed, text withheld from log]"
+
     header_lines = [
         "============================================================",
         "  SOP INGESTION PIPELINE — PARSER AUDIT LOG",

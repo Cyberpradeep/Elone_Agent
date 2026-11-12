@@ -445,13 +445,38 @@ async def api_get_config(request: Request):
 
 async def api_update_config(request: Request):
     """Dynamically updates pipeline configuration and hot-reloads settings."""
-    from config.settings import update_settings
+    from config.settings import (
+        update_settings, get_settings, validate_config_updates, audit_config_change,
+    )
+    import hmac
+    ip = request.client.host if request.client else "unknown"
+
+    # Admin-only (H1). Fails closed: if no admin token is configured, config is read-only.
+    admin_token = os.environ.get("ELONE_ADMIN_TOKEN", "")
+    if not admin_token:
+        return JSONResponse({"error": "Config changes are disabled: ELONE_ADMIN_TOKEN is not set."}, status_code=503)
+    supplied = request.headers.get("x-admin-token", "")
+    if not supplied:
+        auth = request.headers.get("authorization", "")
+        if auth.lower().startswith("bearer "):
+            supplied = auth[7:].strip()
+    if not hmac.compare_digest(supplied.encode(), admin_token.encode()):
+        audit_config_change("unauthenticated", ip, {}, {}, "denied: bad admin token")
+        return JSONResponse({"error": "Admin token required."}, status_code=403)
+
     try:
         body = await request.json()
     except Exception:
         return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
 
-    updated_cfg = update_settings(body)
+    clean, errors = validate_config_updates(body)
+    if errors:
+        audit_config_change("admin", ip, {}, {}, "rejected: " + "; ".join(errors)[:300])
+        return JSONResponse({"error": "Invalid config update", "details": errors}, status_code=422)
+
+    before = json.loads(json.dumps(get_settings().get_all()))
+    updated_cfg = update_settings(clean)
+    audit_config_change("admin", ip, before, clean, "applied")
     return JSONResponse({
         "status": "success",
         "message": "Pipeline configuration dynamically updated and persisted.",

@@ -77,6 +77,16 @@ ROLE_PROVIDER_MAP = {
 }
 
 
+def _limits() -> dict:
+    """Timeout / retry limits applied to every LLM client (H2)."""
+    try:
+        from config.settings import get_settings
+        st = get_settings()
+        return {"timeout": st.llm_timeout_seconds, "max_retries": st.llm_max_retries}
+    except Exception:
+        return {"timeout": 120.0, "max_retries": 2}
+
+
 # ---------------------------------------------------------------------------
 # Provider builder functions
 # ---------------------------------------------------------------------------
@@ -95,7 +105,7 @@ def _build_gemini_client(model: str, temperature: float = 0.2):
     api_key = os.environ.get("GOOGLE_API_KEY")
     if not api_key:
         raise RuntimeError("GOOGLE_API_KEY not set in environment (.env)")
-    return ChatGoogleGenerativeAI(model=model, google_api_key=api_key, temperature=temperature)
+    return ChatGoogleGenerativeAI(model=model, google_api_key=api_key, temperature=temperature, **_limits())
 
 
 def _build_mistral_client(model: str, temperature: float = 0.1):
@@ -121,7 +131,7 @@ def _build_mistral_client(model: str, temperature: float = 0.1):
         raise RuntimeError("MISTRAL_API_KEY not set in environment (.env)")
 
     clients = [
-        ChatMistralAI(model=model, mistral_api_key=k, temperature=temperature)
+        ChatMistralAI(model=model, mistral_api_key=k, temperature=temperature, **_limits())
         for k in keys
     ]
     if len(clients) > 1:
@@ -135,7 +145,7 @@ def _build_mistral_client2(model: str, temperature: float = 0.2):
     api_key = os.environ.get("MISTRAL_API_KEY2")
     if not api_key:
         raise RuntimeError("MISTRAL_API_KEY2 not set in environment (.env)")
-    return ChatMistralAI(model=model, mistral_api_key=api_key, temperature=temperature)
+    return ChatMistralAI(model=model, mistral_api_key=api_key, temperature=temperature, **_limits())
 
 
 def _build_mistral_client3(model: str, temperature: float = 0.2):
@@ -144,7 +154,7 @@ def _build_mistral_client3(model: str, temperature: float = 0.2):
     api_key = os.environ.get("MISTRAL_API_KEY3")
     if not api_key:
         raise RuntimeError("MISTRAL_API_KEY3 not set in environment (.env)")
-    return ChatMistralAI(model=model, mistral_api_key=api_key, temperature=temperature)
+    return ChatMistralAI(model=model, mistral_api_key=api_key, temperature=temperature, **_limits())
 
 
 def _build_openrouter_client(model: str, temperature: float = 0.2):
@@ -158,6 +168,7 @@ def _build_openrouter_client(model: str, temperature: float = 0.2):
         api_key=api_key,
         base_url="https://openrouter.ai/api/v1",
         temperature=temperature,
+        **_limits(),
     )
 
 
@@ -191,7 +202,7 @@ def _build_groq_client(model: str, temperature: float = 0.2):
             base_url="https://api.groq.com/openai/v1",
             temperature=temperature,
             max_tokens=2048,
-            max_retries=2,
+            **_limits(),
         )
         for k in keys
     ]
@@ -233,6 +244,7 @@ def _build_zai_glm_client(model: str = "glm-4.7-flash", temperature: float = 0.2
         base_url=base_url,
         temperature=temperature,
         max_tokens=2048,
+        **_limits(),
     )
 
     # If requested model is glm-4.7-flash, attach automatic fallback to glm-4.5-flash
@@ -243,6 +255,7 @@ def _build_zai_glm_client(model: str = "glm-4.7-flash", temperature: float = 0.2
             base_url=base_url,
             temperature=temperature,
             max_tokens=2048,
+            **_limits(),
         )
         return primary_client.with_fallbacks([fallback_client])
 
@@ -273,6 +286,7 @@ def _build_nvidia_client(model: str, temperature: float = 0.2):
             max_tokens=4096,
             timeout=150.0,
             request_timeout=150.0,
+            max_retries=_limits()["max_retries"],
         )
 
 

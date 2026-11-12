@@ -74,8 +74,11 @@ _DEFAULT_CONFIG: Dict[str, Any] = {
     },
     "governance": {
         "min_passing_score": 80.0,
-        "max_daily_calls": 0,
-        "unlimited_daily_calls": True,
+        "max_daily_calls": 200,
+        "unlimited_daily_calls": False,
+        "max_calls_per_job": 25,
+        "llm_timeout_seconds": 120,
+        "llm_max_retries": 2,
         "sop_scan_interval_minutes": 10,
     },
     "execution_mode": "auto",
@@ -115,6 +118,9 @@ class PipelineSettings:
                     break
                 except Exception as e:
                     log_warning("Config", f"Could not parse '{cpath}': {e}. Trying fallback.")
+
+        # Snapshot of file+defaults BEFORE env overrides, so save() never persists env values.
+        self._file_config = json.loads(json.dumps(cfg))
 
         # Overlay Environment Variable Overrides (Highest Precedence)
         if os.environ.get("MAX_FILE_SIZE_MB"):
@@ -170,19 +176,22 @@ class PipelineSettings:
 
     def save(self, updates: Dict[str, Any]) -> Dict[str, Any]:
         """Applies dynamic updates and persists them to settings.json and pipeline_config.json."""
+        base = getattr(self, "_file_config", None) or json.loads(json.dumps(self._cached_config))
         for section, values in updates.items():
-            if section in self._cached_config and isinstance(values, dict):
-                self._cached_config[section].update(values)
+            if section in base and isinstance(values, dict):
+                base[section].update(values)
             else:
-                self._cached_config[section] = values
+                base[section] = values
 
         for p in (SETTINGS_JSON_PATH, CONFIG_FILE_PATH):
             try:
                 with open(p, "w", encoding="utf-8") as f:
-                    json.dump(self._cached_config, f, indent=2)
+                    json.dump(base, f, indent=2)
             except Exception as e:
                 log_error("Config", f"Failed to write config to '{p}': {e}")
 
+        # Re-apply env overrides on top of the freshly saved file values.
+        self.reload()
         return self._cached_config
 
     # --- Property Helpers ---
@@ -249,12 +258,108 @@ class PipelineSettings:
         return int(self._cached_config.get("governance", {}).get("max_daily_calls", 0))
 
     @property
+    def max_calls_per_job(self) -> int:
+        return max(1, int(self._cached_config.get("governance", {}).get("max_calls_per_job", 25)))
+
+    @property
+    def llm_timeout_seconds(self) -> float:
+        return float(self._cached_config.get("governance", {}).get("llm_timeout_seconds", 120))
+
+    @property
+    def llm_max_retries(self) -> int:
+        return int(self._cached_config.get("governance", {}).get("llm_max_retries", 2))
+
+    @property
     def min_passing_score(self) -> float:
         return float(self._cached_config.get("governance", {}).get("min_passing_score", 80.0))
 
     @property
     def execution_mode(self) -> str:
         return str(self._cached_config.get("execution_mode", "auto")).strip().lower()
+
+
+# ---------------------------------------------------------------------------
+# /api/config hardening (H1): allowlist + schema validation + audit trail
+# ---------------------------------------------------------------------------
+# Only these keys can be changed through the API. Anything else is rejected.
+# Deliberately NOT editable via API: governance.unlimited_daily_calls, llm_models
+# providers/models, allowed_extensions (change those in settings.json / env).
+_NUM = (int, float)
+_EDITABLE_SCHEMA: Dict[str, Dict[str, tuple]] = {
+    "file_upload": {
+        "max_file_size_mb": (_NUM, 1, 100),
+        "max_page_count": (int, 1, 200),
+        "max_text_lines": (int, 1, 5000),
+        "max_text_words": (int, 1, 50000),
+        "max_table_rows": (int, 1, 5000),
+    },
+    "images": {
+        "max_images_per_sop": (int, 0, 50),
+        "max_image_dimension": (int, 64, 8192),
+        "target_image_dimension": (int, 64, 4096),
+    },
+    "governance": {
+        "min_passing_score": (_NUM, 50, 100),
+        "max_daily_calls": (int, 1, 5000),
+        "max_calls_per_job": (int, 1, 100),
+        "llm_timeout_seconds": (_NUM, 5, 600),
+        "llm_max_retries": (int, 0, 5),
+        "sop_scan_interval_minutes": (int, 1, 1440),
+    },
+}
+
+
+def validate_config_updates(updates: Any) -> "tuple[Dict[str, Dict[str, Any]], List[str]]":
+    """Returns (clean_updates, errors). Rejects unknown sections/keys, wrong types and out-of-range values."""
+    errors: List[str] = []
+    clean: Dict[str, Dict[str, Any]] = {}
+    if not isinstance(updates, dict) or not updates:
+        return {}, ["Body must be a non-empty JSON object."]
+    for section, values in updates.items():
+        if section not in _EDITABLE_SCHEMA:
+            errors.append(f"Section '{section}' is not editable via API.")
+            continue
+        if not isinstance(values, dict):
+            errors.append(f"Section '{section}' must be an object.")
+            continue
+        for key, val in values.items():
+            rule = _EDITABLE_SCHEMA[section].get(key)
+            if rule is None:
+                errors.append(f"'{section}.{key}' is not editable via API.")
+                continue
+            types, lo, hi = rule
+            if isinstance(val, bool) or not isinstance(val, types):
+                errors.append(f"'{section}.{key}' has the wrong type.")
+            elif not (lo <= val <= hi):
+                errors.append(f"'{section}.{key}' must be between {lo} and {hi}.")
+            else:
+                clean.setdefault(section, {})[key] = val
+    if errors:
+        return {}, errors
+    return clean, []
+
+
+def audit_config_change(actor: str, source_ip: str, before: Dict[str, Any], clean: Dict[str, Dict[str, Any]], outcome: str) -> None:
+    """Appends one JSON line per config change attempt to knowledge_base/logs/config_audit.jsonl."""
+    import datetime
+    try:
+        log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "knowledge_base", "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        diff = {
+            f"{s}.{k}": {"old": before.get(s, {}).get(k), "new": v}
+            for s, vals in clean.items() for k, v in vals.items()
+        }
+        entry = {
+            "ts": datetime.datetime.now().isoformat(),
+            "actor": actor,
+            "ip": source_ip,
+            "outcome": outcome,
+            "changes": diff,
+        }
+        with open(os.path.join(log_dir, "config_audit.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception as e:
+        log_error("Config", f"Could not write config audit entry: {e}")
 
 
 # Global singleton instance

@@ -598,6 +598,21 @@ async def api_ingest_single(request: Request):
                     json.dump(cur_manifest, mf, indent=2)
             except Exception:
                 pass
+            # H3: actually remove the secret-bearing upload (and any parser log written
+            # for it) instead of only flagging it as purged.
+            try:
+                os.remove(target_path)
+            except OSError:
+                pass
+            try:
+                from agents.a1_ingestion.document_extractor import LOGS_PARSER_DIR
+                for lf in glob.glob(os.path.join(LOGS_PARSER_DIR, f"*_{safe_name}.log")):
+                    try:
+                        os.remove(lf)
+                    except OSError:
+                        pass
+            except Exception:
+                pass
             return JSONResponse({
                 "success": False,
                 "status": "quarantined",

@@ -252,6 +252,10 @@ def plan_okf_from_raw(
             log_info("Converter Dispatch", f"Selected 'HYBRID_COT_PROMPT' ({'Cross-Paradigm Bridge' if use_tools else 'Pre-Discovered Tool Schemas Bound'})")
 
     max_retries = 3
+    # Per-job LLM call budget (H2): attempts x tool turns can never exceed this.
+    from config.settings import get_settings as _get_settings
+    call_budget = _get_settings().max_calls_per_job
+    calls_used = 0
     feedback_history = list(feedback_override) if feedback_override else []
     last_data = None
     last_is_valid = False
@@ -289,10 +293,16 @@ def plan_okf_from_raw(
                     raise q_err
 
             check_cancelled()
+            if calls_used >= call_budget:
+                raise RuntimeError(
+                    f"Per-job LLM call budget exceeded ({call_budget} calls). Stopping to avoid runaway cost."
+                )
+            calls_used += 1
             try:
                 res = llm_with_tools.invoke(messages)
             except Exception as inv_err:
                 log_warning("Converter Tool Invoke", f"Tool invocation error: {inv_err}. Requesting final JSON...")
+                calls_used += 1
                 final_res = llm.invoke(messages + [HumanMessage(content="Tool inspection phase complete. Output the final OKF Playbook JSON now.")])
                 raw_c = final_res.content if hasattr(final_res, "content") else str(final_res)
                 if isinstance(raw_c, list):

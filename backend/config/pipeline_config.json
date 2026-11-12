@@ -58,8 +58,11 @@
   "governance": {
     "min_passing_score": 80,
     "max_daily_calls": 110,
-    "unlimited_daily_calls": true,
+    "unlimited_daily_calls": false,
+    "max_calls_per_job": 25,
+    "llm_timeout_seconds": 120,
+    "llm_max_retries": 2,
     "sop_scan_interval_minutes": 10
   },
-  "execution_mode": "auto"
+  "execution_mode": "command_only"
 }
