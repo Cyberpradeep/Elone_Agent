@@ -19,6 +19,37 @@ DEFAULT_MAX_DAILY_CALLS = 50
 # Thread-local storage so concurrent runs (if ever) don't collide
 _session_local = threading.local()
 _USAGE_LOCK = threading.RLock()
+_JOB_PROGRESS_LOCK = threading.Lock()
+_JOB_PROGRESS: Dict[str, List[Dict[str, Any]]] = {}
+_MAX_JOB_PROGRESS_ENTRIES = 200
+
+
+def bind_job_progress(job_id: Optional[str]) -> Optional[str]:
+    """Bind the current worker thread to record safe step-progress events for `job_id`."""
+    prev = getattr(_session_local, "job_id", None)
+    _session_local.job_id = str(job_id).strip() if job_id else None
+    return prev
+
+
+def reset_job_progress(prev_job_id: Optional[str]) -> None:
+    """Restore the previous worker thread job progress binding."""
+    _session_local.job_id = prev_job_id
+
+
+def clear_job_progress(job_id: Optional[str]) -> None:
+    """Clear recorded step-progress events for `job_id` (e.g. at ingestion start)."""
+    if not job_id:
+        return
+    with _JOB_PROGRESS_LOCK:
+        _JOB_PROGRESS.pop(str(job_id), None)
+
+
+def get_job_progress(job_id: Optional[str]) -> List[Dict[str, Any]]:
+    """Return a copy of safe, non-billing step-progress events for `job_id`."""
+    if not job_id:
+        return []
+    with _JOB_PROGRESS_LOCK:
+        return [dict(item) for item in _JOB_PROGRESS.get(str(job_id), ())]
 
 
 def start_execution_session(sop_filename: str = "unknown") -> str:
@@ -310,6 +341,27 @@ def _record_call_locked(
             "image_tokens": image_tokens,
             "cost_usd": cost_info["total_cost_usd"]
         })
+
+    # ── Track safe, non-billing step progress for active ingestion job (if bound) ──
+    active_job_id = getattr(_session_local, "job_id", None)
+    if active_job_id and caller != "test_runner":
+        progress_event = {
+            "caller": caller,
+            "model": model,
+            "input_tokens": int(input_tokens or 0),
+            "output_tokens": int(output_tokens or 0),
+            "image_tokens": int(image_tokens or 0),
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        }
+        with _JOB_PROGRESS_LOCK:
+            if active_job_id in _JOB_PROGRESS:
+                _JOB_PROGRESS[active_job_id].append(progress_event)
+            else:
+                if len(_JOB_PROGRESS) >= _MAX_JOB_PROGRESS_ENTRIES:
+                    oldest = next(iter(_JOB_PROGRESS), None)
+                    if oldest is not None:
+                        _JOB_PROGRESS.pop(oldest, None)
+                _JOB_PROGRESS[active_job_id] = [progress_event]
 
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     history_record = {

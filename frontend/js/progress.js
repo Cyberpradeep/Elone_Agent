@@ -31,10 +31,16 @@ export function locate(state) {
 }
 
 const CALL_LABELS = {
+  vision_ocr: 'Read a scanned page (vision OCR)',
   vlm_image_analysis: 'Read a screenshot (vision model)',
   triage_router: 'Classify the SOP (triage)',
   execution_planning: 'Draft the playbook steps',
   planning_validation: 'Validate the draft against the SOP',
+};
+
+const CALL_ITEM_NOUNS = {
+  vlm_image_analysis: 'image',
+  vision_ocr: 'page',
 };
 
 const secs = ms => (ms < 10000 ? `${(ms / 1000).toFixed(1)} s` : ms < 60000 ? `${Math.round(ms / 1000)} s` : `${Math.floor(ms / 60000)}m ${String(Math.round((ms % 60000) / 1000)).padStart(2, '0')}s`);
@@ -76,14 +82,22 @@ export function progressHtml({ file, job, calls, lastActiveIndex = 0, startedAt 
     if (status === 'active') timing = `<span data-run-since="${entered[i] ?? startedAt}">…</span>`;
 
     const showCalls = i === 2 && calls.length && (status === 'active' || status === 'done' || status === 'failed');
+    const totalByCaller = {};
+    for (const c of calls) totalByCaller[c.caller] = (totalByCaller[c.caller] || 0) + 1;
     const callCounts = {};
     const callHtml = showCalls ? `
       <ul class="ip-calls" aria-label="LLM calls so far">
         ${calls.map(c => {
           callCounts[c.caller] = (callCounts[c.caller] || 0) + 1;
           const n = callCounts[c.caller];
-          const again = n > 1 ? ` <span class="badge-tag">attempt ${n}</span>` : '';
-          return `<li>${icon('check')}<span>${esc(CALL_LABELS[c.caller] || c.caller)}${again}</span><span class="muted mono tiny">${esc(c.model || '')} · ${fmt.num((c.input_tokens || 0) + (c.output_tokens || 0))} tokens</span></li>`;
+          const itemNoun = CALL_ITEM_NOUNS[c.caller];
+          let badge = '';
+          if (itemNoun) {
+            if (totalByCaller[c.caller] > 1) badge = ` <span class="badge-tag">${itemNoun} ${n}</span>`;
+          } else if (n > 1) {
+            badge = ` <span class="badge-tag">attempt ${n}</span>`;
+          }
+          return `<li>${icon('check')}<span>${esc(CALL_LABELS[c.caller] || c.caller)}${badge}</span><span class="muted mono tiny">${esc(c.model || '')} · ${fmt.num((c.input_tokens || 0) + (c.output_tokens || 0))} tokens</span></li>`;
         }).join('')}
       </ul>` : '';
     const working = i === 2 && status === 'active'
@@ -185,11 +199,19 @@ export function trackIngest(file) {
   const poll = async () => {
     try {
       const { jobs = [] } = await api.getGovernanceJobs();
-      const changed = jobs.filter(j => !before.has(j.job_id) || before.get(j.job_id) !== j.updated_at);
-      changed.sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
-      if (changed[0]) job = changed[0];
+      const matched = job?.job_id ? jobs.find(j => j.job_id === job.job_id) : null;
+      if (matched) {
+        job = matched;
+      } else {
+        const changed = jobs.filter(j => !before.has(j.job_id) || before.get(j.job_id) !== j.updated_at);
+        changed.sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
+        if (changed[0]) job = changed[0];
+      }
+      if (Array.isArray(job?.progress_calls)) {
+        calls = job.progress_calls;
+      }
     } catch { /* keep the last known state */ }
-    if (canTelemetry) {
+    if (!Array.isArray(job?.progress_calls) && canTelemetry) {
       try {
         const t = await api.getTelemetry();
         const all = t.today?.call_history || [];

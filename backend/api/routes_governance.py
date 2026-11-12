@@ -38,6 +38,7 @@ from auth.models import (
     ROLE_PROCESS_OWNER,
     ROLE_SECURITY_REVIEWER,
 )
+from gemini_monitor.monitor import get_job_progress
 from auth.dependencies import (
     AuthAccessError,
     authenticate_request,
@@ -179,11 +180,15 @@ async def api_governance_jobs(request: Request):
     except Exception:
         pass
 
-    jobs = [
-        job.to_dict()
-        for job in list(governance_ledger._jobs.values())
-        if job.tenant_id == principal.tenant_id
-    ]
+    jobs = []
+    for job in list(governance_ledger._jobs.values()):
+        if job.tenant_id != principal.tenant_id:
+            continue
+        d = job.to_dict()
+        p_calls = get_job_progress(job.job_id)
+        if p_calls:
+            d["progress_calls"] = p_calls
+        jobs.append(d)
     return JSONResponse({"jobs": jobs, "total": len(jobs)})
 
 
@@ -199,7 +204,11 @@ async def api_governance_job_detail(request: Request):
     if not job:
         return JSONResponse({"error": f"Job '{job_id}' not found."}, status_code=404)
     enforce_tenant_access(principal, job.tenant_id, request=request)
-    return JSONResponse(job.to_dict())
+    d = job.to_dict()
+    p_calls = get_job_progress(job.job_id)
+    if p_calls:
+        d["progress_calls"] = p_calls
+    return JSONResponse(d)
 
 
 async def api_governance_review_tasks(request: Request):

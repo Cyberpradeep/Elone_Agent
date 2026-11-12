@@ -45,6 +45,7 @@ from auth.models import ROLE_ADMIN, ROLE_PROCESS_OWNER
 from auth.dependencies import authenticate_request
 from utils.security import sanitize_filename, sanitize_slug, redact_sensitive_dlp, scan_raw_sop_for_ast_threats
 from utils.cancellation import IngestionCancelled, bind_cancel, reset_cancel
+from gemini_monitor.monitor import bind_job_progress, reset_job_progress, clear_job_progress
 from config.settings import get_max_file_size_bytes, get_max_file_size_mb, get_allowed_extensions
 from agents.a1_ingestion import (
     validate_sop_file,
@@ -467,6 +468,7 @@ class _IngestControl:
     def __init__(self, actor: str):
         self.event = threading.Event()
         self.actor = actor
+        self.job_id = None
 
 
 _INGESTS: dict = {}  # (tenant_id, safe_name) -> _IngestControl
@@ -502,9 +504,11 @@ async def _run_cancellable(ctl, fn, *args, **kwargs):
 
     def call():
         token = bind_cancel(ctl.event)
+        prev_job = bind_job_progress(getattr(ctl, "job_id", None))
         try:
             return fn(*args, **kwargs)
         finally:
+            reset_job_progress(prev_job)
             reset_cancel(token)
 
     work = asyncio.ensure_future(run_in_threadpool(call))
@@ -624,6 +628,8 @@ async def api_ingest_single(request: Request):
                         pass
 
         job_id = _allocate_job_id(content_hash)
+        ctl.job_id = job_id
+        clear_job_progress(job_id)
 
         parser_type, segments = await _run_cancellable(ctl, extract_ordered_sop_content, target_path)
         raw_text = "\n\n".join(s["content"] for s in segments if s.get("type") == "text")
