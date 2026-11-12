@@ -31,6 +31,28 @@ const CLEARANCE_RANK = { L0: 0, L1: 1, L2: 2, L3: 3 };
 const isObj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
 const prettyKey = k => String(k).replace(/_/g, ' ');
 
+// Must mirror backend/config/settings.py _EDITABLE_SCHEMA
+const EDITABLE_CONFIG_PATHS = new Set([
+  'file_upload.max_file_size_mb',
+  'file_upload.max_page_count',
+  'file_upload.max_text_lines',
+  'file_upload.max_text_words',
+  'file_upload.max_table_rows',
+  'images.max_images_per_sop',
+  'images.max_image_dimension',
+  'images.target_image_dimension',
+  'governance.min_passing_score',
+  'governance.max_daily_calls',
+  'governance.max_calls_per_job',
+  'governance.llm_timeout_seconds',
+  'governance.llm_max_retries',
+  'governance.sop_scan_interval_minutes',
+]);
+
+function isEditablePath(path) {
+  return EDITABLE_CONFIG_PATHS.has(path.join('.'));
+}
+
 // ---------------------------------------------------------------------------
 // Pipeline Config Form Helpers
 // ---------------------------------------------------------------------------
@@ -44,9 +66,10 @@ function kindOf(v) {
   return 'json';
 }
 
-function control(path, value) {
+function control(path, value, editable = true) {
   const kind = kindOf(value);
-  const attrs = `data-path='${esc(JSON.stringify(path))}' data-kind="${kind}" aria-label="${esc(path.join(' › '))}"`;
+  const disAttr = editable ? '' : ' disabled title="Server-managed setting (edit settings.json / .env)"';
+  const attrs = `data-path='${esc(JSON.stringify(path))}' data-kind="${kind}" aria-label="${esc(path.join(' › '))}"${disAttr}`;
   if (kind === 'boolean') return `<span class="switch"><input type="checkbox" ${attrs} ${value ? 'checked' : ''}><span></span></span>`;
   if (kind === 'number') return `<input class="input mono" type="number" step="any" ${attrs} value="${esc(value)}">`;
   if (kind === 'string') return `<input class="input" type="text" ${attrs} value="${esc(value)}">`;
@@ -60,10 +83,11 @@ function rows(obj, path = []) {
     if (isObj(v)) {
       return `<div class="cfg-row" style="grid-template-columns:1fr"><div class="cfg-name" style="text-transform:capitalize">${esc(prettyKey(k))}</div></div><div class="cfg-sub">${rows(v, p)}</div>`;
     }
+    const editable = isEditablePath(p);
     return `
       <div class="cfg-row" data-row='${esc(JSON.stringify(p))}'>
-        <div><div class="cfg-name" style="text-transform:capitalize">${esc(prettyKey(k))}</div><div class="cfg-path">${esc(p.join('.'))}</div></div>
-        <div>${control(p, v)}</div>
+        <div><div class="cfg-name" style="text-transform:capitalize">${esc(prettyKey(k))}</div><div class="cfg-path">${esc(p.join('.'))}${editable ? '' : ' · read-only'}</div></div>
+        <div>${control(p, v, editable)}</div>
       </div>`;
   }).join('');
 }
@@ -81,50 +105,75 @@ function formHtml(cfg) {
 
 function setIn(target, path, value) {
   let o = target;
-  path.slice(0, -1).forEach(k => { o = o[k]; });
+  for (let i = 0; i < path.length - 1; i++) {
+    const k = path[i];
+    if (!isObj(o[k])) o[k] = {};
+    o = o[k];
+  }
   o[path[path.length - 1]] = value;
 }
 function getIn(target, path) { return path.reduce((o, k) => (o == null ? o : o[k]), target); }
 
-/** Read every field back into a copy of the original config. Throws on bad input. */
+function readControlValue(el, path) {
+  const kind = el.dataset.kind;
+  if (kind === 'boolean') return el.checked;
+  if (kind === 'number') {
+    const v = Number(el.value);
+    if (el.value === '' || Number.isNaN(v)) throw new Error(`"${path.join('.')}" must be a number.`);
+    return v;
+  }
+  if (kind === 'string') return el.value;
+  if (kind === 'list:string') return el.value.split(',').map(s => s.trim()).filter(Boolean);
+  if (kind === 'list:number') {
+    const v = el.value.split(',').map(s => s.trim()).filter(Boolean).map(Number);
+    if (v.some(Number.isNaN)) throw new Error(`"${path.join('.')}" must be a list of numbers.`);
+    return v;
+  }
+  try { return JSON.parse(el.value); }
+  catch { throw new Error(`"${path.join('.')}" is not valid JSON.`); }
+}
+
+/** Collect only changed editable fields into a minimal patch object for POST /api/config. */
 function collect(root) {
-  const out = JSON.parse(JSON.stringify(original));
+  const patch = {};
   root.querySelectorAll('[data-path]').forEach(el => {
     const path = JSON.parse(el.dataset.path);
-    const kind = el.dataset.kind;
-    let v;
-    if (kind === 'boolean') v = el.checked;
-    else if (kind === 'number') {
-      v = Number(el.value);
-      if (el.value === '' || Number.isNaN(v)) throw new Error(`"${path.join('.')}" must be a number.`);
+    if (!isEditablePath(path) || el.disabled) return;
+    const v = readControlValue(el, path);
+    if (JSON.stringify(v) !== JSON.stringify(getIn(original, path))) {
+      setIn(patch, path, v);
     }
-    else if (kind === 'string') v = el.value;
-    else if (kind === 'list:string') v = el.value.split(',').map(s => s.trim()).filter(Boolean);
-    else if (kind === 'list:number') {
-      v = el.value.split(',').map(s => s.trim()).filter(Boolean).map(Number);
-      if (v.some(Number.isNaN)) throw new Error(`"${path.join('.')}" must be a list of numbers.`);
-    }
-    else { try { v = JSON.parse(el.value); } catch { throw new Error(`"${path.join('.')}" is not valid JSON.`); } }
-    setIn(out, path, v);
   });
-  return out;
+  return patch;
+}
+
+/** Compute minimal diff between parsed Raw JSON and original so locked unchanged keys aren't sent. */
+function collectJsonDiff(parsed, base = original) {
+  if (!isObj(parsed)) throw new Error('Configuration JSON must be an object.');
+  if (!isObj(base)) return parsed;
+  const diff = {};
+  for (const [k, v] of Object.entries(parsed)) {
+    const prev = base[k];
+    if (isObj(v) && isObj(prev)) {
+      const sub = collectJsonDiff(v, prev);
+      if (Object.keys(sub).length) diff[k] = sub;
+    } else if (JSON.stringify(v) !== JSON.stringify(prev)) {
+      diff[k] = v;
+    }
+  }
+  return diff;
 }
 
 function dirtyPaths(root) {
   const dirty = [];
   root.querySelectorAll('[data-path]').forEach(el => {
     const path = JSON.parse(el.dataset.path);
+    if (!isEditablePath(path)) return;
     const row = el.closest('.cfg-row');
     let changed;
     try {
-      const probe = JSON.parse(JSON.stringify(original));
-      const kind = el.dataset.kind;
-      const cur = kind === 'boolean' ? el.checked
-        : kind === 'number' ? Number(el.value)
-        : kind === 'string' ? el.value
-        : kind.startsWith('list') ? el.value.split(',').map(s => s.trim()).filter(Boolean).map(s => (kind === 'list:number' ? Number(s) : s))
-        : JSON.parse(el.value);
-      changed = JSON.stringify(cur) !== JSON.stringify(getIn(probe, path));
+      const cur = readControlValue(el, path);
+      changed = JSON.stringify(cur) !== JSON.stringify(getIn(original, path));
     } catch { changed = true; }
     row?.classList.toggle('dirty', changed);
     if (changed) dirty.push(path.join('.'));
@@ -132,11 +181,15 @@ function dirtyPaths(root) {
   return dirty;
 }
 
-async function persist(btn, cfg, ctx) {
+async function persist(btn, patch, ctx) {
+  if (!patch || !Object.keys(patch).length) {
+    toast('No configuration changes to save.', 'info');
+    return;
+  }
   const done = busy(btn);
   try {
-    const res = await api.updateConfig(cfg);
-    original = res.config || cfg;
+    const res = await api.updateConfig(patch);
+    original = res.config || original;
     toast('Configuration saved and hot-reloaded.', 'success');
     await ctx.reload();
   } catch (e) {
@@ -456,7 +509,8 @@ registerActions({
   'cfg-json-save': (el, _e, ctx) => {
     let parsed;
     try { parsed = JSON.parse(document.getElementById('cfg-json').value); } catch (e) { document.getElementById('cfg-json-status').textContent = `✕ ${e.message}`; return; }
-    persist(el, parsed, ctx);
+    try { persist(el, collectJsonDiff(parsed, original), ctx); }
+    catch (e) { toast(e.message, 'error', 6000); }
   },
 
   'usr-new': (el, _e, ctx) => openCreateAccountModal(el.dataset.kind || 'human', ctx),

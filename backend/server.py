@@ -75,6 +75,16 @@ async def _auth_access_error_handler(_request: Request, exc: AuthAccessError):
     )
 
 
+@app.middleware("http")
+async def _security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    return response
+
+
 # Explicit CORS Lockdown (no wildcard origins/methods/headers with credentials)
 app.add_middleware(
     CORSMiddleware,

@@ -93,8 +93,17 @@ def run_triage_router(
     messages = [HumanMessage(content=triage_prompt)]
     content = ""
 
+    def _enforce_daily_quota() -> None:
+        try:
+            from gemini_monitor.monitor import check_daily_limit
+            check_daily_limit("gemini")
+        except Exception as q_err:
+            if "Quota" in type(q_err).__name__ or "DailyQuotaExceededError" in str(type(q_err)):
+                raise
+
     if not enable_tool_inspection:
         # Fast path for command-based SOPs: 1 single direct LLM evaluation without tool loop latency
+        _enforce_daily_quota()
         check_cancelled()
         res = llm.invoke(messages)
         in_tok = getattr(res, "usage_metadata", {}).get("input_tokens", 0) if hasattr(res, "usage_metadata") and res.usage_metadata else 0
@@ -124,14 +133,7 @@ def run_triage_router(
         max_tool_turns = 6
 
         for turn in range(max_tool_turns):
-            try:
-                # pyrefly: ignore [missing-import]
-                from gemini_monitor.monitor import check_daily_limit
-                check_daily_limit("gemini")
-            except Exception as q_err:
-                if "Quota" in type(q_err).__name__ or "DailyQuotaExceededError" in str(type(q_err)):
-                    raise q_err
-
+            _enforce_daily_quota()
             check_cancelled()
             try:
                 res = llm_with_tools.invoke(messages)
@@ -143,6 +145,7 @@ def run_triage_router(
                     "'command', 'tool_call', 'hybrid', or 'unactionable'. Output the final triage JSON now."
                 )
                 try:
+                    _enforce_daily_quota()
                     fallback_res = llm.invoke(messages + [HumanMessage(content=fallback_prompt)])
                     raw_c = fallback_res.content if hasattr(fallback_res, "content") else str(fallback_res)
                     if isinstance(raw_c, list):
@@ -197,6 +200,7 @@ def run_triage_router(
 
         if not content.strip():
             try:
+                _enforce_daily_quota()
                 check_cancelled()
                 final_res = llm.invoke(messages + [HumanMessage(content="Tool inspection complete. Output the final triage JSON now.")])
                 raw_c = final_res.content if hasattr(final_res, "content") else str(final_res)

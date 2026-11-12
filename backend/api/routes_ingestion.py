@@ -45,10 +45,9 @@ from auth.models import ROLE_ADMIN, ROLE_PROCESS_OWNER
 from auth.dependencies import authenticate_request
 from utils.security import sanitize_filename, sanitize_slug, redact_sensitive_dlp, scan_raw_sop_for_ast_threats
 from utils.cancellation import IngestionCancelled, bind_cancel, reset_cancel
-from config.settings import get_max_file_size_bytes, get_max_file_size_mb
+from config.settings import get_max_file_size_bytes, get_max_file_size_mb, get_allowed_extensions
 from agents.a1_ingestion import (
     validate_sop_file,
-    ALLOWED_EXTENSIONS,
     extract_ordered_sop_content,
 )
 import agents.a2_structuring.execution_planner as jit_converter
@@ -393,13 +392,13 @@ async def api_list_uploads(request: Request):
         "tenant_id": tenant_id,
         "files": files,
         "total_files": len(files),
-        "allowed_extensions": sorted(list(ALLOWED_EXTENSIONS)),
+        "allowed_extensions": sorted(list(get_allowed_extensions())),
         "max_size_mb": get_max_file_size_mb()
     })
 
 
 async def api_upload_file(request: Request):
-    """Receive uploaded file and save strictly inside knowledge_base/_uploads/<tenant_id>/."""
+    """Receive uploaded file via bounded chunk streaming inside knowledge_base/_uploads/<tenant_id>/."""
     principal = authenticate_request(
         request,
         allowed_roles=(ROLE_PROCESS_OWNER,),
@@ -415,20 +414,30 @@ async def api_upload_file(request: Request):
         raw_filename = upload.filename
         safe_name = sanitize_filename(raw_filename)
         ext = os.path.splitext(safe_name)[1].lower()
+        allowed_exts = get_allowed_extensions()
 
-        if ext not in ALLOWED_EXTENSIONS:
+        if ext not in allowed_exts:
             return JSONResponse({
-                "error": f"Unauthorized extension '{ext}'. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
+                "error": f"Unauthorized extension '{ext}'. Allowed: {', '.join(sorted(allowed_exts))}"
             }, status_code=400)
 
-        content = await upload.read()
         max_bytes = get_max_file_size_bytes()
         max_mb = get_max_file_size_mb()
-        if len(content) > max_bytes:
-            return JSONResponse({
-                "error": f"File size ({len(content)/(1024*1024):.1f}MB) exceeds {max_mb:.0f}MB limit."
-            }, status_code=400)
+        chunks = []
+        total_bytes = 0
+        chunk_size = 65536
+        while True:
+            chunk = await upload.read(chunk_size)
+            if not chunk:
+                break
+            total_bytes += len(chunk)
+            if total_bytes > max_bytes:
+                return JSONResponse({
+                    "error": f"File size (>{total_bytes/(1024*1024):.1f}MB) exceeds {max_mb:.0f}MB limit."
+                }, status_code=400)
+            chunks.append(chunk)
 
+        content = b"".join(chunks)
         dest_dir = tenant_uploads_dir(principal.tenant_id)
         os.makedirs(dest_dir, exist_ok=True)
         dest_path = os.path.join(dest_dir, safe_name)
@@ -669,32 +678,37 @@ async def api_ingest_single(request: Request):
             )
             try:
                 cur_manifest = read_manifest()
-                set_manifest_entry(cur_manifest, tenant_id, safe_name, {
-                    "status": "quarantined",
-                    "reason": f"Live credentials detected ({secrets_count}).",
-                    "incident_id": incident.incident_id,
-                    "job_id": job.job_id,
-                    "sop_id": sop_id,
-                    "sha256": content_hash,
-                    "tenant_id": tenant_id,
-                    "processed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                })
-                write_manifest(cur_manifest)
+                d1 = del_manifest_entry(cur_manifest, tenant_id, safe_name)
+                d2 = del_manifest_entry(cur_manifest, tenant_id, os.path.basename(target_path))
+                if d1 or d2:
+                    write_manifest(cur_manifest)
             except Exception:
                 pass
-            # H3: actually remove the secret-bearing upload (and any parser log written
-            # for it) instead of only flagging it as purged.
+            # H3: actually remove the secret-bearing upload and any parser/image artifacts
+            # written for it (the ledger incident ticket stays as the metadata record).
             try:
                 os.remove(target_path)
             except OSError:
                 pass
             try:
                 from agents.a1_ingestion.document_extractor import LOGS_PARSER_DIR
-                for lf in glob.glob(os.path.join(LOGS_PARSER_DIR, f"*_{safe_name}.log")):
-                    try:
-                        os.remove(lf)
-                    except OSError:
-                        pass
+                for name_cand in {safe_name, os.path.basename(target_path)}:
+                    for lf in glob.glob(os.path.join(LOGS_PARSER_DIR, f"*_{glob.escape(name_cand)}.log")):
+                        try:
+                            os.remove(lf)
+                        except OSError:
+                            pass
+            except Exception:
+                pass
+            try:
+                import shutil
+                from agents.a1_ingestion.vlm_extractor import IMAGES_LOG_DIR
+                raw_base = os.path.splitext(safe_name)[0]
+                img_slug = re.sub(r"[^A-Za-z0-9]+", "-", raw_base).strip("-").upper()[:20]
+                if img_slug:
+                    img_dir = os.path.join(IMAGES_LOG_DIR, img_slug)
+                    if os.path.isdir(img_dir):
+                        shutil.rmtree(img_dir, ignore_errors=True)
             except Exception:
                 pass
             return JSONResponse({
@@ -1015,8 +1029,61 @@ async def api_plan_preview(request: Request):
     if not target_path or not os.path.exists(target_path):
         return JSONResponse({"error": f"File '{safe_name}' not found"}, status_code=404)
 
+    is_valid, err_msg, meta = validate_sop_file(target_path)
+    if not is_valid:
+        return JSONResponse({
+            "success": False,
+            "status": "REJECTED_GATE_1",
+            "error": f"Input validation rejected: {err_msg}",
+            "metadata": meta,
+        }, status_code=400)
+
     try:
-        draft = await run_in_threadpool(jit_converter.plan_okf_from_raw, target_path)
+        _, segments = await run_in_threadpool(extract_ordered_sop_content, target_path)
+        raw_text = "\n\n".join(s["content"] for s in segments if s.get("type") == "text")
+
+        _, dlp_stats = redact_sensitive_dlp(raw_text)
+        secrets_count = (
+            dlp_stats.get("passwords", 0)
+            + dlp_stats.get("api_keys", 0)
+            + dlp_stats.get("private_keys", 0)
+        )
+        if secrets_count > 0:
+            try:
+                os.remove(target_path)
+            except OSError:
+                pass
+            try:
+                from agents.a1_ingestion.document_extractor import LOGS_PARSER_DIR
+                for name_cand in {safe_name, os.path.basename(target_path)}:
+                    for lf in glob.glob(os.path.join(LOGS_PARSER_DIR, f"*_{glob.escape(name_cand)}.log")):
+                        try:
+                            os.remove(lf)
+                        except OSError:
+                            pass
+            except Exception:
+                pass
+            return JSONResponse({
+                "success": False,
+                "status": "quarantined",
+                "error": f"Live credentials detected ({secrets_count}). Plan preview blocked and file purged. 0 AI calls made.",
+            }, status_code=403)
+
+        ast_threats = scan_raw_sop_for_ast_threats(raw_text)
+        if ast_threats:
+            return JSONResponse({
+                "success": False,
+                "status": "blocked",
+                "error_code": "ast_threat_detected",
+                "ast_threats": ast_threats,
+                "error": f"AST Sandbox blocked plan preview ({len(ast_threats)} threat(s)). 0 AI calls made.",
+            }, status_code=403)
+
+        draft = await run_in_threadpool(
+            jit_converter.plan_okf_from_raw,
+            target_path,
+            pre_extracted_text=raw_text,
+        )
         return JSONResponse({
             "success": True,
             "draft": draft,

@@ -266,6 +266,7 @@ def _build_nvidia_client(model: str, temperature: float = 0.2):
     api_key = os.environ.get("NVIDIA_API_KEY")
     if not api_key:
         raise RuntimeError("NVIDIA_API_KEY not set in environment (.env)")
+    lim = _limits()
     try:
         from langchain_nvidia_ai_endpoints import ChatNVIDIA
         return ChatNVIDIA(
@@ -274,7 +275,7 @@ def _build_nvidia_client(model: str, temperature: float = 0.2):
             temperature=temperature,
             top_p=0.95,
             max_completion_tokens=4096,
-            timeout=150,
+            timeout=lim["timeout"],
         )
     except ImportError:
         from langchain_openai import ChatOpenAI
@@ -284,9 +285,9 @@ def _build_nvidia_client(model: str, temperature: float = 0.2):
             base_url="https://integrate.api.nvidia.com/v1",
             temperature=temperature,
             max_tokens=4096,
-            timeout=150.0,
-            request_timeout=150.0,
-            max_retries=_limits()["max_retries"],
+            timeout=lim["timeout"],
+            request_timeout=lim["timeout"],
+            max_retries=lim["max_retries"],
         )
 
 

@@ -302,6 +302,10 @@ def plan_okf_from_raw(
                 res = llm_with_tools.invoke(messages)
             except Exception as inv_err:
                 log_warning("Converter Tool Invoke", f"Tool invocation error: {inv_err}. Requesting final JSON...")
+                if calls_used >= call_budget:
+                    raise RuntimeError(
+                        f"Per-job LLM call budget exceeded ({call_budget} calls). Stopping to avoid runaway cost."
+                    )
                 calls_used += 1
                 final_res = llm.invoke(messages + [HumanMessage(content="Tool inspection phase complete. Output the final OKF Playbook JSON now.")])
                 raw_c = final_res.content if hasattr(final_res, "content") else str(final_res)
@@ -566,6 +570,12 @@ def plan_okf_from_raw(
 
         # Faithfulness & Linkage Validation (include VLM reports when screenshots exist)
         validation_source_text = enriched_sop_text if vlm_reports else raw_text
+        if validation_source_text and len(validation_source_text.strip()) >= 30:
+            if calls_used >= call_budget:
+                raise RuntimeError(
+                    f"Per-job LLM call budget exceeded ({call_budget} calls). Stopping to avoid runaway cost."
+                )
+            calls_used += 1
         is_valid, validation_errors = validate_plan_faithfulness_and_linkage(
             validation_source_text,
             {

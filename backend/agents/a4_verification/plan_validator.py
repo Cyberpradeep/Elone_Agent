@@ -353,6 +353,14 @@ def validate_plan_faithfulness_and_linkage(
     # =========================================================================
     log_info("PlanValidator Layer 2", "Layer 1 passed. Running LLM Faithfulness & Prompt Injection Inspection...")
     try:
+        try:
+            # pyrefly: ignore [missing-import]
+            from gemini_monitor.monitor import check_daily_limit
+            check_daily_limit("gemini")
+        except Exception as q_err:
+            if "Quota" in type(q_err).__name__ or "DailyQuotaExceededError" in str(type(q_err)):
+                raise q_err
+        check_cancelled()
         llm = get_llm("planning_validation", temperature=0)
         safe_raw_sop = escape_prompt_delimiters(raw_sop_text)
         replacements = {
@@ -530,6 +538,8 @@ def validate_plan_faithfulness_and_linkage(
                 return False, errors
 
     except Exception as e:
+        if "Quota" in type(e).__name__ or "DailyQuotaExceededError" in str(type(e)) or "Cancelled" in type(e).__name__:
+            raise
         err_msg = (
             f"Layer 2 Security Error: LLM Faithfulness & Injection Audit failed or unavailable ({e}). "
             f"Ingestion blocked to preserve fail-closed security."

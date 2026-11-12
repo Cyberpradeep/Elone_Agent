@@ -172,11 +172,21 @@ def analyze_image_bytes(image_bytes: bytes, mime_type: str) -> str:
         ]
     )
 
-    max_retries = 2
+    try:
+        from config.settings import get_settings
+        max_retries = max(1, min(5, int(get_settings().llm_max_retries) or 1))
+    except Exception:
+        max_retries = 2
     last_error: Optional[Exception] = None
     img_tok = estimate_image_tokens(image_bytes)
     for attempt in range(1, max_retries + 1):
         check_cancelled()
+        try:
+            from gemini_monitor.monitor import check_daily_limit
+            check_daily_limit("nvidia")
+        except Exception as q_err:
+            if "Quota" in type(q_err).__name__ or "DailyQuotaExceededError" in str(type(q_err)):
+                raise
         try:
             res = llm.invoke([message])
             in_tok = 0

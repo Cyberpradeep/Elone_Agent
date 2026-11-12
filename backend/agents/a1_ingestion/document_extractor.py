@@ -167,13 +167,32 @@ def _fallback_pdf_ocr(filepath: str) -> Tuple[str, str]:
 
 
 def _run_vision_ocr(doc, filepath: str) -> str:
-    """Uses PyMuPDF to render pages to PNG images and Vision LLM to OCR transcribe."""
+    """Uses PyMuPDF to render pages to PNG images and Vision LLM to OCR transcribe (quota- & page-capped)."""
+    from config.settings import get_max_page_count, get_max_images_per_sop
+
+    max_imgs = get_max_images_per_sop()
+    if max_imgs <= 0:
+        log_warning("DocumentParser", "Vision OCR skipped because images.max_images_per_sop <= 0.")
+        return ""
+    page_cap = min(max(1, get_max_page_count()), max_imgs)
+
     try:
         llm = get_llm("vlm_image_analysis")
         full_ocr = []
 
         for idx, page in enumerate(doc):
+            if idx >= page_cap:
+                log_warning("DocumentParser", f"Vision OCR capped at {page_cap} page(s) for '{os.path.basename(filepath)}'.")
+                break
             check_cancelled()
+            try:
+                from gemini_monitor.monitor import check_daily_limit, record_call
+                check_daily_limit("nvidia")
+            except Exception as q_err:
+                if "Quota" in type(q_err).__name__ or "DailyQuotaExceededError" in str(type(q_err)):
+                    raise
+                record_call = None
+
             pix = page.get_pixmap(dpi=100)
             img_bytes = pix.tobytes("jpeg")
             b64_img = base64.b64encode(img_bytes).decode("utf-8")
@@ -191,11 +210,30 @@ def _run_vision_ocr(doc, filepath: str) -> str:
                 ]
             )
             res = llm.invoke([message])
+            in_tok = 0
+            out_tok = 0
+            if hasattr(res, "usage_metadata") and res.usage_metadata:
+                in_tok = res.usage_metadata.get("input_tokens", 0)
+                out_tok = res.usage_metadata.get("output_tokens", 0)
+            if record_call is not None:
+                try:
+                    record_call(
+                        caller="vision_ocr",
+                        model=getattr(llm, "model", "meta/llama-3.2-11b-vision-instruct"),
+                        provider="nvidia",
+                        input_tokens=in_tok,
+                        output_tokens=out_tok,
+                        image_tokens=1024,
+                    )
+                except Exception:
+                    pass
             text = res.content if hasattr(res, "content") else str(res)
             full_ocr.append(text)
 
         return "\n\n".join(full_ocr)
     except Exception as e:
+        if "Quota" in type(e).__name__ or "DailyQuotaExceededError" in str(type(e)) or "Cancelled" in type(e).__name__:
+            raise
         log_error("DocumentParser", f"Vision OCR failed: {e}")
         return ""
 

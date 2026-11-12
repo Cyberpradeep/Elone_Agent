@@ -15,9 +15,10 @@ USAGE_FILE = os.path.join(MONITOR_DIR, "daily_usage.json")
 # Default daily limit (50 calls per day max)
 DEFAULT_MAX_DAILY_CALLS = 50
 
-# ── Per-Execution Session Tracker ──────────────────────────────────────
+# ── Per-Execution Session Tracker & File Lock ──────────────────────────
 # Thread-local storage so concurrent runs (if ever) don't collide
 _session_local = threading.local()
+_USAGE_LOCK = threading.RLock()
 
 
 def start_execution_session(sop_filename: str = "unknown") -> str:
@@ -87,10 +88,17 @@ def _load_usage_data() -> Dict[str, Any]:
 def _save_usage_data(data: Dict[str, Any]) -> None:
     """Saves usage data atomically to JSON file."""
     os.makedirs(MONITOR_DIR, exist_ok=True)
-    temp_file = f"{USAGE_FILE}.tmp"
-    with open(temp_file, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
-    os.replace(temp_file, USAGE_FILE)
+    temp_file = f"{USAGE_FILE}.{uuid.uuid4().hex[:8]}.tmp"
+    try:
+        with open(temp_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        os.replace(temp_file, USAGE_FILE)
+    finally:
+        if os.path.exists(temp_file):
+            try:
+                os.remove(temp_file)
+            except OSError:
+                pass
 
 
 def is_unlimited_calls() -> bool:
@@ -139,38 +147,39 @@ def get_daily_max_calls() -> int:
 
 def get_today_usage() -> Dict[str, Any]:
     """Returns the usage summary for today, initializing a new entry if date rolled over."""
-    today = _get_today_str()
-    all_data = _load_usage_data()
-    max_limit = get_daily_max_calls()
-    unlimited = is_unlimited_calls() or max_limit <= 0
+    with _USAGE_LOCK:
+        today = _get_today_str()
+        all_data = _load_usage_data()
+        max_limit = get_daily_max_calls()
+        unlimited = is_unlimited_calls() or max_limit <= 0
 
-    if today not in all_data:
-        all_data[today] = {
-            "date": today,
-            "total_calls": 0,
-            "max_daily_calls": "unlimited" if unlimited else max_limit,
-            "calls_remaining": "unlimited" if unlimited else max_limit,
-            "gemini_calls": 0,
-            "nvidia_vision_calls": 0,
-            "mistral_calls": 0,
-            "total_input_tokens": 0,
-            "total_output_tokens": 0,
-            "total_image_tokens": 0,
-            "total_tokens": 0,
-            "total_cost_usd": 0.0,
-            "total_cost_inr": 0.0,
-            "call_history": []
-        }
-        _save_usage_data(all_data)
+        if today not in all_data:
+            all_data[today] = {
+                "date": today,
+                "total_calls": 0,
+                "max_daily_calls": "unlimited" if unlimited else max_limit,
+                "calls_remaining": "unlimited" if unlimited else max_limit,
+                "gemini_calls": 0,
+                "nvidia_vision_calls": 0,
+                "mistral_calls": 0,
+                "total_input_tokens": 0,
+                "total_output_tokens": 0,
+                "total_image_tokens": 0,
+                "total_tokens": 0,
+                "total_cost_usd": 0.0,
+                "total_cost_inr": 0.0,
+                "call_history": []
+            }
+            _save_usage_data(all_data)
 
-    # Ensure max_daily_calls reflects current config
-    if unlimited:
-        all_data[today]["max_daily_calls"] = "unlimited"
-        all_data[today]["calls_remaining"] = "unlimited"
-    else:
-        all_data[today]["max_daily_calls"] = max_limit
-        all_data[today]["calls_remaining"] = max(0, max_limit - all_data[today]["total_calls"])
-    return all_data[today]
+        # Ensure max_daily_calls reflects current config
+        if unlimited:
+            all_data[today]["max_daily_calls"] = "unlimited"
+            all_data[today]["calls_remaining"] = "unlimited"
+        else:
+            all_data[today]["max_daily_calls"] = max_limit
+            all_data[today]["calls_remaining"] = max(0, max_limit - all_data[today]["total_calls"])
+        return all_data[today]
 
 
 def check_daily_limit(provider: str = "gemini") -> None:
@@ -221,6 +230,19 @@ def record_call(
     """
     Calculates cost, records the call into daily_usage.json, and returns usage stats.
     """
+    with _USAGE_LOCK:
+        return _record_call_locked(caller, model, provider, input_tokens, output_tokens, image_tokens, sop_id)
+
+
+def _record_call_locked(
+    caller: str,
+    model: str,
+    provider: str,
+    input_tokens: int,
+    output_tokens: int,
+    image_tokens: int,
+    sop_id: Optional[str],
+) -> Dict[str, Any]:
     today = _get_today_str()
     all_data = _load_usage_data()
     max_limit = get_daily_max_calls()

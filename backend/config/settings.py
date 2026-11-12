@@ -16,8 +16,12 @@ Precedence Order:
 
 import os
 import json
+import threading
 from typing import Dict, Any, List, Set, Optional
 from dotenv import load_dotenv
+
+_CONFIG_LOCK = threading.RLock()
+_AUDIT_LOCK = threading.RLock()
 
 load_dotenv()
 
@@ -167,7 +171,13 @@ class PipelineSettings:
         if os.environ.get("EXECUTION_MODE"):
             cfg["execution_mode"] = os.environ["EXECUTION_MODE"].strip().lower()
 
-        self._cached_config = cfg
+        with _CONFIG_LOCK:
+            self._cached_config = cfg
+        try:
+            from config.llm_config import get_llm
+            get_llm.cache_clear()
+        except Exception:
+            pass
         return self._cached_config
 
     def get_all(self) -> Dict[str, Any]:
@@ -176,23 +186,23 @@ class PipelineSettings:
 
     def save(self, updates: Dict[str, Any]) -> Dict[str, Any]:
         """Applies dynamic updates and persists them to settings.json and pipeline_config.json."""
-        base = getattr(self, "_file_config", None) or json.loads(json.dumps(self._cached_config))
-        for section, values in updates.items():
-            if section in base and isinstance(values, dict):
-                base[section].update(values)
-            else:
-                base[section] = values
+        with _CONFIG_LOCK:
+            base = json.loads(json.dumps(getattr(self, "_file_config", None) or self._cached_config))
+            for section, values in updates.items():
+                if section in base and isinstance(values, dict):
+                    base[section].update(values)
+                else:
+                    base[section] = values
 
-        for p in (SETTINGS_JSON_PATH, CONFIG_FILE_PATH):
-            try:
-                with open(p, "w", encoding="utf-8") as f:
-                    json.dump(base, f, indent=2)
-            except Exception as e:
-                log_error("Config", f"Failed to write config to '{p}': {e}")
+            for p in (SETTINGS_JSON_PATH, CONFIG_FILE_PATH):
+                try:
+                    with open(p, "w", encoding="utf-8") as f:
+                        json.dump(base, f, indent=2)
+                except Exception as e:
+                    log_error("Config", f"Failed to write config to '{p}': {e}")
 
-        # Re-apply env overrides on top of the freshly saved file values.
-        self.reload()
-        return self._cached_config
+            # Re-apply env overrides on top of freshly saved file values and clear cached LLM clients.
+            return self.reload()
 
     # --- Property Helpers ---
     @property
@@ -339,25 +349,39 @@ def validate_config_updates(updates: Any) -> "tuple[Dict[str, Dict[str, Any]], L
     return clean, []
 
 
+def _resolve_kb_dir() -> str:
+    env_kb = os.getenv("ELONE_KB_DIR", "").strip()
+    if env_kb:
+        return os.path.abspath(env_kb)
+    backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    project_root = os.path.dirname(backend_dir)
+    root_kb = os.path.abspath(os.path.join(project_root, "knowledge_base"))
+    local_kb = os.path.abspath(os.path.join(backend_dir, "knowledge_base"))
+    if os.path.exists(root_kb) or not os.path.exists(local_kb):
+        return root_kb
+    return local_kb
+
+
 def audit_config_change(actor: str, source_ip: str, before: Dict[str, Any], clean: Dict[str, Dict[str, Any]], outcome: str) -> None:
-    """Appends one JSON line per config change attempt to knowledge_base/logs/config_audit.jsonl."""
+    """Appends one JSON line per config change attempt to <KB_DIR>/logs/config_audit.jsonl."""
     import datetime
     try:
-        log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "knowledge_base", "logs")
-        os.makedirs(log_dir, exist_ok=True)
+        log_dir = os.path.join(_resolve_kb_dir(), "logs")
         diff = {
             f"{s}.{k}": {"old": before.get(s, {}).get(k), "new": v}
             for s, vals in clean.items() for k, v in vals.items()
         }
         entry = {
-            "ts": datetime.datetime.now().isoformat(),
+            "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "actor": actor,
             "ip": source_ip,
             "outcome": outcome,
             "changes": diff,
         }
-        with open(os.path.join(log_dir, "config_audit.jsonl"), "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry) + "\n")
+        with _AUDIT_LOCK:
+            os.makedirs(log_dir, exist_ok=True)
+            with open(os.path.join(log_dir, "config_audit.jsonl"), "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry) + "\n")
     except Exception as e:
         log_error("Config", f"Could not write config audit entry: {e}")
 
