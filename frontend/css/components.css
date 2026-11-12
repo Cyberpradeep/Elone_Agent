@@ -600,74 +600,46 @@ details.accordion ul { margin-left: 18px; display: flex; flex-direction: column;
   justify-content: center;
   padding: 24px 16px;
 }
-.login-shell {
-  width: 100%;
-  max-width: 440px;
-  position: relative;
-}
-.login-theme-wrap {
-  position: fixed;
-  top: 18px;
-  right: 20px;
-  z-index: 50;
-}
 .login-card {
+  width: 100%;
+  max-width: 396px;
   background: var(--card-bg);
-  border: 1px solid var(--card-border-strong);
-  border-radius: var(--radius-xl);
-  padding: 30px 28px 24px;
-  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  animation: viewIn 0.22s var(--ease);
+}
+.login-header {
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--card-border);
   display: flex;
-  flex-direction: column;
-  gap: 18px;
-  animation: viewIn 0.25s var(--ease);
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 .login-brand {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
 }
-.login-brand h1 {
-  font-family: var(--font-heading);
-  font-size: 17px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+.login-body {
+  padding: 22px;
   display: flex;
-  align-items: center;
-  gap: 6px;
+  flex-direction: column;
+  gap: 16px;
 }
-.login-brand p {
-  font-size: 10.5px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-weight: 600;
+#login-error:empty {
+  display: none;
 }
-.login-intro h2 {
-  font-family: var(--font-heading);
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: -0.015em;
-  margin-bottom: 4px;
+.login-body .input {
+  padding: 10px 12px;
 }
-.login-foot {
-  border-top: 1px solid var(--card-border);
-  padding-top: 14px;
-  line-height: 1.5;
-}
-.login-foot > div {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
-.login-foot svg {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-  margin-top: 2px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
+.login-submit {
+  width: 100%;
+  padding: 10px 16px;
+  margin-top: 4px;
 }
 
 .user-card {

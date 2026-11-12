@@ -94,41 +94,32 @@ export async function initAuth() {
 export function renderLoginHtml(initialError = null) {
   const isDark = (document.documentElement.getAttribute('data-theme') || 'dark') === 'dark';
   return `
-    <div class="login-shell">
-      <div class="login-theme-wrap">
-        <button type="button" class="btn btn-outline btn-icon-only" id="login-theme-toggle" data-action="toggle-theme" aria-label="Toggle dark / light theme" title="Toggle theme">${icon(isDark ? 'sun' : 'moon')}</button>
-      </div>
-      <div class="login-card" role="main" aria-labelledby="login-heading">
+    <div class="login-card" role="main" aria-labelledby="login-heading">
+      <div class="login-header">
         <div class="login-brand">
           <div class="brand-logo-badge" aria-hidden="true">E</div>
-          <div>
+          <div class="brand-info">
             <h1 id="login-heading">Elone <span class="badge-tag">OKF</span></h1>
             <p>SOP Governance Hub</p>
           </div>
         </div>
+        <button type="button" class="btn btn-outline btn-icon-only btn-sm" id="login-theme-toggle" data-action="toggle-theme" aria-label="Toggle dark / light theme" title="Toggle theme">${icon(isDark ? 'sun' : 'moon')}</button>
+      </div>
 
-        <div class="login-intro">
-          <h2>Sign in to your workspace</h2>
-          <p class="secondary small">Authenticated identity, tenant isolation, clearance tier, and separation of duties are enforced per token.</p>
-        </div>
-
+      <div class="login-body">
         <div id="login-error" role="alert">${initialError ? `<div class="callout danger">${icon('alert')}<div>${esc(initialError)}</div></div>` : ''}</div>
 
         <form id="login-form" class="stack" novalidate>
           <div class="field">
             <label for="login-username">Username or Email</label>
-            <input id="login-username" name="username" class="input" type="text" autocomplete="username" placeholder="alice.owner or admin@northwind.example" required autofocus>
+            <input id="login-username" name="username" class="input" type="text" autocomplete="username" placeholder="Username or email" required autofocus>
           </div>
           <div class="field">
             <label for="login-password">Password</label>
-            <input id="login-password" name="password" class="input" type="password" autocomplete="current-password" placeholder="Enter your password" required>
+            <input id="login-password" name="password" class="input" type="password" autocomplete="current-password" placeholder="Password" required>
           </div>
-          <button type="submit" id="login-submit" class="btn btn-primary" style="width:100%;margin-top:4px">${icon('lock')}<span>Sign in</span></button>
+          <button type="submit" id="login-submit" class="btn btn-primary login-submit"><span>Sign in</span></button>
         </form>
-
-        <div class="login-foot tiny muted">
-          <div>${icon('shield')} <span>Accounts are provisioned by your tenant administrator or <code>python -m auth.cli</code>.</span></div>
-        </div>
       </div>
     </div>`;
 }
