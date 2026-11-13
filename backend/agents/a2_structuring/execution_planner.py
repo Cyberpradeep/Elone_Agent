@@ -6,6 +6,10 @@ Stage 2: 6-Stage Command CoT reasoning & dynamic tool binding.
 Compiles raw SOP segments into a validated, deterministic OKF draft plan.
 """
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 import os
 import re
 import json
@@ -387,8 +391,8 @@ def plan_okf_from_raw(
                             status="error",
                             error_message=str(fb_err),
                         )
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        _log.warning("plan_okf_from_raw: usage telemetry was not recorded (%s: %s)", type(_exc).__name__, _exc)
                     raise fb_err
 
                 raw_c = final_res.content if hasattr(final_res, "content") else str(final_res)
@@ -484,14 +488,14 @@ def plan_okf_from_raw(
                 from utils.security import sanitize_json_text
                 repaired_json = sanitize_json_text(clean_json)
                 data = json.loads(repaired_json, strict=False)
-            except Exception:
-                pass
+            except Exception as _exc:
+                _log.debug("plan_okf_from_raw: JSON repair strategy failed, trying the next one (%s: %s)", type(_exc).__name__, _exc)
 
         if data is None:
             try:
                 data = ast.literal_eval(clean_json)
-            except Exception:
-                pass
+            except Exception as _exc:
+                _log.debug("plan_okf_from_raw: JSON repair strategy failed, trying the next one (%s: %s)", type(_exc).__name__, _exc)
 
         if data is None:
             # Only attempt single-to-double quote substitution if text uses Python single-quoted keys ({'key': ...})
@@ -504,8 +508,8 @@ def plan_okf_from_raw(
                     normalized = re.sub(r"\bFalse\b", "false", normalized)
                     normalized = re.sub(r"\bNone\b", "null", normalized)
                     data = json.loads(normalized)
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    _log.debug("plan_okf_from_raw: JSON repair strategy failed, trying the next one (%s: %s)", type(_exc).__name__, _exc)
 
         if data is None:
             err_msg = f"Scenario 1 Error (Attempt {attempt}): JSON Parsing Failed: {json_err_msg or 'Invalid JSON syntax'}"

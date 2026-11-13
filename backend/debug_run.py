@@ -1,3 +1,6 @@
+import logging
+
+_log = logging.getLogger(__name__)
 import argparse
 import datetime
 import os
@@ -15,22 +18,22 @@ class DualLogger:
             self.terminal.write(message)
             self.terminal.flush()
         except Exception:
-            pass
+            pass  # intentionally silent: logging here could loop back into this stream
         try:
             self.log_file.write(message)
             self.log_file.flush()
         except Exception:
-            pass
+            pass  # intentionally silent: logging here could loop back into this stream
 
     def flush(self):
         try:
             self.terminal.flush()
         except Exception:
-            pass
+            pass  # intentionally silent: logging here could loop back into this stream
         try:
             self.log_file.flush()
         except Exception:
-            pass
+            pass  # intentionally silent: logging here could loop back into this stream
 
 
 def main():
@@ -151,8 +154,8 @@ def main():
                 # pyrefly: ignore [missing-import]
                 from gemini_monitor.monitor import print_daily_usage_banner
                 print_daily_usage_banner()
-            except Exception:
-                pass
+            except Exception as _exc:
+                _log.warning("main: usage banner could not be printed (%s: %s)", type(_exc).__name__, _exc)
             return
 
         # pyrefly: ignore [missing-import]
@@ -192,16 +195,16 @@ def main():
             from gemini_monitor.monitor import print_execution_session_banner, end_execution_session
             session_summary = end_execution_session()
             print_execution_session_banner(session_summary)
-        except Exception:
-            pass
+        except Exception as _exc:
+            _log.warning("main: usage banner could not be printed (%s: %s)", type(_exc).__name__, _exc)
 
         # Print Gemini & Vision Monitor Daily Usage Report
         try:
             # pyrefly: ignore [missing-import]
             from gemini_monitor.monitor import print_daily_usage_banner
             print_daily_usage_banner()
-        except Exception:
-            pass
+        except Exception as _exc:
+            _log.warning("main: usage banner could not be printed (%s: %s)", type(_exc).__name__, _exc)
 
     except Exception as e:
         # pyrefly: ignore [missing-import]

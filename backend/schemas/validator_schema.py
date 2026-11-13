@@ -4,6 +4,10 @@ Pydantic Schema for Plan Validator Layer 2 Faithfulness Inspection
 Strict typing for the LLM faithfulness and hallucination inspection result.
 """
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Any
 
@@ -85,6 +89,6 @@ class JITFaithfulnessInspectionResult(BaseModel):
         for x in val:
             try:
                 res.append(int(x))
-            except (ValueError, TypeError):
-                pass
+            except (ValueError, TypeError) as _exc:
+                _log.debug("_normalize_malicious_steps: value could not be parsed, keeping default (%s: %s)", type(_exc).__name__, _exc)
         return res

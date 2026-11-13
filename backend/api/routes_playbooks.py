@@ -5,6 +5,10 @@ Handles OKF playbook listing, details, cryptographic HMAC-SHA256 integrity verif
 and tenant/clearance-enforced soft deletion (admin only under Option A RBAC).
 """
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 import os
 import re
 import glob
@@ -274,8 +278,8 @@ async def api_delete_sop(request: Request):
     try:
         with open(playbooks[0], "r", encoding="utf-8") as f:
             first_fm, _ = parse_yaml_frontmatter(f.read())
-    except Exception:
-        pass
+    except Exception as _exc:
+        _log.warning("api_delete_sop: could not read file, skipping it (%s: %s)", type(_exc).__name__, _exc)
     access_meta = resolve_sop_access_meta(first_fm.get("sop_id", clean_id), frontmatter=first_fm)
     enforce_tenant_access(principal, access_meta["tenant_id"], request=request)
     enforce_clearance_access(principal, access_meta["classification_level"], request=request)
@@ -289,8 +293,8 @@ async def api_delete_sop(request: Request):
                 catalog_ids.add(str(fm["sop_id"]))
             if fm.get("source_sha256"):
                 source_shas.add(str(fm["source_sha256"]))
-        except Exception:
-            pass
+        except Exception as _exc:
+            _log.warning("api_delete_sop: could not read file, skipping it (%s: %s)", type(_exc).__name__, _exc)
     for p in glob.glob(os.path.join(SOPS_DIR, "**", "*.canonical.json"), recursive=True):
         if os.path.basename(p)[: -len(".canonical.json")].lower() == clean_id.lower():
             try:
@@ -303,8 +307,8 @@ async def api_delete_sop(request: Request):
                 sha = cdata.get("source", {}).get("file_sha256") or cdata.get("source", {}).get("sha256")
                 if sha:
                     source_shas.add(str(sha))
-            except Exception:
-                pass
+            except Exception as _exc:
+                _log.warning("api_delete_sop: could not read file, skipping it (%s: %s)", type(_exc).__name__, _exc)
     for p in glob.glob(os.path.join(PATTERNS_DIR, "**", "rules_*.md"), recursive=True):
         if os.path.splitext(os.path.basename(p))[0][len("rules_"):].lower() == clean_id.lower():
             files.add(p)
@@ -328,8 +332,8 @@ async def api_delete_sop(request: Request):
                         d_sha = d_data.get("canonical_draft", {}).get("source", {}).get("sha256")
                         if d_sha:
                             source_shas.add(str(d_sha))
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    _log.warning("api_delete_sop: could not read file, skipping it (%s: %s)", type(_exc).__name__, _exc)
 
     # 1. Move to trash (preserving relative paths) with a manifest.
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -421,8 +425,8 @@ async def api_delete_sop(request: Request):
                             dst_draft = os.path.join(trash, "_drafts", df_name)
                             os.makedirs(os.path.dirname(dst_draft), exist_ok=True)
                             shutil.move(df_path, dst_draft)
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        _log.warning("api_delete_sop: could not read file, skipping it (%s: %s)", type(_exc).__name__, _exc)
     except Exception as e:
         warnings.append(f"Manifest cleanup notice: {e}")
 

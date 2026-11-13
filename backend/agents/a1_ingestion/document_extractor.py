@@ -6,6 +6,10 @@ Universal MarkItDown extraction with document-order segment preservation.
 Supports: .pdf, .docx, .doc, .xlsx, .xls, .pptx, .html, .txt, .md.
 """
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 import os
 import base64
 import datetime
@@ -105,8 +109,8 @@ def extract_full_text(filepath: str) -> Tuple[str, str]:
                 log_info("DocumentParser", f"[UTF-8 Text Engine] Extracted text from: {filename}")
                 _log_parsed_text(filepath, "txt_fallback", utf8_text)
                 return "txt_fallback", utf8_text
-        except UnicodeDecodeError:
-            pass
+        except UnicodeDecodeError as _exc:
+            _log.debug("extract_full_text: file is not valid UTF-8, trying the next decoder (%s: %s)", type(_exc).__name__, _exc)
 
     try:
         from markitdown import MarkItDown
@@ -233,8 +237,8 @@ def _run_vision_ocr(doc, filepath: str) -> str:
                             status="error",
                             error_message=str(inv_err),
                         )
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        _log.warning("_run_vision_ocr: usage telemetry was not recorded (%s: %s)", type(_exc).__name__, _exc)
                 raise inv_err
 
             in_tok = 0
@@ -256,8 +260,8 @@ def _run_vision_ocr(doc, filepath: str) -> str:
                         latency_ms=latency_ms,
                         status="success",
                     )
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    _log.warning("_run_vision_ocr: usage telemetry was not recorded (%s: %s)", type(_exc).__name__, _exc)
             text = res.content if hasattr(res, "content") else str(res)
             full_ocr.append(text)
 

@@ -7,6 +7,10 @@ Frozen Specification: SOP Governance Hub v1.0 (Section 16 & 17)
 - Recomputes and re-stamps HMAC-SHA256 signature
 """
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 import os
 import re
 import json
@@ -115,8 +119,8 @@ def _build_media_entries(vlm_reports: Optional[List[Dict[str, Any]]]) -> List[Di
         if rep.get("confidence_score") is not None:
             try:
                 entry["confidence_score"] = float(rep["confidence_score"])
-            except (TypeError, ValueError):
-                pass
+            except (TypeError, ValueError) as _exc:
+                _log.debug("_build_media_entries: value could not be parsed, keeping default (%s: %s)", type(_exc).__name__, _exc)
         if rep.get("confidence_level"):
             entry["confidence_level"] = str(rep["confidence_level"])
         media_entries.append(entry)
@@ -518,8 +522,8 @@ def sync_canonical_to_playbook(canonical_data: Dict[str, Any], category: Optiona
             with open(md_path, "r", encoding="utf-8") as f:
                 post = frontmatter.load(f)
                 existing_frontmatter = post.metadata
-        except Exception:
-            pass
+        except Exception as _exc:
+            _log.warning("sync_canonical_to_playbook: could not read file, skipping it (%s: %s)", type(_exc).__name__, _exc)
 
     existing_frontmatter["sop_id"] = sop_id
     existing_frontmatter["title"] = canonical_data.get("title", existing_frontmatter.get("title", sop_id))

@@ -5,6 +5,10 @@ Frozen Specification: SOP Governance Hub v1.0 (Section 5.1 & 7)
 Vision LLM image extraction and analysis for multi-modal SOP documents.
 """
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 import os
 import json
 import re
@@ -115,8 +119,8 @@ def extract_confidence_score(report_text: str) -> Dict[str, Any]:
             val = float(score_match.group(1))
             score = val / 100.0 if val > 1.0 else val
             score = round(max(0.0, min(1.0, score)), 2)
-        except ValueError:
-            pass
+        except ValueError as _exc:
+            _log.debug("extract_confidence_score: value could not be parsed, keeping default (%s: %s)", type(_exc).__name__, _exc)
 
     level_match = re.search(r"CONFIDENCE LEVEL:\s*([A-Za-z]+)", report_text, re.IGNORECASE)
     if level_match:
@@ -238,8 +242,8 @@ def analyze_image_bytes(image_bytes: bytes, mime_type: str) -> str:
                     status="error",
                     error_message=str(e),
                 )
-            except Exception:
-                pass
+            except Exception as _exc:
+                _log.warning("analyze_image_bytes: usage telemetry was not recorded (%s: %s)", type(_exc).__name__, _exc)
             last_error = e
             err_str = str(e)
             if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower():

@@ -1,3 +1,6 @@
+import logging
+
+_log = logging.getLogger(__name__)
 
 import os
 import json
@@ -60,8 +63,8 @@ def _acquire_usage_lock(timeout: float = 10.0):
                     try:
                         from utils.pipeline_logger import log_warning
                         log_warning("Gemini Monitor", f"Cross-process lock failed ({e}); falling back to thread lock.")
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        _log.warning("_acquire_usage_lock: cross-process lock failed (%s); falling back to thread lock", e)
                     yield
             else:
                 yield
@@ -173,8 +176,8 @@ def _load_usage_data() -> Dict[str, Any]:
             try:
                 from utils.pipeline_logger import log_warning
                 log_warning("Gemini Monitor", f"Failed to load usage file '{USAGE_FILE}': {e}")
-            except Exception:
-                pass
+            except Exception as _exc:
+                _log.warning("_load_usage_data: failed to load usage file %s: %s", USAGE_FILE, e)
             return {}
         except Exception:
             return {}
@@ -193,14 +196,14 @@ def _save_usage_data(data: Dict[str, Any]) -> None:
         try:
             from utils.pipeline_logger import log_error
             log_error("Gemini Monitor", f"Failed saving daily usage to '{USAGE_FILE}': {e}")
-        except Exception:
-            pass
+        except Exception as _exc:
+            _log.warning("_save_usage_data: failed saving daily usage to %s: %s", USAGE_FILE, e)
     finally:
         if os.path.exists(temp_file):
             try:
                 os.remove(temp_file)
-            except OSError:
-                pass
+            except OSError as _exc:
+                _log.debug("_save_usage_data: cleanup of leftover files failed (%s: %s)", type(_exc).__name__, _exc)
 
 
 def is_unlimited_calls() -> bool:
@@ -209,8 +212,8 @@ def is_unlimited_calls() -> bool:
         from config.settings import is_unlimited_daily_calls
         if is_unlimited_daily_calls():
             return True
-    except Exception:
-        pass
+    except Exception as _exc:
+        _log.warning("is_unlimited_calls: settings unavailable, falling back to env/default (%s: %s)", type(_exc).__name__, _exc)
 
     env_unlimited = os.environ.get("UNLIMITED_DAILY_CALLS", "").strip().lower() in ("1", "true", "yes")
     if env_unlimited:
@@ -233,8 +236,8 @@ def get_daily_max_calls() -> int:
         if m_calls <= 0:
             return 0
         return m_calls
-    except Exception:
-        pass
+    except Exception as _exc:
+        _log.warning("get_daily_max_calls: settings unavailable, falling back to env/default (%s: %s)", type(_exc).__name__, _exc)
     env_val = os.environ.get("MAX_DAILY_GEMINI_CALLS") or os.environ.get("MAX_DAILY_CALLS")
     if env_val:
         try:
@@ -242,8 +245,8 @@ def get_daily_max_calls() -> int:
             if val <= 0:
                 return 0
             return val
-        except ValueError:
-            pass
+        except ValueError as _exc:
+            _log.debug("get_daily_max_calls: value could not be parsed, keeping default (%s: %s)", type(_exc).__name__, _exc)
     return DEFAULT_MAX_DAILY_CALLS
 
 
@@ -551,8 +554,8 @@ def print_execution_session_banner(session: Optional[Dict[str, Any]] = None) -> 
             from backend.utils.pipeline_logger import log_session_summary
             log_session_summary(session)
             return
-        except Exception:
-            pass
+        except Exception as _exc:
+            _log.warning("print_execution_session_banner: usage banner could not be printed (%s: %s)", type(_exc).__name__, _exc)
 
     print("\n" + "=" * 70)
     print("  THIS EXECUTION — LLM CALL SUMMARY")
@@ -601,8 +604,8 @@ def print_daily_usage_banner() -> None:
             from backend.utils.pipeline_logger import log_daily_usage_banner
             log_daily_usage_banner(usage)
             return
-        except Exception:
-            pass
+        except Exception as _exc:
+            _log.warning("print_daily_usage_banner: usage banner could not be printed (%s: %s)", type(_exc).__name__, _exc)
 
     print("\n" + "=" * 70)
     print("  GEMINI & VISION DAILY USAGE & COST REPORT")

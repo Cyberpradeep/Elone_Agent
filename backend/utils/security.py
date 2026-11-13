@@ -35,9 +35,15 @@ class SecurityConfigurationError(RuntimeError):
     """Raised when critical security configuration (like HMAC signing key) is missing or invalid."""
     pass
 
-# Zip Bomb Thresholds
-MAX_UNCOMPRESSED_ZIP_BYTES = 50 * 1024 * 1024  # 50 MB
-MAX_ZIP_COMPRESSION_RATIO = 20.0               # Maximum 20x ratio
+# Zip Bomb Thresholds (M4: values live in config/settings.json -> file_upload;
+# the literals below are only the last-resort fallback if settings cannot load)
+try:
+    from config.settings import get_settings as _get_settings
+    MAX_UNCOMPRESSED_ZIP_BYTES = _get_settings().max_uncompressed_zip_bytes
+    MAX_ZIP_COMPRESSION_RATIO = _get_settings().max_zip_compression_ratio
+except Exception:
+    MAX_UNCOMPRESSED_ZIP_BYTES = 50 * 1024 * 1024  # 50 MB
+    MAX_ZIP_COMPRESSION_RATIO = 20.0               # Maximum 20x ratio
 
 # Image Dimension Caps (Pixel Bomb Defense)
 try:
@@ -63,8 +69,12 @@ IMAGE_MAGIC_SIGNATURES = [
     (b"RIFF", "image/webp"),                   # WEBP has RIFF....WEBP header
 ]
 
-# Web Scraper Caps
-MAX_SCRAPE_OUTPUT_CHARS = 4000                 # Maximum character length for scraped reference markdown
+# Web Scraper Caps (M4: config/settings.json -> link_scraper.max_output_chars)
+try:
+    from config.settings import get_settings as _get_settings
+    MAX_SCRAPE_OUTPUT_CHARS = _get_settings().scrape_max_output_chars
+except Exception:
+    MAX_SCRAPE_OUTPUT_CHARS = 4000             # Maximum character length for scraped reference markdown
 
 # Disallowed / Blocked IP Ranges (Comprehensive IANA Special-Use IPv4 & IPv6 SSRF Defense)
 BLOCKED_IP_NETWORKS = [

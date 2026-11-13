@@ -7,6 +7,10 @@ enforces Lean 4-role RBAC + human-only checks + tenant + clearance boundaries, a
 structured audit events to knowledge_base/_auth/auth_events.jsonl.
 """
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 import os
 import json
 import hmac
@@ -56,8 +60,8 @@ def get_client_ip(request: Request) -> str:
     try:
         if request.client and request.client.host:
             return str(request.client.host)
-    except Exception:
-        pass
+    except Exception as _exc:
+        _log.debug("get_client_ip: client address unavailable (%s: %s)", type(_exc).__name__, _exc)
     return "127.0.0.1"
 
 
@@ -96,8 +100,8 @@ def log_auth_event(
             os.makedirs(os.path.dirname(os.path.abspath(log_path)), exist_ok=True)
             with open(log_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(record) + "\n")
-    except Exception:
-        pass
+    except Exception as _exc:
+        _log.warning("log_auth_event: auth audit event was NOT written to the audit log (%s: %s)", type(_exc).__name__, _exc)
 
 
 def extract_token_from_request(request: Request) -> tuple[str, str]:
@@ -232,8 +236,8 @@ def authenticate_request(
 
     try:
         request.state.principal = principal
-    except Exception:
-        pass
+    except Exception as _exc:
+        _log.debug("authenticate_request: could not attach principal to request.state (%s: %s)", type(_exc).__name__, _exc)
     return principal
 
 

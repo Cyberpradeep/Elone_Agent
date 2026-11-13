@@ -1,3 +1,6 @@
+import logging
+
+_log = logging.getLogger(__name__)
 import json
 import re
 import time
@@ -64,8 +67,8 @@ def _canonicalize_tool_name(tool_str: str) -> str:
         schema = find_platform_schema(plat_part)
         if schema and "platform" in schema:
             return f"{schema['platform']}.{fn_part}"
-    except Exception:
-        pass
+    except Exception as _exc:
+        _log.debug("_canonicalize_tool_name: tool name left as written (%s: %s)", type(_exc).__name__, _exc)
     return tool_str
 
 
@@ -426,8 +429,8 @@ def validate_plan_faithfulness_and_linkage(
                     status="error",
                     error_message=str(inv_err),
                 )
-            except Exception:
-                pass
+            except Exception as _exc:
+                _log.warning("validate_plan_faithfulness_and_linkage: usage telemetry was not recorded (%s: %s)", type(_exc).__name__, _exc)
             raise inv_err
 
         # Record token usage in gemini_monitor
@@ -458,8 +461,8 @@ def validate_plan_faithfulness_and_linkage(
         except Exception as mon_err:
             try:
                 log_warning("Gemini Monitor", f"Failed to log validation call: {mon_err}")
-            except Exception:
-                pass
+            except Exception as _exc:
+                _log.warning("validate_plan_faithfulness_and_linkage: usage telemetry was not recorded (%s)", mon_err)
 
         content = res.content if hasattr(res, "content") else str(res)
         if isinstance(content, list):

@@ -10,6 +10,10 @@ Implements Sections 6, 7, and Appendix B of SOP Governance Hub v1.0:
 6. Artifact Read/Write Access Matrix: Restricts artifact permissions per agent role (Section 5).
 """
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 import os
 import json
 import uuid
@@ -19,7 +23,12 @@ from typing import Dict, List, Set, Optional, Tuple, Any, Literal, Callable
 from pydantic import BaseModel, Field, model_validator, ConfigDict
 
 # Section 15 Hard Budgets per Job
-MAX_AGENT_CALLS_PER_JOB = 30
+# M4: config/settings.json -> governance.max_agent_calls_per_job
+try:
+    from config.settings import get_settings as _get_settings
+    MAX_AGENT_CALLS_PER_JOB = _get_settings().max_agent_calls_per_job
+except Exception:
+    MAX_AGENT_CALLS_PER_JOB = 30
 MAX_LLM_CALLS_PER_JOB = 14
 
 
@@ -88,8 +97,8 @@ class AgentMessageBus:
             from orchestrator.agent_runners import STANDARD_AGENT_RUNNERS
             for agent_id, runner_func in STANDARD_AGENT_RUNNERS.items():
                 self.register_runner(agent_id, runner_func)
-        except Exception:
-            pass
+        except Exception as _exc:
+            _log.warning("load_standard_runners: standard agent runners could not be loaded (%s: %s)", type(_exc).__name__, _exc)
 
     def get_job_budget(self, correlation_id: str) -> Dict[str, int]:
         """Returns current resource usage metrics for a job."""

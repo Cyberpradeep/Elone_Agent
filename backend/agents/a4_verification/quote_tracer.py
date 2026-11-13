@@ -6,6 +6,10 @@ Validates 5-25 word verbatim quotes against cited source line ranges
 within a +/-1 line boundary window.
 """
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 import re
 from collections import Counter
 from typing import List, Dict, Any, Tuple, Optional, Set
@@ -254,8 +258,8 @@ def compute_source_line_coverage(
                 for l in range(start_l, end_l + 1):
                     if l in non_blank:
                         mapped_line_indices.add(l)
-            except (ValueError, TypeError):
-                pass
+            except (ValueError, TypeError) as _exc:
+                _log.debug("compute_source_line_coverage: value could not be parsed, keeping default (%s: %s)", type(_exc).__name__, _exc)
 
     # 4. Extract token sets from steps, source_action_coverage, and metadata
     target_token_sets = []

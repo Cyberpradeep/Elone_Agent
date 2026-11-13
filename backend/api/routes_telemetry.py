@@ -12,6 +12,10 @@ Locked down per Option A RBAC:
   - POST /api/security/test  -> security_reviewer, admin
 """
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 import os
 import glob
 import re
@@ -85,8 +89,8 @@ async def api_overview(request: Request):
             with open(p, "r", encoding="utf-8") as f:
                 fm, _ = parse_yaml_frontmatter(f.read())
             sop_id = str(fm.get("sop_id") or sop_id).strip()
-        except Exception:
-            pass
+        except Exception as _exc:
+            _log.warning("api_overview: could not read file, skipping it (%s: %s)", type(_exc).__name__, _exc)
         meta = resolve_sop_access_meta(sop_id, canonical_map=canonical_map, frontmatter=fm)
         if meta["tenant_id"] == principal.tenant_id and principal.can_access_tier(meta["classification_level"]):
             total_playbooks += 1

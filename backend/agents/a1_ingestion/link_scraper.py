@@ -3,11 +3,12 @@ import re
 import hashlib
 import urllib.parse
 import requests
-from typing import Tuple, List
+from typing import Tuple, List, Optional
 from markitdown import MarkItDown
 
 # pyrefly: ignore [missing-import]
 from utils.security import is_safe_external_url, MAX_SCRAPE_OUTPUT_CHARS
+from config.settings import get_settings
 try:
     from utils.pipeline_logger import log_info, log_warning, log_error
 except ImportError:
@@ -57,7 +58,7 @@ def extract_urls_from_markdown(text: str) -> List[str]:
     return list(dict.fromkeys(cleaned_urls))
 
 
-def fetch_and_convert_url(url: str, timeout_seconds: int = 10) -> Tuple[bool, str, str]:
+def fetch_and_convert_url(url: str, timeout_seconds: Optional[float] = None) -> Tuple[bool, str, str]:
     """Fetches a URL, converts HTML to Markdown using MarkItDown, and caches to disk.
     
     Returns (success_bool, markdown_content_or_error, relative_cache_path)
@@ -89,7 +90,10 @@ def fetch_and_convert_url(url: str, timeout_seconds: int = 10) -> Tuple[bool, st
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) SOP-Ingestion-Pipeline/1.0"
     }
 
-    MAX_REDIRECT_HOPS = 3
+    # M4: config/settings.json -> link_scraper
+    MAX_REDIRECT_HOPS = get_settings().scrape_max_redirect_hops
+    if timeout_seconds is None:
+        timeout_seconds = get_settings().scrape_timeout_seconds
     current_url = url
     visited_urls = {current_url}
     final_resp = None

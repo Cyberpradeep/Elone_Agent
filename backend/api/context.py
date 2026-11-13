@@ -6,6 +6,10 @@ AgentMessageBus, filesystem paths, tenant-isolated upload/manifest/log helpers,
 and unified SOP/draft access metadata resolution.
 """
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 import os
 import re
 import sys
@@ -119,8 +123,8 @@ def read_manifest() -> Dict[str, Any]:
                 with open(MANIFEST_PATH, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 return data if isinstance(data, dict) else {}
-            except Exception:
-                pass
+            except Exception as _exc:
+                _log.warning("read_manifest: upload manifest is unreadable, treating it as empty (%s: %s)", type(_exc).__name__, _exc)
         return {}
 
 
@@ -204,8 +208,8 @@ def read_upload_owners() -> Dict[str, Any]:
                 with open(UPLOAD_OWNERS_PATH, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 return data if isinstance(data, dict) else {}
-            except Exception:
-                pass
+            except Exception as _exc:
+                _log.warning("read_upload_owners: upload-owners file is unreadable, treating it as empty (%s: %s)", type(_exc).__name__, _exc)
         return {}
 
 
@@ -336,8 +340,8 @@ def read_log_owners() -> Dict[str, str]:
                 with open(LOG_OWNERS_PATH, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 return {str(k): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
-            except Exception:
-                pass
+            except Exception as _exc:
+                _log.warning("read_log_owners: log-owners file is unreadable, treating it as empty (%s: %s)", type(_exc).__name__, _exc)
         return {}
 
 
@@ -364,8 +368,8 @@ def get_log_owner(filename: str, resolved_path: Optional[str] = None) -> str:
             match = _LOG_TENANT_RE.search(header)
             if match:
                 return match.group(1).strip()
-        except OSError:
-            pass
+        except OSError as _exc:
+            _log.debug("get_log_owner: could not read file, skipping it (%s: %s)", type(_exc).__name__, _exc)
     return get_default_tenant()
 
 
@@ -556,6 +560,6 @@ def parse_yaml_frontmatter(content: str):
             try:
                 fm = yaml.safe_load(parts[1])
                 return fm or {}, parts[2].strip()
-            except Exception:
-                pass
+            except Exception as _exc:
+                _log.warning("parse_yaml_frontmatter: front matter is not valid YAML, treating it as empty (%s: %s)", type(_exc).__name__, _exc)
     return {}, content.strip()

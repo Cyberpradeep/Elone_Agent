@@ -1,10 +1,13 @@
 {
   "file_upload": {
-    "max_file_size_mb": 50.0,
+    "max_file_size_mb": 1,
     "max_page_count": 10,
     "max_text_lines": 600,
     "max_text_words": 5000,
     "max_table_rows": 600,
+    "upload_chunk_bytes": 65536,
+    "max_uncompressed_zip_mb": 50.0,
+    "max_zip_compression_ratio": 20.0,
     "allowed_extensions": [
       ".pdf",
       ".docx",
@@ -31,29 +34,48 @@
     "execution_planning": {
       "provider": "mistral",
       "model": "codestral-latest",
-      "temperature": 0
+      "temperature": 0,
+      "fallbacks": [
+        {
+          "provider": "groq",
+          "model": "qwen/qwen3.8-27b"
+        }
+      ]
     },
     "planning_validation": {
       "provider": "mistral",
       "model": "codestral-latest",
-      "temperature": 0
+      "temperature": 0,
+      "fallbacks": [
+        {
+          "provider": "groq",
+          "model": "qwen/qwen3.8-27b"
+        }
+      ]
     },
     "vlm_image_analysis": {
       "provider": "nvidia",
-      "model": "meta/llama-3.2-11b-vision-instruct",
+      "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
       "temperature": 0.2,
-      "timeout": 150
-    },
-    "fallbacks": [
-      {
-        "provider": "zai",
-        "model": "glm-4.5-flash"
-      },
-      {
-        "provider": "groq",
-        "model": "qwen/qwen3.8-27b"
-      }
-    ]
+      "timeout": 150,
+      "fallbacks": [
+        {
+          "provider": "openrouter",
+          "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
+        },
+        {
+          "provider": "nvidia",
+          "model": "meta/llama-3.2-11b-vision-instruct"
+        }
+      ]
+    }
+  },
+  "llm_limits": {
+    "max_output_tokens": {
+      "groq": 2048,
+      "zai": 2048,
+      "nvidia": 4096
+    }
   },
   "governance": {
     "min_passing_score": 80,
@@ -62,7 +84,16 @@
     "max_calls_per_job": 25,
     "llm_timeout_seconds": 120,
     "llm_max_retries": 2,
-    "sop_scan_interval_minutes": 10
+    "sop_scan_interval_minutes": 10,
+    "max_agent_calls_per_job": 30
+  },
+  "link_scraper": {
+    "max_output_chars": 4000,
+    "max_redirect_hops": 3,
+    "timeout_seconds": 10
+  },
+  "cost": {
+    "usd_to_inr_rate": 87.0
   },
   "execution_mode": "command_only"
 }

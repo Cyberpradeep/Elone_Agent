@@ -12,6 +12,10 @@ Implements bus-driven, pure artifact-passing SOP governance tracing under protoc
   [A6] Hub & Indexing Engine    -> HMAC signing, disk commit, multi-tenant search indexing (Artifact: 'publication_record')
 """
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 import os
 import sys
 import time
@@ -28,8 +32,8 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
+    except Exception as _exc:
+        _log.debug("trace_pipeline startup: could not switch console to UTF-8 (%s: %s)", type(_exc).__name__, _exc)
 
 # Ensure project paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -394,8 +398,8 @@ def trace_e2e_sop(sop_filepath: str, auto_approve: bool = False, tenant_id: str 
             import msvcrt
             while msvcrt.kbhit():
                 msvcrt.getch()
-        except (ImportError, Exception):
-            pass
+        except (ImportError, Exception) as _exc:
+            _log.debug("trace_e2e_sop: could not flush pending keystrokes (%s: %s)", type(_exc).__name__, _exc)
 
         while True:
             try:

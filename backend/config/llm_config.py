@@ -18,6 +18,10 @@ Supports Providers:
   - NVIDIA NIM (llama-3.2-11b-vision-instruct)
 """
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 import os
 import warnings
 from typing import Any, Optional, Dict, List, Tuple
@@ -33,49 +37,41 @@ load_dotenv()
 
 # ---------------------------------------------------------------------------
 # Role → Provider mapping (only ingestion-relevant roles)
-# Supports runtime environment variable overrides:
+#
+# No model names live in this file (M4). The map is filled from the
+# `llm_models` section of config/settings.json, with these env overrides
+# applied by config/settings.py:
 #   PLANNING_PROVIDER / PLANNING_MODEL
 #   VALIDATION_PROVIDER / VALIDATION_MODEL
+#   VLM_PROVIDER / VLM_MODEL
+#   GROQ_MODEL (model used by any groq fallback)
+# The dict object is mutated in place so modules that imported it stay current.
 # ---------------------------------------------------------------------------
 
-_PLANNING_PROVIDER = os.environ.get("PLANNING_PROVIDER", "mistral").lower()
-_PLANNING_MODEL = os.environ.get("PLANNING_MODEL", "codestral-latest")
+ROLE_PROVIDER_MAP: Dict[str, Dict[str, Any]] = {}
 
-_VALIDATION_PROVIDER = os.environ.get("VALIDATION_PROVIDER", "mistral").lower()
-_VALIDATION_MODEL = os.environ.get("VALIDATION_MODEL", "codestral-latest")
 
-_VLM_PROVIDER = os.environ.get("VLM_PROVIDER", "nvidia").lower()
-_VLM_MODEL = os.environ.get("VLM_MODEL", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning")
-
-_GROQ_MODEL = os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b")
-
-ROLE_PROVIDER_MAP = {
-    "execution_planning": {
-        "provider": _PLANNING_PROVIDER,
-        "model": _PLANNING_MODEL,
-        "fallbacks": [
-            {"provider": "groq", "model": _GROQ_MODEL},
-            # {"provider": "gemini", "model": "gemini-2.5-flash"},
-        ],
-    },
-    "planning_validation": {
-        "provider": _VALIDATION_PROVIDER,
-        "model": _VALIDATION_MODEL,
-        "fallbacks": [
-            {"provider": "groq", "model": _GROQ_MODEL},
-            # {"provider": "gemini", "model": "gemini-2.5-flash"},
-        ],
-    },
-    "vlm_image_analysis": {
-        "provider": _VLM_PROVIDER,
-        "model": _VLM_MODEL,
-        "fallbacks": [
-            {"provider": "openrouter", "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"},
-            {"provider": "nvidia", "model": "meta/llama-3.2-11b-vision-instruct"},
-            # {"provider": "gemini", "model": "gemini-2.5-flash"},
-        ],
-    },
-}
+def apply_llm_models(llm_models: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """Rebuilds ROLE_PROVIDER_MAP from the settings `llm_models` section and drops cached clients."""
+    new_map: Dict[str, Dict[str, Any]] = {}
+    for role, conf in (llm_models or {}).items():
+        if not isinstance(conf, dict) or not conf.get("provider") or not conf.get("model"):
+            continue
+        new_map[role] = {
+            "provider": str(conf["provider"]).lower(),
+            "model": str(conf["model"]),
+            "fallbacks": [
+                {"provider": str(fb["provider"]).lower(), "model": str(fb["model"])}
+                for fb in (conf.get("fallbacks") or [])
+                if isinstance(fb, dict) and fb.get("provider") and fb.get("model")
+            ],
+        }
+    ROLE_PROVIDER_MAP.clear()
+    ROLE_PROVIDER_MAP.update(new_map)
+    cached = globals().get("get_llm")
+    if cached is not None and hasattr(cached, "cache_clear"):
+        cached.cache_clear()
+    return ROLE_PROVIDER_MAP
 
 
 def _limits() -> dict:
@@ -86,6 +82,15 @@ def _limits() -> dict:
         return {"timeout": st.llm_timeout_seconds, "max_retries": st.llm_max_retries}
     except Exception:
         return {"timeout": 120.0, "max_retries": 2}
+
+
+def _max_output_tokens(provider: str, default: int) -> int:
+    """Output-token cap for a provider, from settings `llm_limits.max_output_tokens`."""
+    try:
+        from config.settings import get_settings
+        return int(get_settings().max_output_tokens(provider, default))
+    except Exception:
+        return default
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +207,7 @@ def _build_groq_client(model: str, temperature: float = 0.2):
             api_key=k,
             base_url="https://api.groq.com/openai/v1",
             temperature=temperature,
-            max_tokens=2048,
+            max_tokens=_max_output_tokens("groq", 2048),
             **_limits(),
         )
         for k in keys
@@ -244,7 +249,7 @@ def _build_zai_glm_client(model: str = "glm-4.7-flash", temperature: float = 0.2
         api_key=api_key,
         base_url=base_url,
         temperature=temperature,
-        max_tokens=2048,
+        max_tokens=_max_output_tokens("zai", 2048),
         **_limits(),
     )
 
@@ -255,7 +260,7 @@ def _build_zai_glm_client(model: str = "glm-4.7-flash", temperature: float = 0.2
             api_key=api_key,
             base_url=base_url,
             temperature=temperature,
-            max_tokens=2048,
+            max_tokens=_max_output_tokens("zai", 2048),
             **_limits(),
         )
         return primary_client.with_fallbacks([fallback_client])
@@ -275,7 +280,7 @@ def _build_nvidia_client(model: str, temperature: float = 0.2):
             api_key=api_key,
             temperature=temperature,
             top_p=0.95,
-            max_completion_tokens=4096,
+            max_completion_tokens=_max_output_tokens("nvidia", 4096),
             timeout=lim["timeout"],
         )
     except ImportError:
@@ -285,7 +290,7 @@ def _build_nvidia_client(model: str, temperature: float = 0.2):
             api_key=api_key,
             base_url="https://integrate.api.nvidia.com/v1",
             temperature=temperature,
-            max_tokens=4096,
+            max_tokens=_max_output_tokens("nvidia", 4096),
             timeout=lim["timeout"],
             request_timeout=lim["timeout"],
             max_retries=lim["max_retries"],
@@ -333,12 +338,17 @@ def print_active_models():
 def get_llm(role: str, temperature: float = 0.2):
     """
     Returns a LangChain chat model client for the given agent role.
-    `role` must be a key in ROLE_PROVIDER_MAP above.
+    `role` must be a key of `llm_models` in config/settings.json.
     Cached so repeated calls for the same role reuse the same client instance.
     """
     if role not in ROLE_PROVIDER_MAP:
-        raise ValueError(f"Unknown role '{role}'. Add it to ROLE_PROVIDER_MAP first.")
+        raise ValueError(f"Unknown role '{role}'. Add it to 'llm_models' in config/settings.json first.")
     config = ROLE_PROVIDER_MAP[role]
+    if config["provider"] not in _BUILDERS:
+        raise ValueError(
+            f"Unknown provider '{config['provider']}' for role '{role}'. "
+            f"Valid providers: {', '.join(sorted(_BUILDERS))}"
+        )
     builder = _BUILDERS[config["provider"]]
 
     try:
@@ -353,7 +363,7 @@ def get_llm(role: str, temperature: float = 0.2):
 
     primary_llm = builder(config["model"], temperature=temperature)
 
-    if "fallbacks" in config:
+    if config.get("fallbacks"):
         fallback_llms = []
         for fb_config in config["fallbacks"]:
             fb_builder = _BUILDERS[fb_config["provider"]]
@@ -455,3 +465,17 @@ def resolve_llm_metadata(llm: Any = None, role: Optional[str] = None) -> tuple[s
     detected_model = explicit_model or default_model
 
     return str(detected_provider), str(detected_model)
+
+
+# ---------------------------------------------------------------------------
+# Bootstrap: fill ROLE_PROVIDER_MAP from settings once this module is fully
+# defined. Kept at the bottom so it also works when config.settings is the
+# module that triggered this import.
+# ---------------------------------------------------------------------------
+try:
+    from config import settings as _settings_module
+    _active = getattr(_settings_module, "settings", None)
+    if _active is not None:
+        apply_llm_models(_active.llm_models)
+except Exception as _exc:
+    _log.debug("llm_config import: model map not applied yet (import still in progress) (%s: %s)", type(_exc).__name__, _exc)

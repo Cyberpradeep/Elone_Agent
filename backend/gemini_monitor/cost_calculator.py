@@ -87,8 +87,16 @@ PRICING_CATALOG = {
     },
 }
 
-# Currency conversion rate (USD -> INR)
-USD_TO_INR_RATE = 87.0
+# Currency conversion rate (USD -> INR). M4: config/settings.json -> cost.usd_to_inr_rate
+USD_TO_INR_RATE = 87.0  # last-resort fallback only
+
+
+def _usd_to_inr_rate() -> float:
+    try:
+        from config.settings import get_settings
+        return get_settings().usd_to_inr_rate
+    except Exception:
+        return USD_TO_INR_RATE
 
 
 def calculate_cost(
@@ -144,7 +152,7 @@ def calculate_cost(
     image_cost = (image_tokens / 1_000_000.0) * pricing["image_per_1m"]
 
     total_cost_usd = input_cost + output_cost + image_cost
-    total_cost_inr = total_cost_usd * USD_TO_INR_RATE
+    total_cost_inr = total_cost_usd * _usd_to_inr_rate()
 
     return {
         "model": model,

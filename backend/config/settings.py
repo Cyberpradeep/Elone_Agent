@@ -14,6 +14,10 @@ Precedence Order:
   3. Safe Hardcoded Defaults
 """
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 import os
 import json
 import threading
@@ -46,6 +50,9 @@ _DEFAULT_CONFIG: Dict[str, Any] = {
         "max_text_lines": 600,
         "max_text_words": 5000,
         "max_table_rows": 600,
+        "upload_chunk_bytes": 65536,
+        "max_uncompressed_zip_mb": 50.0,
+        "max_zip_compression_ratio": 20.0,
         "allowed_extensions": [".pdf", ".docx", ".csv", ".xls", ".xlsx", ".md", ".txt"],
     },
     "images": {
@@ -56,25 +63,35 @@ _DEFAULT_CONFIG: Dict[str, Any] = {
     },
     "llm_models": {
         "execution_planning": {
-            "provider": "groq",
-            "model": "qwen/qwen3.8-27b",
+            "provider": "mistral",
+            "model": "codestral-latest",
             "temperature": 0.0,
+            "fallbacks": [
+                {"provider": "groq", "model": "qwen/qwen3.8-27b"},
+            ],
         },
         "planning_validation": {
-            "provider": "zai",
-            "model": "glm-4.7-flash",
+            "provider": "mistral",
+            "model": "codestral-latest",
             "temperature": 0.0,
+            "fallbacks": [
+                {"provider": "groq", "model": "qwen/qwen3.8-27b"},
+            ],
         },
         "vlm_image_analysis": {
             "provider": "nvidia",
-            "model": "meta/llama-3.2-11b-vision-instruct",
+            "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
             "temperature": 0.2,
             "timeout": 150,
+            "fallbacks": [
+                {"provider": "openrouter", "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"},
+                {"provider": "nvidia", "model": "meta/llama-3.2-11b-vision-instruct"},
+            ],
         },
-        "fallbacks": [
-            {"provider": "zai", "model": "glm-4.5-flash"},
-            {"provider": "groq", "model": "qwen/qwen3.8-27b"},
-        ],
+    },
+    # Output-token cap per provider. Providers not listed use their own default.
+    "llm_limits": {
+        "max_output_tokens": {"groq": 2048, "zai": 2048, "nvidia": 4096},
     },
     "governance": {
         "min_passing_score": 80.0,
@@ -84,6 +101,15 @@ _DEFAULT_CONFIG: Dict[str, Any] = {
         "llm_timeout_seconds": 120,
         "llm_max_retries": 2,
         "sop_scan_interval_minutes": 10,
+        "max_agent_calls_per_job": 30,
+    },
+    "link_scraper": {
+        "max_output_chars": 4000,
+        "max_redirect_hops": 3,
+        "timeout_seconds": 10,
+    },
+    "cost": {
+        "usd_to_inr_rate": 87.0,
     },
     "execution_mode": "auto",
 }
@@ -130,20 +156,20 @@ class PipelineSettings:
         if os.environ.get("MAX_FILE_SIZE_MB"):
             try:
                 cfg["file_upload"]["max_file_size_mb"] = float(os.environ["MAX_FILE_SIZE_MB"])
-            except ValueError:
-                pass
+            except ValueError as _exc:
+                _log.debug("reload: value could not be parsed, keeping default (%s: %s)", type(_exc).__name__, _exc)
 
         if os.environ.get("MAX_PAGE_COUNT"):
             try:
                 cfg["file_upload"]["max_page_count"] = int(os.environ["MAX_PAGE_COUNT"])
-            except ValueError:
-                pass
+            except ValueError as _exc:
+                _log.debug("reload: value could not be parsed, keeping default (%s: %s)", type(_exc).__name__, _exc)
 
         if os.environ.get("MAX_IMAGES_PER_SOP"):
             try:
                 cfg["images"]["max_images_per_sop"] = int(os.environ["MAX_IMAGES_PER_SOP"])
-            except ValueError:
-                pass
+            except ValueError as _exc:
+                _log.debug("reload: value could not be parsed, keeping default (%s: %s)", type(_exc).__name__, _exc)
 
         if os.environ.get("PLANNING_PROVIDER"):
             cfg["llm_models"]["execution_planning"]["provider"] = os.environ["PLANNING_PROVIDER"].lower()
@@ -155,6 +181,19 @@ class PipelineSettings:
         if os.environ.get("VALIDATION_MODEL"):
             cfg["llm_models"]["planning_validation"]["model"] = os.environ["VALIDATION_MODEL"]
 
+        if os.environ.get("VLM_PROVIDER"):
+            cfg["llm_models"]["vlm_image_analysis"]["provider"] = os.environ["VLM_PROVIDER"].lower()
+        if os.environ.get("VLM_MODEL"):
+            cfg["llm_models"]["vlm_image_analysis"]["model"] = os.environ["VLM_MODEL"]
+
+        if os.environ.get("GROQ_MODEL"):
+            for role_cfg in cfg["llm_models"].values():
+                if not isinstance(role_cfg, dict):
+                    continue
+                for fb in role_cfg.get("fallbacks") or []:
+                    if isinstance(fb, dict) and str(fb.get("provider", "")).lower() == "groq":
+                        fb["model"] = os.environ["GROQ_MODEL"]
+
         if os.environ.get("UNLIMITED_DAILY_CALLS", "").strip().lower() in ("1", "true", "yes"):
             cfg["governance"]["unlimited_daily_calls"] = True
             cfg["governance"]["max_daily_calls"] = 0
@@ -165,19 +204,22 @@ class PipelineSettings:
                 cfg["governance"]["max_daily_calls"] = val
                 if val <= 0:
                     cfg["governance"]["unlimited_daily_calls"] = True
-            except ValueError:
-                pass
+            except ValueError as _exc:
+                _log.debug("reload: value could not be parsed, keeping default (%s: %s)", type(_exc).__name__, _exc)
 
         if os.environ.get("EXECUTION_MODE"):
             cfg["execution_mode"] = os.environ["EXECUTION_MODE"].strip().lower()
 
         with _CONFIG_LOCK:
             self._cached_config = cfg
+        # Hand the active model map to llm_config (also drops cached LLM clients).
+        # Fails harmlessly while llm_config is still mid-import; it then pulls the
+        # map itself at the end of its own import.
         try:
-            from config.llm_config import get_llm
-            get_llm.cache_clear()
-        except Exception:
-            pass
+            import config.llm_config as _llm_config
+            _llm_config.apply_llm_models(cfg.get("llm_models", {}))
+        except Exception as _exc:
+            _log.debug("reload: model map not applied yet (import still in progress) (%s: %s)", type(_exc).__name__, _exc)
         return self._cached_config
 
     def get_all(self) -> Dict[str, Any]:
@@ -282,6 +324,43 @@ class PipelineSettings:
     @property
     def min_passing_score(self) -> float:
         return float(self._cached_config.get("governance", {}).get("min_passing_score", 80.0))
+
+    @property
+    def upload_chunk_bytes(self) -> int:
+        return max(4096, int(self._cached_config.get("file_upload", {}).get("upload_chunk_bytes", 65536)))
+
+    @property
+    def max_uncompressed_zip_bytes(self) -> int:
+        return int(float(self._cached_config.get("file_upload", {}).get("max_uncompressed_zip_mb", 50.0)) * 1024 * 1024)
+
+    @property
+    def max_zip_compression_ratio(self) -> float:
+        return float(self._cached_config.get("file_upload", {}).get("max_zip_compression_ratio", 20.0))
+
+    @property
+    def max_agent_calls_per_job(self) -> int:
+        return max(1, int(self._cached_config.get("governance", {}).get("max_agent_calls_per_job", 30)))
+
+    @property
+    def scrape_max_output_chars(self) -> int:
+        return int(self._cached_config.get("link_scraper", {}).get("max_output_chars", 4000))
+
+    @property
+    def scrape_max_redirect_hops(self) -> int:
+        return int(self._cached_config.get("link_scraper", {}).get("max_redirect_hops", 3))
+
+    @property
+    def scrape_timeout_seconds(self) -> float:
+        return float(self._cached_config.get("link_scraper", {}).get("timeout_seconds", 10))
+
+    @property
+    def usd_to_inr_rate(self) -> float:
+        return float(self._cached_config.get("cost", {}).get("usd_to_inr_rate", 87.0))
+
+    def max_output_tokens(self, provider: str, default: Optional[int] = None) -> Optional[int]:
+        caps = self._cached_config.get("llm_limits", {}).get("max_output_tokens", {}) or {}
+        val = caps.get(str(provider).lower())
+        return int(val) if val else default
 
     @property
     def execution_mode(self) -> str:

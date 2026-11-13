@@ -6,6 +6,10 @@ Stage 1: Dynamic Tool-Aware Intent Classifier & Router.
 Classifies unstructured SOP into 'command', 'tool_call', 'hybrid', or 'unactionable'.
 """
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 import os
 import re
 import json
@@ -149,8 +153,8 @@ def run_triage_router(
                     status="error",
                     error_message=str(inv_err),
                 )
-            except Exception:
-                pass
+            except Exception as _exc:
+                _log.warning("run_triage_router: usage telemetry was not recorded (%s: %s)", type(_exc).__name__, _exc)
             raise inv_err
 
         in_tok = getattr(res, "usage_metadata", {}).get("input_tokens", 0) if hasattr(res, "usage_metadata") and res.usage_metadata else 0
@@ -205,8 +209,8 @@ def run_triage_router(
                         status="error",
                         error_message=str(invoke_err),
                     )
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    _log.warning("run_triage_router: usage telemetry was not recorded (%s: %s)", type(_exc).__name__, _exc)
 
                 log_warning("Triage Router", f"Tool invocation error ({invoke_err}). Falling back to direct evaluation without tools...")
                 fallback_prompt = (
@@ -234,8 +238,8 @@ def run_triage_router(
                             latency_ms=fb_latency_ms,
                             status="success",
                         )
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        _log.warning("run_triage_router: usage telemetry was not recorded (%s: %s)", type(_exc).__name__, _exc)
                     raw_c = fallback_res.content if hasattr(fallback_res, "content") else str(fallback_res)
                     if isinstance(raw_c, list):
                         content = "".join([b.get("text", "") if isinstance(b, dict) else str(b) for b in raw_c])
@@ -299,8 +303,8 @@ def run_triage_router(
                 if isinstance(raw_c, list):
                     raw_c = "".join([b.get("text", "") if isinstance(b, dict) else str(b) for b in raw_c])
                 content = str(raw_c)
-            except Exception:
-                pass
+            except Exception as _exc:
+                _log.warning("run_triage_router: final triage call failed, continuing with empty triage output (%s: %s)", type(_exc).__name__, _exc)
 
     raw_c = content
     match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", str(raw_c), re.DOTALL)

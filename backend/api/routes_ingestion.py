@@ -7,11 +7,16 @@ tenant-namespaced _uploads/<tenant_id>/, token-derived uploaded_by/tenant_id,
 and tenant-scoped _INGESTS & _processed_manifest.json.
 """
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 import os
 import re
 import glob
 import json
 import asyncio
+import uuid
 import hashlib
 import datetime
 import threading
@@ -46,7 +51,7 @@ from auth.dependencies import authenticate_request
 from utils.security import sanitize_filename, sanitize_slug, redact_sensitive_dlp, scan_raw_sop_for_ast_threats
 from utils.cancellation import IngestionCancelled, bind_cancel, reset_cancel
 from gemini_monitor.monitor import bind_job_progress, reset_job_progress, clear_job_progress
-from config.settings import get_max_file_size_bytes, get_max_file_size_mb, get_allowed_extensions
+from config.settings import get_max_file_size_bytes, get_max_file_size_mb, get_allowed_extensions, get_settings
 from agents.a1_ingestion import (
     validate_sop_file,
     extract_ordered_sop_content,
@@ -104,8 +109,8 @@ def _build_published_index(tenant_id: str):
                 by_sop_id[sid.lower()] = rec
             if sha:
                 by_sha[sha] = rec
-        except Exception:
-            pass
+        except Exception as _exc:
+            _log.warning("_build_published_index: could not read file, skipping it (%s: %s)", type(_exc).__name__, _exc)
 
     for path in glob.glob(os.path.join(SOPS_DIR, "**", "*.canonical.json"), recursive=True):
         try:
@@ -125,8 +130,8 @@ def _build_published_index(tenant_id: str):
                     rec["source_sha256"] = file_sha
                 elif text_sha:
                     by_sha.setdefault(text_sha, rec)
-        except Exception:
-            pass
+        except Exception as _exc:
+            _log.warning("_build_published_index: could not read file, skipping it (%s: %s)", type(_exc).__name__, _exc)
 
     return by_sop_id, by_sha
 
@@ -234,8 +239,8 @@ async def api_list_uploads(request: Request):
                             "mtime": mtime,
                             "modified": datetime.datetime.fromtimestamp(mtime).isoformat(),
                         }
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    _log.warning("api_list_uploads: could not read file, skipping it (%s: %s)", type(_exc).__name__, _exc)
 
     for name, full_path in list_tenant_uploads(tenant_id):
         stat = os.stat(full_path)
@@ -386,8 +391,8 @@ async def api_list_uploads(request: Request):
     if manifest_updated:
         try:
             write_manifest(manifest)
-        except Exception:
-            pass
+        except Exception as _exc:
+            _log.warning("api_list_uploads: upload manifest was not updated (%s: %s)", type(_exc).__name__, _exc)
 
     return JSONResponse({
         "tenant_id": tenant_id,
@@ -424,28 +429,42 @@ async def api_upload_file(request: Request):
 
         max_bytes = get_max_file_size_bytes()
         max_mb = get_max_file_size_mb()
-        chunks = []
         total_bytes = 0
-        chunk_size = 65536
-        while True:
-            chunk = await upload.read(chunk_size)
-            if not chunk:
-                break
-            total_bytes += len(chunk)
-            if total_bytes > max_bytes:
-                return JSONResponse({
-                    "error": f"File size (>{total_bytes/(1024*1024):.1f}MB) exceeds {max_mb:.0f}MB limit."
-                }, status_code=400)
-            chunks.append(chunk)
-
-        content = b"".join(chunks)
+        chunk_size = get_settings().upload_chunk_bytes
         dest_dir = tenant_uploads_dir(principal.tenant_id)
         os.makedirs(dest_dir, exist_ok=True)
         dest_path = os.path.join(dest_dir, safe_name)
-        with open(dest_path, "wb") as f:
-            f.write(content)
 
-        file_sha = hashlib.sha256(content).hexdigest()
+        # M2: stream each chunk straight to a temp file (never the whole body in
+        # memory), hashing as we go. The temp file only replaces the real one
+        # once the full upload is inside the size cap.
+        tmp_path = os.path.join(dest_dir, f".{safe_name}.{uuid.uuid4().hex}.part")
+        hasher = hashlib.sha256()
+        too_large = False
+        try:
+            with open(tmp_path, "wb") as f:
+                while True:
+                    chunk = await upload.read(chunk_size)
+                    if not chunk:
+                        break
+                    total_bytes += len(chunk)
+                    if total_bytes > max_bytes:
+                        too_large = True
+                        break
+                    hasher.update(chunk)
+                    f.write(chunk)
+            if not too_large:
+                os.replace(tmp_path, dest_path)
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+        if too_large:
+            return JSONResponse({
+                "error": f"File size (>{total_bytes/(1024*1024):.1f}MB) exceeds {max_mb:.0f}MB limit."
+            }, status_code=400)
+
+        file_sha = hasher.hexdigest()
         record_upload_owner(principal.tenant_id, safe_name, principal.identity, sha256=file_sha)
 
         is_valid, err, meta = validate_sop_file(dest_path)
@@ -455,7 +474,7 @@ async def api_upload_file(request: Request):
             "filename": safe_name,
             "tenant_id": principal.tenant_id,
             "uploaded_by": principal.identity,
-            "size_bytes": len(content),
+            "size_bytes": total_bytes,
             "gate1_passed": is_valid,
             "gate1_error": err,
             "metadata": meta
@@ -624,8 +643,8 @@ async def api_ingest_single(request: Request):
                             actor=actor,
                             reason="Rescued orphaned published ledger record during re-ingestion (playbook absent on disk).",
                         )
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        _log.warning("api_ingest_single: ledger state transition was not recorded (%s: %s)", type(_exc).__name__, _exc)
 
         job_id = _allocate_job_id(content_hash)
         ctl.job_id = job_id
@@ -668,8 +687,8 @@ async def api_ingest_single(request: Request):
                     remove_it = df_name == f"{sop_id}.draft.json" or d_data.get("raw_filename") == safe_name
                     if remove_it:
                         os.remove(df_path)
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    _log.warning("api_ingest_single: could not read file, skipping it (%s: %s)", type(_exc).__name__, _exc)
 
         governance_ledger.transition_state(job_id, "extracting")
         governance_ledger.transition_state(job_id, "scanning")
@@ -688,24 +707,24 @@ async def api_ingest_single(request: Request):
                 d2 = del_manifest_entry(cur_manifest, tenant_id, os.path.basename(target_path))
                 if d1 or d2:
                     write_manifest(cur_manifest)
-            except Exception:
-                pass
+            except Exception as _exc:
+                _log.warning("api_ingest_single: upload manifest was not updated (%s: %s)", type(_exc).__name__, _exc)
             # H3: actually remove the secret-bearing upload and any parser/image artifacts
             # written for it (the ledger incident ticket stays as the metadata record).
             try:
                 os.remove(target_path)
-            except OSError:
-                pass
+            except OSError as _exc:
+                _log.debug("api_ingest_single: cleanup of leftover files failed (%s: %s)", type(_exc).__name__, _exc)
             try:
                 from agents.a1_ingestion.document_extractor import LOGS_PARSER_DIR
                 for name_cand in {safe_name, os.path.basename(target_path)}:
                     for lf in glob.glob(os.path.join(LOGS_PARSER_DIR, f"*_{glob.escape(name_cand)}.log")):
                         try:
                             os.remove(lf)
-                        except OSError:
-                            pass
-            except Exception:
-                pass
+                        except OSError as _exc:
+                            _log.debug("api_ingest_single: cleanup of leftover files failed (%s: %s)", type(_exc).__name__, _exc)
+            except Exception as _exc:
+                _log.warning("api_ingest_single: cleanup of leftover files failed (%s: %s)", type(_exc).__name__, _exc)
             try:
                 import shutil
                 from agents.a1_ingestion.vlm_extractor import IMAGES_LOG_DIR
@@ -715,8 +734,8 @@ async def api_ingest_single(request: Request):
                     img_dir = os.path.join(IMAGES_LOG_DIR, img_slug)
                     if os.path.isdir(img_dir):
                         shutil.rmtree(img_dir, ignore_errors=True)
-            except Exception:
-                pass
+            except Exception as _exc:
+                _log.warning("api_ingest_single: cleanup of leftover files failed (%s: %s)", type(_exc).__name__, _exc)
             return JSONResponse({
                 "success": False,
                 "status": "quarantined",
@@ -758,8 +777,8 @@ async def api_ingest_single(request: Request):
                     "processed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 })
                 write_manifest(cur_manifest)
-            except Exception:
-                pass
+            except Exception as _exc:
+                _log.warning("api_ingest_single: upload manifest was not updated (%s: %s)", type(_exc).__name__, _exc)
             return JSONResponse({
                 "success": False,
                 "status": "blocked",
@@ -814,8 +833,8 @@ async def api_ingest_single(request: Request):
                     "processed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 })
                 write_manifest(cur_manifest)
-            except Exception:
-                pass
+            except Exception as _exc:
+                _log.warning("api_ingest_single: upload manifest was not updated (%s: %s)", type(_exc).__name__, _exc)
             return JSONResponse({
                 "success": False,
                 "status": "unactionable",
@@ -878,8 +897,8 @@ async def api_ingest_single(request: Request):
                 "processed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             })
             write_manifest(cur_manifest)
-        except Exception:
-            pass
+        except Exception as _exc:
+            _log.warning("api_ingest_single: upload manifest was not updated (%s: %s)", type(_exc).__name__, _exc)
 
         # Write Debug Audit Trace & record tenant ownership
         try:
@@ -945,8 +964,8 @@ async def api_ingest_single(request: Request):
             with open(debug_log_path, "w", encoding="utf-8") as dlf:
                 dlf.write("\n".join(log_lines))
             record_log_owner(debug_log_name, tenant_id)
-        except Exception:
-            pass
+        except Exception as _exc:
+            _log.warning("api_ingest_single: per-ingest log file was not written (%s: %s)", type(_exc).__name__, _exc)
 
         return JSONResponse({
             "success": True,
@@ -968,8 +987,8 @@ async def api_ingest_single(request: Request):
         if job is not None and job.current_state != "duplicate":
             try:
                 governance_ledger.transition_state(job_id, "failed", actor=ctl.actor, reason=f"Cancelled by {ctl.actor}")
-            except Exception:
-                pass
+            except Exception as _exc:
+                _log.warning("api_ingest_single: ledger state transition was not recorded (%s: %s)", type(_exc).__name__, _exc)
         return JSONResponse({
             "success": False,
             "status": "cancelled",
@@ -980,8 +999,8 @@ async def api_ingest_single(request: Request):
         if job is not None and job.current_state in {"received", "extracting", "scanning", "structuring", "assessing", "correcting"}:
             try:
                 governance_ledger.transition_state(job_id, "failed", reason=str(e))
-            except Exception:
-                pass
+            except Exception as _exc:
+                _log.warning("api_ingest_single: ledger state transition was not recorded (%s: %s)", type(_exc).__name__, _exc)
         try:
             cur_manifest = read_manifest()
             set_manifest_entry(cur_manifest, tenant_id, safe_name, {
@@ -994,8 +1013,8 @@ async def api_ingest_single(request: Request):
                 "processed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             })
             write_manifest(cur_manifest)
-        except Exception:
-            pass
+        except Exception as _exc:
+            _log.warning("api_ingest_single: upload manifest was not updated (%s: %s)", type(_exc).__name__, _exc)
         return JSONResponse({
             "success": False,
             "status": "INGESTION_ERROR",
@@ -1071,18 +1090,18 @@ async def api_plan_preview(request: Request):
         if secrets_count > 0:
             try:
                 os.remove(target_path)
-            except OSError:
-                pass
+            except OSError as _exc:
+                _log.debug("api_plan_preview: cleanup of leftover files failed (%s: %s)", type(_exc).__name__, _exc)
             try:
                 from agents.a1_ingestion.document_extractor import LOGS_PARSER_DIR
                 for name_cand in {safe_name, os.path.basename(target_path)}:
                     for lf in glob.glob(os.path.join(LOGS_PARSER_DIR, f"*_{glob.escape(name_cand)}.log")):
                         try:
                             os.remove(lf)
-                        except OSError:
-                            pass
-            except Exception:
-                pass
+                        except OSError as _exc:
+                            _log.debug("api_plan_preview: cleanup of leftover files failed (%s: %s)", type(_exc).__name__, _exc)
+            except Exception as _exc:
+                _log.warning("api_plan_preview: cleanup of leftover files failed (%s: %s)", type(_exc).__name__, _exc)
             return JSONResponse({
                 "success": False,
                 "status": "quarantined",

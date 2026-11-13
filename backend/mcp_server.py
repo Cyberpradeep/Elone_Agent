@@ -1,3 +1,6 @@
+import logging
+
+_log = logging.getLogger(__name__)
 import os
 import sys
 import json
@@ -9,8 +12,8 @@ if hasattr(sys.stdout, "reconfigure"):
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
+    except Exception as _exc:
+        _log.debug("mcp_server startup: could not switch console to UTF-8 (%s: %s)", type(_exc).__name__, _exc)
 
 try:
     from mcp.server import MCPServer

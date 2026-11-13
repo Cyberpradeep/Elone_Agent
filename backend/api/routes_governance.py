@@ -6,6 +6,10 @@ separation-of-duties decisions, draft revisions & resubmissions, publication gat
 downstream search, quarantine incidents, and admin-only pipeline configuration.
 """
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 import os
 import re
 import copy
@@ -178,8 +182,8 @@ async def api_governance_jobs(request: Request):
     )
     try:
         governance_ledger.load()
-    except Exception:
-        pass
+    except Exception as _exc:
+        _log.warning("api_governance_jobs: ledger reload failed, using in-memory state (%s: %s)", type(_exc).__name__, _exc)
 
     jobs = []
     for job in list(governance_ledger._jobs.values()):
@@ -222,8 +226,8 @@ async def api_governance_review_tasks(request: Request):
     )
     try:
         governance_ledger.load()
-    except Exception:
-        pass
+    except Exception as _exc:
+        _log.warning("api_governance_review_tasks: ledger reload failed, using in-memory state (%s: %s)", type(_exc).__name__, _exc)
 
     tasks = []
     for job in list(governance_ledger._jobs.values()):
@@ -243,8 +247,8 @@ async def api_governance_review_tasks(request: Request):
                 if due_dt.tzinfo is None:
                     due_dt = due_dt.replace(tzinfo=datetime.timezone.utc)
                 is_overdue = datetime.datetime.now(datetime.timezone.utc) > due_dt
-            except Exception:
-                pass
+            except Exception as _exc:
+                _log.debug("api_governance_review_tasks: due date could not be parsed (%s: %s)", type(_exc).__name__, _exc)
 
         # Under Option A Single-Gate RBAC, only security_reviewer accounts decide review tasks.
         role_ok = principal.has_role(ROLE_SECURITY_REVIEWER)
@@ -479,8 +483,8 @@ async def api_governance_record_decision(request: Request):
                     entry["reason"] = notes
                 set_manifest_entry(m, target_job.tenant_id, target_fn, entry)
                 write_manifest(m)
-        except Exception:
-            pass
+        except Exception as _exc:
+            _log.warning("api_governance_record_decision: upload manifest was not updated (%s: %s)", type(_exc).__name__, _exc)
 
         return JSONResponse({
             "status": "success",
@@ -516,8 +520,8 @@ async def api_governance_publish_sop(request: Request):
         return JSONResponse({"error": "Invalid SOP id."}, status_code=400)
     try:
         await request.json()
-    except Exception:
-        pass
+    except Exception as _exc:
+        _log.debug("api_governance_publish_sop: request has no JSON body (%s: %s)", type(_exc).__name__, _exc)
 
     target_job = _job_for_sop(sop_id, tenant_id=principal.tenant_id, preferred_states={"approved"})
     if not target_job:
@@ -618,8 +622,8 @@ async def api_governance_publish_sop(request: Request):
                         draft_to_write["raw_text"] = "\n\n".join(
                             s["content"] for s in segs if s.get("type") == "text"
                         )
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        _log.warning("api_governance_publish_sop: source text could not be re-extracted for the published draft (%s: %s)", type(_exc).__name__, _exc)
 
             canonical_sop["sop_id"] = target_job.sop_id
             canonical_sop["version"] = target_job.version
@@ -651,8 +655,8 @@ async def api_governance_publish_sop(request: Request):
         if draft_path and os.path.exists(draft_path):
             try:
                 os.remove(draft_path)
-            except Exception:
-                pass
+            except Exception as _exc:
+                _log.warning("api_governance_publish_sop: cleanup of leftover files failed (%s: %s)", type(_exc).__name__, _exc)
 
         try:
             pub_sop_id = canonical_sop.get("sop_id") or target_job.sop_id
@@ -680,8 +684,8 @@ async def api_governance_publish_sop(request: Request):
                     "playbook_path": saved_playbook_path,
                 })
                 write_manifest(m)
-        except Exception:
-            pass
+        except Exception as _exc:
+            _log.warning("api_governance_publish_sop: upload manifest was not updated (%s: %s)", type(_exc).__name__, _exc)
 
         return JSONResponse({
             "status": "published",
@@ -941,8 +945,8 @@ async def api_governance_quarantine_incidents(request: Request):
     )
     try:
         governance_ledger.load()
-    except Exception:
-        pass
+    except Exception as _exc:
+        _log.warning("api_governance_quarantine_incidents: ledger reload failed, using in-memory state (%s: %s)", type(_exc).__name__, _exc)
     incidents = []
     for job in list(governance_ledger._jobs.values()):
         if job.incident and job.tenant_id == principal.tenant_id:
@@ -1519,8 +1523,8 @@ async def api_governance_resubmit_draft(request: Request):
                 "processed_at": now,
             })
             write_manifest(m)
-    except Exception:
-        pass
+    except Exception as _exc:
+        _log.warning("api_governance_resubmit_draft: upload manifest was not updated (%s: %s)", type(_exc).__name__, _exc)
 
     return JSONResponse({
         "status": "resubmitted",
