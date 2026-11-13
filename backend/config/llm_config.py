@@ -20,6 +20,7 @@ Supports Providers:
 
 import os
 import warnings
+from typing import Any, Optional, Dict, List, Tuple
 from functools import lru_cache
 from dotenv import load_dotenv
 
@@ -360,3 +361,97 @@ def get_llm(role: str, temperature: float = 0.2):
         return primary_llm.with_fallbacks(fallback_llms)
 
     return primary_llm
+
+
+def resolve_llm_metadata(llm: Any = None, role: Optional[str] = None) -> tuple[str, str]:
+    """
+    Extracts the actual provider name and model identifier from an LLM client or role.
+    Handles RunnableWithFallbacks, wrapped clients, custom mocks, and provider base_urls.
+    Returns: (provider, model)
+    """
+    if role and role in ROLE_PROVIDER_MAP:
+        default_provider = ROLE_PROVIDER_MAP[role].get("provider", "gemini")
+        default_model = ROLE_PROVIDER_MAP[role].get("model", "gemini-2.5-flash")
+    else:
+        default_provider = "gemini"
+        default_model = "gemini-2.5-flash"
+
+    if llm is None:
+        return default_provider, default_model
+
+    # Unwrap RunnableWithFallbacks or similar wrapper
+    target = llm
+    is_mock = type(llm).__name__ in ("Mock", "MagicMock") or hasattr(llm, "_mock_name")
+    if hasattr(llm, "runnable") and (not is_mock or "runnable" in llm.__dict__):
+        target = llm.runnable
+
+    target_is_mock = type(target).__name__ in ("Mock", "MagicMock") or hasattr(target, "_mock_name")
+    if hasattr(target, "bound") and (not target_is_mock or "bound" in target.__dict__):
+        target = target.bound
+
+    # Explicit attributes (e.g. custom mocks or decorated objects)
+    explicit_provider = None
+    for obj in (target, llm):
+        val = getattr(obj, "provider", None)
+        if isinstance(val, str) and val.strip():
+            explicit_provider = val.strip()
+            break
+
+    explicit_model = None
+    for obj in (target, llm):
+        for attr in ("model_name", "model"):
+            val = getattr(obj, attr, None)
+            if isinstance(val, str) and val.strip():
+                explicit_model = val.strip()
+                break
+        if explicit_model:
+            break
+
+    type_str = (str(type(target)).lower() + " " + target.__class__.__name__.lower())
+
+    # Detect provider
+    detected_provider = None
+    if explicit_provider:
+        detected_provider = str(explicit_provider).lower()
+    elif "gemini" in type_str or "google" in type_str:
+        detected_provider = "gemini"
+    elif "mistral" in type_str:
+        detected_provider = "mistral"
+    elif "nvidia" in type_str:
+        detected_provider = "nvidia"
+    elif "openai" in type_str:
+        base_url = ""
+        for attr in ("openai_api_base", "base_url"):
+            val = getattr(target, attr, None)
+            if isinstance(val, str) and val.strip():
+                base_url = val.lower().strip()
+                break
+        if not base_url and hasattr(target, "client"):
+            client_obj = getattr(target, "client", None)
+            val = getattr(client_obj, "base_url", None)
+            if isinstance(val, str) and val.strip():
+                base_url = val.lower().strip()
+
+        if "groq.com" in base_url or "groq" in base_url:
+            detected_provider = "groq"
+        elif any(k in base_url for k in ("z.ai", "bigmodel.cn", "glm", "zhipu")):
+            detected_provider = "zai"
+        elif "openrouter.ai" in base_url or "openrouter" in base_url:
+            detected_provider = "openrouter"
+        elif "nvidia" in base_url:
+            detected_provider = "nvidia"
+        else:
+            m_str = str(explicit_model).lower() if explicit_model else ""
+            if any(k in m_str for k in ("llama", "qwen", "mixtral")):
+                detected_provider = "groq"
+            elif "glm" in m_str:
+                detected_provider = "zai"
+            else:
+                detected_provider = default_provider
+
+    if not detected_provider:
+        detected_provider = default_provider
+
+    detected_model = explicit_model or default_model
+
+    return str(detected_provider), str(detected_model)

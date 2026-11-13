@@ -5,6 +5,13 @@ import datetime
 import threading
 import uuid
 from typing import Dict, Any, Optional, List
+from contextlib import contextmanager
+
+try:
+    from filelock import FileLock, Timeout as FileLockTimeout
+except ImportError:
+    FileLock = None
+    FileLockTimeout = Exception
 
 # pyrefly: ignore [missing-import]
 from gemini_monitor.cost_calculator import calculate_cost
@@ -18,10 +25,48 @@ DEFAULT_MAX_DAILY_CALLS = 50
 # ── Per-Execution Session Tracker & File Lock ──────────────────────────
 # Thread-local storage so concurrent runs (if ever) don't collide
 _session_local = threading.local()
+_lock_local = threading.local()
 _USAGE_LOCK = threading.RLock()
 _JOB_PROGRESS_LOCK = threading.Lock()
 _JOB_PROGRESS: Dict[str, List[Dict[str, Any]]] = {}
 _MAX_JOB_PROGRESS_ENTRIES = 200
+
+
+def _get_lock_file() -> str:
+    """Derive lock file path from current USAGE_FILE."""
+    return f"{USAGE_FILE}.lock"
+
+
+@contextmanager
+def _acquire_usage_lock(timeout: float = 10.0):
+    """
+    Acquires both thread-level lock (_USAGE_LOCK) and cross-process file lock.
+    Supports thread-local reentrancy so nested lock requests do not deadlock.
+    Prevents race conditions across threads and worker processes.
+    """
+    with _USAGE_LOCK:
+        depth = getattr(_lock_local, "depth", 0)
+        _lock_local.depth = depth + 1
+        try:
+            if depth == 0 and FileLock is not None:
+                lock_path = _get_lock_file()
+                try:
+                    os.makedirs(os.path.dirname(os.path.abspath(lock_path)), exist_ok=True)
+                    lock = FileLock(lock_path, timeout=timeout)
+                    with lock:
+                        yield
+                except Exception as e:
+                    # If file lock acquisition fails, proceed under thread lock with a warning
+                    try:
+                        from utils.pipeline_logger import log_warning
+                        log_warning("Gemini Monitor", f"Cross-process lock failed ({e}); falling back to thread lock.")
+                    except Exception:
+                        pass
+                    yield
+            else:
+                yield
+        finally:
+            _lock_local.depth = max(0, getattr(_lock_local, "depth", 1) - 1)
 
 
 def bind_job_progress(job_id: Optional[str]) -> Optional[str]:
@@ -63,6 +108,10 @@ def start_execution_session(sop_filename: str = "unknown") -> str:
         "gemini_calls": 0,
         "nvidia_vision_calls": 0,
         "mistral_calls": 0,
+        "groq_calls": 0,
+        "zai_calls": 0,
+        "openrouter_calls": 0,
+        "other_calls": 0,
         "input_tokens": 0,
         "output_tokens": 0,
         "image_tokens": 0,
@@ -106,24 +155,46 @@ def _get_today_str() -> str:
 
 
 def _load_usage_data() -> Dict[str, Any]:
-    """Loads usage data from JSON file."""
+    """Loads usage data from JSON file with retries for cross-process concurrency."""
     if not os.path.exists(USAGE_FILE):
         return {}
-    try:
-        with open(USAGE_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    for attempt in range(3):
+        try:
+            with open(USAGE_FILE, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+                if not content:
+                    return {}
+                return json.loads(content)
+        except (json.JSONDecodeError, OSError) as e:
+            if attempt < 2:
+                import time
+                time.sleep(0.05 * (attempt + 1))
+                continue
+            try:
+                from utils.pipeline_logger import log_warning
+                log_warning("Gemini Monitor", f"Failed to load usage file '{USAGE_FILE}': {e}")
+            except Exception:
+                pass
+            return {}
+        except Exception:
+            return {}
+    return {}
 
 
 def _save_usage_data(data: Dict[str, Any]) -> None:
     """Saves usage data atomically to JSON file."""
-    os.makedirs(MONITOR_DIR, exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(USAGE_FILE)), exist_ok=True)
     temp_file = f"{USAGE_FILE}.{uuid.uuid4().hex[:8]}.tmp"
     try:
         with open(temp_file, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
         os.replace(temp_file, USAGE_FILE)
+    except Exception as e:
+        try:
+            from utils.pipeline_logger import log_error
+            log_error("Gemini Monitor", f"Failed saving daily usage to '{USAGE_FILE}': {e}")
+        except Exception:
+            pass
     finally:
         if os.path.exists(temp_file):
             try:
@@ -178,7 +249,7 @@ def get_daily_max_calls() -> int:
 
 def get_today_usage() -> Dict[str, Any]:
     """Returns the usage summary for today, initializing a new entry if date rolled over."""
-    with _USAGE_LOCK:
+    with _acquire_usage_lock():
         today = _get_today_str()
         all_data = _load_usage_data()
         max_limit = get_daily_max_calls()
@@ -193,6 +264,10 @@ def get_today_usage() -> Dict[str, Any]:
                 "gemini_calls": 0,
                 "nvidia_vision_calls": 0,
                 "mistral_calls": 0,
+                "groq_calls": 0,
+                "zai_calls": 0,
+                "openrouter_calls": 0,
+                "other_calls": 0,
                 "total_input_tokens": 0,
                 "total_output_tokens": 0,
                 "total_image_tokens": 0,
@@ -256,13 +331,30 @@ def record_call(
     input_tokens: int = 0,
     output_tokens: int = 0,
     image_tokens: int = 0,
-    sop_id: Optional[str] = None
+    sop_id: Optional[str] = None,
+    latency_ms: Optional[float] = None,
+    trace_id: Optional[str] = None,
+    status: str = "success",
+    error_message: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Calculates cost, records the call into daily_usage.json, and returns usage stats.
+    Includes execution latency, trace ID (correlation ID), and execution status.
     """
-    with _USAGE_LOCK:
-        return _record_call_locked(caller, model, provider, input_tokens, output_tokens, image_tokens, sop_id)
+    with _acquire_usage_lock():
+        return _record_call_locked(
+            caller=caller,
+            model=model,
+            provider=provider,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            image_tokens=image_tokens,
+            sop_id=sop_id,
+            latency_ms=latency_ms,
+            trace_id=trace_id,
+            status=status,
+            error_message=error_message,
+        )
 
 
 def _record_call_locked(
@@ -273,6 +365,10 @@ def _record_call_locked(
     output_tokens: int,
     image_tokens: int,
     sop_id: Optional[str],
+    latency_ms: Optional[float] = None,
+    trace_id: Optional[str] = None,
+    status: str = "success",
+    error_message: Optional[str] = None,
 ) -> Dict[str, Any]:
     today = _get_today_str()
     all_data = _load_usage_data()
@@ -300,13 +396,21 @@ def _record_call_locked(
         day_entry["max_daily_calls"] = max_limit
         day_entry["calls_remaining"] = max(0, max_limit - day_entry["total_calls"])
 
-    prov_lower = provider.lower()
-    if "gemini" in prov_lower:
+    prov_lower = (provider or "").lower()
+    if "gemini" in prov_lower or "google" in prov_lower:
         day_entry["gemini_calls"] = day_entry.get("gemini_calls", 0) + 1
-    elif "nvidia" in prov_lower or "vision" in caller.lower():
+    elif "nvidia" in prov_lower:
         day_entry["nvidia_vision_calls"] = day_entry.get("nvidia_vision_calls", 0) + 1
-    elif "mistral" in prov_lower:
+    elif "mistral" in prov_lower or "codestral" in prov_lower:
         day_entry["mistral_calls"] = day_entry.get("mistral_calls", 0) + 1
+    elif "groq" in prov_lower:
+        day_entry["groq_calls"] = day_entry.get("groq_calls", 0) + 1
+    elif any(k in prov_lower for k in ("zai", "glm", "zhipu")):
+        day_entry["zai_calls"] = day_entry.get("zai_calls", 0) + 1
+    elif "openrouter" in prov_lower:
+        day_entry["openrouter_calls"] = day_entry.get("openrouter_calls", 0) + 1
+    else:
+        day_entry["other_calls"] = day_entry.get("other_calls", 0) + 1
 
     day_entry["total_input_tokens"] += input_tokens
     day_entry["total_output_tokens"] += output_tokens
@@ -325,13 +429,22 @@ def _record_call_locked(
         session["total_tokens"] += (input_tokens + output_tokens + image_tokens)
         session["cost_usd"] = round(session["cost_usd"] + cost_info["total_cost_usd"], 6)
         session["cost_inr"] = round(session["cost_inr"] + cost_info["total_cost_inr"], 4)
-        prov_lower_s = provider.lower()
-        if "gemini" in prov_lower_s:
-            session["gemini_calls"] += 1
-        elif "nvidia" in prov_lower_s or "vision" in caller.lower():
-            session["nvidia_vision_calls"] += 1
-        elif "mistral" in prov_lower_s:
-            session["mistral_calls"] += 1
+        prov_lower_s = (provider or "").lower()
+        if "gemini" in prov_lower_s or "google" in prov_lower_s:
+            session["gemini_calls"] = session.get("gemini_calls", 0) + 1
+        elif "nvidia" in prov_lower_s:
+            session["nvidia_vision_calls"] = session.get("nvidia_vision_calls", 0) + 1
+        elif "mistral" in prov_lower_s or "codestral" in prov_lower_s:
+            session["mistral_calls"] = session.get("mistral_calls", 0) + 1
+        elif "groq" in prov_lower_s:
+            session["groq_calls"] = session.get("groq_calls", 0) + 1
+        elif any(k in prov_lower_s for k in ("zai", "glm", "zhipu")):
+            session["zai_calls"] = session.get("zai_calls", 0) + 1
+        elif "openrouter" in prov_lower_s:
+            session["openrouter_calls"] = session.get("openrouter_calls", 0) + 1
+        else:
+            session["other_calls"] = session.get("other_calls", 0) + 1
+
         session["calls"].append({
             "caller": caller,
             "provider": provider,
@@ -339,7 +452,11 @@ def _record_call_locked(
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
             "image_tokens": image_tokens,
-            "cost_usd": cost_info["total_cost_usd"]
+            "latency_ms": latency_ms,
+            "trace_id": trace_id or sop_id,
+            "status": status,
+            "error_message": error_message,
+            "cost_usd": cost_info["total_cost_usd"],
         })
 
     # ── Track safe, non-billing step progress for active ingestion job (if bound) ──
@@ -351,6 +468,9 @@ def _record_call_locked(
             "input_tokens": int(input_tokens or 0),
             "output_tokens": int(output_tokens or 0),
             "image_tokens": int(image_tokens or 0),
+            "latency_ms": latency_ms,
+            "trace_id": trace_id or sop_id,
+            "status": status,
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         }
         with _JOB_PROGRESS_LOCK:
@@ -370,6 +490,10 @@ def _record_call_locked(
         "provider": provider,
         "model": model,
         "sop_id": sop_id,
+        "trace_id": trace_id or sop_id,
+        "latency_ms": latency_ms,
+        "status": status,
+        "error_message": error_message,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "image_tokens": image_tokens,
@@ -439,6 +563,14 @@ def print_execution_session_banner(session: Optional[Dict[str, Any]] = None) -> 
     print(f"    Gemini:           {session['gemini_calls']}")
     print(f"    NVIDIA Vision:    {session['nvidia_vision_calls']}")
     print(f"    Mistral:          {session['mistral_calls']}")
+    if session.get("groq_calls"):
+        print(f"    Groq:             {session['groq_calls']}")
+    if session.get("zai_calls"):
+        print(f"    Z.ai:             {session['zai_calls']}")
+    if session.get("openrouter_calls"):
+        print(f"    OpenRouter:       {session['openrouter_calls']}")
+    if session.get("other_calls"):
+        print(f"    Other:            {session['other_calls']}")
     print("  --------------------------------------------------------------------")
     print(f"  Input Tokens:       {session['input_tokens']:,}")
     print(f"  Output Tokens:      {session['output_tokens']:,}")
@@ -480,6 +612,14 @@ def print_daily_usage_banner() -> None:
     print(f"  Gemini Calls:       {usage.get('gemini_calls', 0)}")
     print(f"  NVIDIA Vision Calls:{usage.get('nvidia_vision_calls', 0)}")
     print(f"  Mistral Calls:      {usage.get('mistral_calls', 0)}")
+    if usage.get("groq_calls"):
+        print(f"  Groq Calls:         {usage['groq_calls']}")
+    if usage.get("zai_calls"):
+        print(f"  Z.ai Calls:         {usage['zai_calls']}")
+    if usage.get("openrouter_calls"):
+        print(f"  OpenRouter Calls:   {usage['openrouter_calls']}")
+    if usage.get("other_calls"):
+        print(f"  Other Calls:        {usage['other_calls']}")
     print("  --------------------------------------------------------------------")
     print(f"  Input Tokens:       {usage['total_input_tokens']:,} tokens")
     print(f"  Output Tokens:      {usage['total_output_tokens']:,} tokens")

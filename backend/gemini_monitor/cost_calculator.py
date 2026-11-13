@@ -30,11 +30,61 @@ PRICING_CATALOG = {
         "output_text_per_1m": 0.06,
         "image_per_1m": 0.06,        # NVIDIA NIM Vision pricing ($0.06 / 1M tokens)
     },
+    "codestral-latest": {
+        "input_text_per_1m": 0.30,   # Mistral Codestral
+        "output_text_per_1m": 0.90,
+        "image_per_1m": 0.00,
+    },
+    "mistral-small-latest": {
+        "input_text_per_1m": 0.10,   # Mistral Small
+        "output_text_per_1m": 0.30,
+        "image_per_1m": 0.00,
+    },
     "mistral-large-latest": {
         "input_text_per_1m": 2.00,
         "output_text_per_1m": 6.00,
         "image_per_1m": 0.00,
-    }
+    },
+    "groq-llama-3.3-70b": {
+        "input_text_per_1m": 0.59,   # Groq LLaMA 3.3 70B
+        "output_text_per_1m": 0.79,
+        "image_per_1m": 0.00,
+    },
+    "groq-llama-3.1-8b": {
+        "input_text_per_1m": 0.05,   # Groq LLaMA 3.1 8B Instant
+        "output_text_per_1m": 0.08,
+        "image_per_1m": 0.00,
+    },
+    "groq-qwen-32b": {
+        "input_text_per_1m": 0.20,   # Groq Qwen 2.5 32B / 3.8 27B
+        "output_text_per_1m": 0.20,
+        "image_per_1m": 0.00,
+    },
+    "zai-glm-4-flash": {
+        "input_text_per_1m": 0.01,   # Z.ai / Zhipu GLM-4 Flash / 4.5 / 4.7
+        "output_text_per_1m": 0.01,
+        "image_per_1m": 0.00,
+    },
+    "zai-glm-4-plus": {
+        "input_text_per_1m": 0.50,   # Z.ai / Zhipu GLM-4 Plus
+        "output_text_per_1m": 0.50,
+        "image_per_1m": 0.00,
+    },
+    "zai-glm-4-air": {
+        "input_text_per_1m": 0.10,   # Z.ai / Zhipu GLM-4 Air
+        "output_text_per_1m": 0.10,
+        "image_per_1m": 0.00,
+    },
+    "openrouter-free": {
+        "input_text_per_1m": 0.00,
+        "output_text_per_1m": 0.00,
+        "image_per_1m": 0.00,
+    },
+    "openrouter-default": {
+        "input_text_per_1m": 0.50,
+        "output_text_per_1m": 1.50,
+        "image_per_1m": 0.00,
+    },
 }
 
 # Currency conversion rate (USD -> INR)
@@ -49,15 +99,45 @@ def calculate_cost(
     provider: str = "gemini"
 ) -> Dict[str, Any]:
     """Calculates exact USD and INR cost for a single LLM or VLM call."""
-    pricing_key = "gemini-3.7-flash" if "3.7" in model.lower() else "gemini-2.5-flash"
-    if "nvidia" in provider.lower() or "llama-3.2" in model.lower():
-        pricing_key = "nvidia-vision"
-    elif "mistral" in model.lower():
-        pricing_key = "mistral-large-latest"
-    elif "1.5-flash" in model.lower():
-        pricing_key = "gemini-1.5-flash"
+    prov_lower = (provider or "").lower()
+    model_lower = (model or "").lower()
 
-    pricing = PRICING_CATALOG.get(pricing_key, PRICING_CATALOG["gemini-3.7-flash"])
+    if "groq" in prov_lower or "groq" in model_lower:
+        if "8b" in model_lower:
+            pricing_key = "groq-llama-3.1-8b"
+        elif "qwen" in model_lower:
+            pricing_key = "groq-qwen-32b"
+        else:
+            pricing_key = "groq-llama-3.3-70b"
+    elif any(k in prov_lower for k in ("zai", "glm", "zhipu")) or "glm" in model_lower:
+        if "plus" in model_lower:
+            pricing_key = "zai-glm-4-plus"
+        elif "air" in model_lower:
+            pricing_key = "zai-glm-4-air"
+        else:
+            pricing_key = "zai-glm-4-flash"
+    elif "openrouter" in prov_lower or "openrouter" in model_lower:
+        if ":free" in model_lower or "free" in model_lower:
+            pricing_key = "openrouter-free"
+        else:
+            pricing_key = "openrouter-default"
+    elif "nvidia" in prov_lower or "llama-3.2" in model_lower or "nemotron" in model_lower:
+        pricing_key = "nvidia-vision"
+    elif "mistral" in prov_lower or "codestral" in model_lower or "mistral" in model_lower:
+        if "codestral" in model_lower:
+            pricing_key = "codestral-latest"
+        elif "small" in model_lower:
+            pricing_key = "mistral-small-latest"
+        else:
+            pricing_key = "mistral-large-latest"
+    elif "1.5-flash" in model_lower:
+        pricing_key = "gemini-1.5-flash"
+    elif "3.7" in model_lower:
+        pricing_key = "gemini-3.7-flash"
+    else:
+        pricing_key = "gemini-2.5-flash"
+
+    pricing = PRICING_CATALOG.get(pricing_key, PRICING_CATALOG["gemini-2.5-flash"])
 
     input_cost = (input_tokens / 1_000_000.0) * pricing["input_text_per_1m"]
     output_cost = (output_tokens / 1_000_000.0) * pricing["output_text_per_1m"]

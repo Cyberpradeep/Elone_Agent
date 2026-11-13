@@ -11,12 +11,13 @@ import re
 import json
 import ast
 import datetime
+import time
 from typing import Tuple, Dict, Any, Optional, List
 from langchain_core.messages import HumanMessage, ToolMessage
 from utils.cancellation import check_cancelled
 
 # pyrefly: ignore [missing-import]
-from config.llm_config import get_llm
+from config.llm_config import get_llm, resolve_llm_metadata
 # pyrefly: ignore [missing-import]
 from tools.tool_functions import DYNAMIC_CATALOG_TOOLS
 from tools.platforms import find_platform_schema
@@ -311,16 +312,85 @@ def plan_okf_from_raw(
                     f"Per-job LLM call budget exceeded ({call_budget} calls). Stopping to avoid runaway cost."
                 )
             calls_used += 1
+            t0 = time.perf_counter()
+            trace_id_val = override_sop_id or sop_slug
+            prov, mdl = resolve_llm_metadata(llm, "execution_planning")
             try:
                 res = llm_with_tools.invoke(messages)
+                latency_ms = round((time.perf_counter() - t0) * 1000, 2)
             except Exception as inv_err:
+                latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+                try:
+                    from gemini_monitor.monitor import record_call
+                    record_call(
+                        caller="execution_planning",
+                        model=mdl,
+                        provider=prov,
+                        input_tokens=0,
+                        output_tokens=0,
+                        sop_id=trace_id_val,
+                        trace_id=trace_id_val,
+                        latency_ms=latency_ms,
+                        status="error",
+                        error_message=str(inv_err),
+                    )
+                except Exception as rec_err:
+                    log_warning("Gemini Monitor", f"Failed recording invocation error: {rec_err}")
+
                 log_warning("Converter Tool Invoke", f"Tool invocation error: {inv_err}. Requesting final JSON...")
                 if calls_used >= call_budget:
                     raise RuntimeError(
                         f"Per-job LLM call budget exceeded ({call_budget} calls). Stopping to avoid runaway cost."
                     )
                 calls_used += 1
-                final_res = llm.invoke(messages + [HumanMessage(content="Tool inspection phase complete. Output the final OKF Playbook JSON now.")])
+                t0_fb = time.perf_counter()
+                try:
+                    final_res = llm.invoke(messages + [HumanMessage(content="Tool inspection phase complete. Output the final OKF Playbook JSON now.")])
+                    fb_latency_ms = round((time.perf_counter() - t0_fb) * 1000, 2)
+                    fb_in_tok = 0
+                    fb_out_tok = 0
+                    if hasattr(final_res, "usage_metadata") and final_res.usage_metadata:
+                        fb_in_tok = final_res.usage_metadata.get("input_tokens", 0)
+                        fb_out_tok = final_res.usage_metadata.get("output_tokens", 0)
+                    elif hasattr(final_res, "response_metadata") and final_res.response_metadata:
+                        tu = final_res.response_metadata.get("token_usage", {})
+                        fb_in_tok = tu.get("prompt_tokens", 0)
+                        fb_out_tok = tu.get("completion_tokens", 0)
+                    try:
+                        from gemini_monitor.monitor import record_call
+                        record_call(
+                            caller="execution_planning",
+                            model=mdl,
+                            provider=prov,
+                            input_tokens=fb_in_tok,
+                            output_tokens=fb_out_tok,
+                            sop_id=trace_id_val,
+                            trace_id=trace_id_val,
+                            latency_ms=fb_latency_ms,
+                            status="success",
+                        )
+                    except Exception as rec_err:
+                        log_warning("Gemini Monitor", f"Failed recording fallback usage: {rec_err}")
+                except Exception as fb_err:
+                    fb_latency_ms = round((time.perf_counter() - t0_fb) * 1000, 2)
+                    try:
+                        from gemini_monitor.monitor import record_call
+                        record_call(
+                            caller="execution_planning",
+                            model=mdl,
+                            provider=prov,
+                            input_tokens=0,
+                            output_tokens=0,
+                            sop_id=trace_id_val,
+                            trace_id=trace_id_val,
+                            latency_ms=fb_latency_ms,
+                            status="error",
+                            error_message=str(fb_err),
+                        )
+                    except Exception:
+                        pass
+                    raise fb_err
+
                 raw_c = final_res.content if hasattr(final_res, "content") else str(final_res)
                 if isinstance(raw_c, list):
                     content = "".join([b.get("text", "") if isinstance(b, dict) else str(b) for b in raw_c])
@@ -344,14 +414,17 @@ def plan_okf_from_raw(
                 from gemini_monitor.monitor import record_call
                 record_call(
                     caller="execution_planning",
-                    model="gemini-3.7-flash" if "gemini" in str(type(llm)).lower() else "mistral-large-latest",
-                    provider="gemini" if "gemini" in str(type(llm)).lower() else "mistral",
+                    model=mdl,
+                    provider=prov,
                     input_tokens=in_tok,
                     output_tokens=out_tok,
-                    sop_id=override_sop_id or sop_slug
+                    sop_id=trace_id_val,
+                    trace_id=trace_id_val,
+                    latency_ms=latency_ms,
+                    status="success",
                 )
-            except Exception:
-                pass
+            except Exception as mon_err:
+                log_warning("Gemini Monitor", f"Failed to log execution planning call: {mon_err}")
 
             if hasattr(res, "tool_calls") and res.tool_calls:
                 for tc in res.tool_calls:
