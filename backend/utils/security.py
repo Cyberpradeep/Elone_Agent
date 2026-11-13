@@ -736,6 +736,15 @@ def enforce_entity_double_quotes(command: str) -> str:
 
 
 # Re-export AST scanners for pipeline convenience
+def validate_command_against_allowlist(cmd_str: str) -> Tuple[bool, Optional[str]]:
+    """Validates command against the enterprise command allowlist."""
+    try:
+        from agents.a3_security.ast_sandbox import validate_command_against_allowlist as _val
+    except ImportError:
+        from backend.agents.a3_security.ast_sandbox import validate_command_against_allowlist as _val
+    return _val(cmd_str)
+
+
 def scan_commands_for_ast_threats(commands: List[str]) -> List[Dict[str, str]]:
     """Scans command strings against deterministic LOLBin and injection patterns."""
     try:

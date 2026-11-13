@@ -19,24 +19,19 @@ try:
 except ImportError:
     from backend.utils.security import enforce_entity_double_quotes, escape_prompt_delimiters
 try:
+    from agents.a3_security.ast_sandbox import (
+        MALICIOUS_COMMAND_PATTERNS,
+        validate_command_against_allowlist,
+    )
+except ImportError:
+    from backend.agents.a3_security.ast_sandbox import (
+        MALICIOUS_COMMAND_PATTERNS,
+        validate_command_against_allowlist,
+    )
+try:
     from utils.pipeline_logger import log_validation_audit, log_info, log_warning, log_error
 except ImportError:
     from backend.utils.pipeline_logger import log_validation_audit, log_info, log_warning, log_error
-
-
-# Deterministic High-Risk Security / Prompt Injection Command Patterns
-MALICIOUS_COMMAND_PATTERNS = [
-    (r"(?:powershell|pwsh).*(?:-enc|-encodedcommand)\s+[A-Za-z0-9+/=]{10,}", "Encoded PowerShell payload execution"),
-    (r"(?:invoke-expression|iex)\s*[\(\$]", "Arbitrary script evaluation (Invoke-Expression / IEX)"),
-    (r"certutil(?:\.exe)?\s+-(?:urlcache|decode|decodehex)", "Certutil binary download/decode exploitation"),
-    (r"bitsadmin(?:\.exe)?\s+/transfer", "Bitsadmin background downloader"),
-    (r"net\s+user\s+[^/\s]+\s+[^/\s]+\s+/add", "Unauthorized backdoor local user creation (net user /add)"),
-    (r"net\s+localgroup\s+administrators\s+[^/\s]+\s+/add", "Privilege escalation to local administrator"),
-    (r"(?:curl|wget)\s+.*https?://\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}", "Outbound network request to raw public IP"),
-    (r"curl\s+-[dF]\s+[@\$]", "Outbound file exfiltration via curl POST/form"),
-    (r"(?:chmod\s+777|chown\s+root|useradd|usermod\s+-aG\s+sudo)", "Privilege escalation / insecure file permission alteration"),
-    (r"mimikatz|Invoke-Mimikatz|sekurlsa", "Credential dumping tool execution"),
-]
 
 
 def _canonicalize_tool_name(tool_str: str) -> str:
@@ -213,8 +208,13 @@ def validate_plan_faithfulness_and_linkage(
         parse_instruction = step.get("output_parse_instruction") or step.get("parse_instruction") or ""
         execute_if = step.get("execute_if")
 
-        # Deterministic High-Risk Malicious / Injected Command Filter
+        # Deterministic High-Risk Malicious / Injected Command Filter & Enterprise Allowlist
         if cmd:
+            is_allowed, allow_err = validate_command_against_allowlist(cmd)
+            if not is_allowed:
+                errors.append(
+                    f"Layer 1 Security Violation: Step {idx} command '{cmd}' failed allowlist check ({allow_err})."
+                )
             for pattern, threat_desc in MALICIOUS_COMMAND_PATTERNS:
                 if re.search(pattern, cmd, re.IGNORECASE):
                     errors.append(
