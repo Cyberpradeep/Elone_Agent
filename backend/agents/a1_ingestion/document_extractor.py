@@ -230,7 +230,13 @@ def _run_vision_ocr(doc, filepath: str) -> str:
             text = res.content if hasattr(res, "content") else str(res)
             full_ocr.append(text)
 
-        return "\n\n".join(full_ocr)
+        raw_ocr = "\n\n".join(full_ocr)
+        # H6: Run secret scanning on OCR text before structuring
+        sanitized_ocr, dlp_stats = redact_sensitive_dlp(clean_unicode_and_zero_width(raw_ocr))
+        if any(dlp_stats.values()):
+            summary = ", ".join(f"{k}: {v}" for k, v in dlp_stats.items() if v > 0)
+            log_warning("DocumentParser", f"DLP Shield detected and masked credentials in OCR transcription: {summary}")
+        return sanitized_ocr
     except Exception as e:
         if "Quota" in type(e).__name__ or "DailyQuotaExceededError" in str(type(e)) or "Cancelled" in type(e).__name__:
             raise

@@ -936,7 +936,7 @@ doc_path = write_upload("airvpn_test.txt", sop_text)
 
 mode = {"value": "vlm_ok"}
 
-def fake_plan(filepath, override_sop_id=None, feedback_override=None, pre_extracted_text=None):
+def fake_plan(filepath, override_sop_id=None, feedback_override=None, pre_extracted_text=None, *args, **kwargs):
     sid = override_sop_id or "SOP-FAKE"
     if mode["value"] == "unactionable":
         return {

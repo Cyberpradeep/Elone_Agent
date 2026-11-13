@@ -763,7 +763,7 @@ client.post("/api/uploads/upload", headers=hdrs["po_l2_a"], files={"file": ("vau
 client.post("/api/uploads/upload", headers=hdrs["alice_a"], files={"file": ("secret_a.txt", b"password = \"VerySecret123!\"\napi_key = \"sk_live_abc1234567890\"\n", "text/plain")})
 
 def make_plan_factory():
-    def _plan(filepath, override_sop_id=None, feedback_override=None, pre_extracted_text=None):
+    def _plan(filepath, override_sop_id=None, feedback_override=None, pre_extracted_text=None, *args, **kwargs):
         sid = override_sop_id or "SOP-FAKE"
         base = os.path.basename(filepath)
         txt = pre_extracted_text or ""

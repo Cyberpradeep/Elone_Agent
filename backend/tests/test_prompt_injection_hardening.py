@@ -542,7 +542,7 @@ def write_upload(name, text):
 
 plan_calls = {"count": 0}
 
-def fake_plan(filepath, override_sop_id=None, feedback_override=None, pre_extracted_text=None):
+def fake_plan(filepath, override_sop_id=None, feedback_override=None, pre_extracted_text=None, *args, **kwargs):
     plan_calls["count"] += 1
     sid = override_sop_id or "SOP-SAFE-01"
     return {

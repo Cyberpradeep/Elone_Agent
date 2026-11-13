@@ -11,7 +11,7 @@ import re
 import json
 import ast
 import datetime
-from typing import Tuple, Dict, Any, Optional
+from typing import Tuple, Dict, Any, Optional, List
 from langchain_core.messages import HumanMessage, ToolMessage
 from utils.cancellation import check_cancelled
 
@@ -22,7 +22,7 @@ from tools.tool_functions import DYNAMIC_CATALOG_TOOLS
 from tools.platforms import find_platform_schema
 # pyrefly: ignore [missing-import]
 from agents.a4_verification.plan_validator import validate_plan_faithfulness_and_linkage
-from utils.security import escape_prompt_delimiters
+from utils.security import escape_prompt_delimiters, redact_sensitive_dlp
 from config.settings import get_max_images_per_sop, get_execution_mode
 # pyrefly: ignore [missing-import]
 from schemas import OKFPlaybookModel
@@ -95,19 +95,26 @@ def plan_okf_from_raw(
     override_sop_id: Optional[str] = None,
     feedback_override: Optional[Any] = None,
     pre_extracted_text: Optional[str] = None,
+    pre_extracted_segments: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Phase 1 (read-only): parse the raw SOP and draft the OKF playbook.
     Touches nothing on disk -- returns the proposed frontmatter plus the
     faithfulness-validation notes, so a reviewer can accept or correct the plan.
     Supports feedback_override from Agent A4 correction loops (Section 7).
-    Reuses pre_extracted_text when provided to eliminate redundant VLM OCR calls.
+    Reuses pre_extracted_text and pre_extracted_segments when provided to
+    eliminate redundant disk reads and ensure embedded images pass through.
     """
     log_info("JIT Converter", f"Document-order-preserving parsing: {os.path.basename(raw_filepath)}...")
 
     raw_filename_base = os.path.splitext(os.path.basename(raw_filepath))[0]
     sop_slug = re.sub(r"[^A-Za-z0-9]+", "-", raw_filename_base).strip("-").upper()[:20]
 
-    source_parser_type, source_segments = extract_ordered_sop_content(raw_filepath)
+    if pre_extracted_segments is not None:
+        source_parser_type = "pre_extracted_segments"
+        source_segments = pre_extracted_segments
+    else:
+        source_parser_type, source_segments = extract_ordered_sop_content(raw_filepath)
+
     image_segments = [s for s in source_segments if isinstance(s, dict) and s.get("type") == "image"]
     has_images = len(image_segments) > 0
     total_images_found = len(image_segments)
@@ -117,7 +124,7 @@ def plan_okf_from_raw(
         log_info("JIT Converter", f"Detected {total_images_found} embedded image(s) in {os.path.basename(raw_filepath)}. Engaging VLM inspection (limit: {max_images_allowed})...")
         parser_type = source_parser_type
         segments = source_segments
-        raw_text = pre_extracted_text if (pre_extracted_text and len(pre_extracted_text.strip()) >= 10) else "\n\n".join(s["content"] for s in segments if s["type"] == "text")
+        raw_text = pre_extracted_text if (pre_extracted_text and len(pre_extracted_text.strip()) >= 10) else "\n\n".join(s["content"] for s in segments if s.get("type") == "text")
     elif pre_extracted_text and len(pre_extracted_text.strip()) >= 10:
         parser_type = "pre_extracted"
         raw_text = pre_extracted_text
@@ -126,7 +133,7 @@ def plan_okf_from_raw(
     else:
         parser_type = source_parser_type
         segments = source_segments
-        raw_text = "\n\n".join(s["content"] for s in segments if s["type"] == "text")
+        raw_text = "\n\n".join(s["content"] for s in segments if s.get("type") == "text")
         if not raw_text or len(raw_text.strip()) < 10:
             raise ValueError(f"Could not extract text from raw file: {raw_filepath}")
 
@@ -172,7 +179,12 @@ def plan_okf_from_raw(
             })
 
     raw_combined_text = "\n\n".join(enriched_parts)
-    enriched_sop_text = escape_prompt_delimiters(raw_combined_text)
+    # H6: Run secret scanning on OCR and combined text before LLM structuring
+    sanitized_combined_text, dlp_stats = redact_sensitive_dlp(raw_combined_text)
+    secrets_count = dlp_stats.get("passwords", 0) + dlp_stats.get("api_keys", 0) + dlp_stats.get("private_keys", 0)
+    if secrets_count > 0:
+        log_warning("JIT Converter", f"DLP Shield detected and masked {secrets_count} credential(s) in document content before LLM structuring.")
+    enriched_sop_text = escape_prompt_delimiters(sanitized_combined_text)
 
     _log_converter_input(raw_filepath, sop_slug, enriched_sop_text)
 

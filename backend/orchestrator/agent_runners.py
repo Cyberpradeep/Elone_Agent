@@ -352,6 +352,7 @@ def run_a2_structuring(task: TaskMessage, bus: Any) -> ResultMessage:
             override_sop_id=task.sop_id or None,
             feedback_override=feedback_errors if feedback_errors else None,
             pre_extracted_text=cleaned_text or raw_text,
+            pre_extracted_segments=extracted_art.data.get("segments") if isinstance(extracted_art.data, dict) else None,
         )
         # 2. Synthesis of OKF Draft Playbook & Canonical SOP JSON with real source metadata
         intake_meta = extracted_art.data.get("intake_meta", {}) if isinstance(extracted_art.data, dict) else {}

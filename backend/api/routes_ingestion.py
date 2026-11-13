@@ -771,13 +771,26 @@ async def api_ingest_single(request: Request):
 
         governance_ledger.transition_state(job_id, "structuring")
 
-        draft = await _run_cancellable(
-            ctl,
-            jit_converter.plan_okf_from_raw,
-            target_path,
-            override_sop_id=sop_id,
-            pre_extracted_text=raw_text,
-        )
+        try:
+            draft = await _run_cancellable(
+                ctl,
+                jit_converter.plan_okf_from_raw,
+                target_path,
+                override_sop_id=sop_id,
+                pre_extracted_text=raw_text,
+                pre_extracted_segments=segments,
+            )
+        except TypeError as te:
+            if "unexpected keyword argument 'pre_extracted_segments'" in str(te):
+                draft = await _run_cancellable(
+                    ctl,
+                    jit_converter.plan_okf_from_raw,
+                    target_path,
+                    override_sop_id=sop_id,
+                    pre_extracted_text=raw_text,
+                )
+            else:
+                raise
 
         if isinstance(draft, dict) and not draft.get("raw_text"):
             draft["raw_text"] = raw_text
@@ -1086,11 +1099,22 @@ async def api_plan_preview(request: Request):
                 "error": f"AST Sandbox blocked plan preview ({len(ast_threats)} threat(s)). 0 AI calls made.",
             }, status_code=403)
 
-        draft = await run_in_threadpool(
-            jit_converter.plan_okf_from_raw,
-            target_path,
-            pre_extracted_text=raw_text,
-        )
+        try:
+            draft = await run_in_threadpool(
+                jit_converter.plan_okf_from_raw,
+                target_path,
+                pre_extracted_text=raw_text,
+                pre_extracted_segments=segments,
+            )
+        except TypeError as te:
+            if "unexpected keyword argument 'pre_extracted_segments'" in str(te):
+                draft = await run_in_threadpool(
+                    jit_converter.plan_okf_from_raw,
+                    target_path,
+                    pre_extracted_text=raw_text,
+                )
+            else:
+                raise
         return JSONResponse({
             "success": True,
             "draft": draft,
