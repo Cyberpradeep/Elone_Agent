@@ -14,7 +14,7 @@ from typing import List, Tuple, Dict, Any, Optional
 
 from langchain_core.messages import HumanMessage
 # pyrefly: ignore [missing-import]
-from config.llm_config import get_llm
+from config.llm_config import get_llm, resolve_llm_metadata
 from config.settings import get_max_images_per_sop
 from utils.security import validate_and_sanitize_image_bytes
 from utils.cancellation import check_cancelled
@@ -187,8 +187,11 @@ def analyze_image_bytes(image_bytes: bytes, mime_type: str) -> str:
         except Exception as q_err:
             if "Quota" in type(q_err).__name__ or "DailyQuotaExceededError" in str(type(q_err)):
                 raise
+        t0 = time.perf_counter()
+        prov, mdl = resolve_llm_metadata(llm, "vlm_image_analysis")
         try:
             res = llm.invoke([message])
+            latency_ms = round((time.perf_counter() - t0) * 1000, 2)
             in_tok = 0
             out_tok = 0
             if hasattr(res, "usage_metadata") and res.usage_metadata:
@@ -199,11 +202,13 @@ def analyze_image_bytes(image_bytes: bytes, mime_type: str) -> str:
                 from gemini_monitor.monitor import record_call
                 record_call(
                     caller="vlm_image_analysis",
-                    model="meta/llama-3.2-11b-vision-instruct",
-                    provider="nvidia",
+                    model=mdl,
+                    provider=prov,
                     input_tokens=in_tok,
                     output_tokens=out_tok,
-                    image_tokens=img_tok
+                    image_tokens=img_tok,
+                    latency_ms=latency_ms,
+                    status="success",
                 )
             except Exception as mon_err:
                 log_warning("Gemini Monitor", f"Failed to log VLM call: {mon_err}")
@@ -219,6 +224,22 @@ def analyze_image_bytes(image_bytes: bytes, mime_type: str) -> str:
                 return "\n".join(parts)
             return str(raw_content)
         except Exception as e:
+            latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+            try:
+                from gemini_monitor.monitor import record_call
+                record_call(
+                    caller="vlm_image_analysis",
+                    model=mdl,
+                    provider=prov,
+                    input_tokens=0,
+                    output_tokens=0,
+                    image_tokens=img_tok,
+                    latency_ms=latency_ms,
+                    status="error",
+                    error_message=str(e),
+                )
+            except Exception:
+                pass
             last_error = e
             err_str = str(e)
             if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower():

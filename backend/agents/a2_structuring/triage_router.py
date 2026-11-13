@@ -9,6 +9,7 @@ Classifies unstructured SOP into 'command', 'tool_call', 'hybrid', or 'unactiona
 import os
 import re
 import json
+import time
 from typing import Dict, Any, Optional
 from langchain_core.messages import HumanMessage, ToolMessage
 from utils.cancellation import check_cancelled
@@ -18,7 +19,7 @@ except ImportError:
     from backend.utils.security import escape_prompt_delimiters
 
 # pyrefly: ignore [missing-import]
-from config.llm_config import get_llm
+from config.llm_config import get_llm, resolve_llm_metadata
 # pyrefly: ignore [missing-import]
 from tools.tool_functions import DYNAMIC_CATALOG_TOOLS
 # pyrefly: ignore [missing-import]
@@ -121,11 +122,37 @@ def run_triage_router(
             if "Quota" in type(q_err).__name__ or "DailyQuotaExceededError" in str(type(q_err)):
                 raise
 
+    trace_id_val = override_sop_id or sop_slug
+    prov, mdl = resolve_llm_metadata(llm, "execution_planning")
+
     if not enable_tool_inspection:
         # Fast path for command-based SOPs: 1 single direct LLM evaluation without tool loop latency
         _enforce_daily_quota()
         check_cancelled()
-        res = llm.invoke(messages)
+        t0 = time.perf_counter()
+        try:
+            res = llm.invoke(messages)
+            latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+        except Exception as inv_err:
+            latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+            try:
+                from gemini_monitor.monitor import record_call
+                record_call(
+                    caller="triage_router",
+                    model=mdl,
+                    provider=prov,
+                    input_tokens=0,
+                    output_tokens=0,
+                    sop_id=trace_id_val,
+                    trace_id=trace_id_val,
+                    latency_ms=latency_ms,
+                    status="error",
+                    error_message=str(inv_err),
+                )
+            except Exception:
+                pass
+            raise inv_err
+
         in_tok = getattr(res, "usage_metadata", {}).get("input_tokens", 0) if hasattr(res, "usage_metadata") and res.usage_metadata else 0
         out_tok = getattr(res, "usage_metadata", {}).get("output_tokens", 0) if hasattr(res, "usage_metadata") and res.usage_metadata else 0
         try:
@@ -133,14 +160,17 @@ def run_triage_router(
             from gemini_monitor.monitor import record_call
             record_call(
                 caller="triage_router",
-                model=getattr(llm, "model_name", str(type(llm))),
-                provider="groq" if "groq" in str(type(llm)).lower() else "gemini",
+                model=mdl,
+                provider=prov,
                 input_tokens=in_tok,
                 output_tokens=out_tok,
-                sop_id=override_sop_id or sop_slug,
+                sop_id=trace_id_val,
+                trace_id=trace_id_val,
+                latency_ms=latency_ms,
+                status="success",
             )
-        except Exception:
-            pass
+        except Exception as e:
+            log_warning("Gemini Monitor", f"Failed to log triage call: {e}")
 
         raw_c = res.content if hasattr(res, "content") else str(res)
         if isinstance(raw_c, list):
@@ -155,9 +185,29 @@ def run_triage_router(
         for turn in range(max_tool_turns):
             _enforce_daily_quota()
             check_cancelled()
+            t0 = time.perf_counter()
             try:
                 res = llm_with_tools.invoke(messages)
+                latency_ms = round((time.perf_counter() - t0) * 1000, 2)
             except Exception as invoke_err:
+                latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+                try:
+                    from gemini_monitor.monitor import record_call
+                    record_call(
+                        caller="triage_router",
+                        model=mdl,
+                        provider=prov,
+                        input_tokens=0,
+                        output_tokens=0,
+                        sop_id=trace_id_val,
+                        trace_id=trace_id_val,
+                        latency_ms=latency_ms,
+                        status="error",
+                        error_message=str(invoke_err),
+                    )
+                except Exception:
+                    pass
+
                 log_warning("Triage Router", f"Tool invocation error ({invoke_err}). Falling back to direct evaluation without tools...")
                 fallback_prompt = (
                     "Tool inspection phase complete or encountered an API error. "
@@ -166,7 +216,26 @@ def run_triage_router(
                 )
                 try:
                     _enforce_daily_quota()
+                    t0_fb = time.perf_counter()
                     fallback_res = llm.invoke(messages + [HumanMessage(content=fallback_prompt)])
+                    fb_latency_ms = round((time.perf_counter() - t0_fb) * 1000, 2)
+                    fb_in_tok = getattr(fallback_res, "usage_metadata", {}).get("input_tokens", 0) if hasattr(fallback_res, "usage_metadata") and fallback_res.usage_metadata else 0
+                    fb_out_tok = getattr(fallback_res, "usage_metadata", {}).get("output_tokens", 0) if hasattr(fallback_res, "usage_metadata") and fallback_res.usage_metadata else 0
+                    try:
+                        from gemini_monitor.monitor import record_call
+                        record_call(
+                            caller="triage_router",
+                            model=mdl,
+                            provider=prov,
+                            input_tokens=fb_in_tok,
+                            output_tokens=fb_out_tok,
+                            sop_id=trace_id_val,
+                            trace_id=trace_id_val,
+                            latency_ms=fb_latency_ms,
+                            status="success",
+                        )
+                    except Exception:
+                        pass
                     raw_c = fallback_res.content if hasattr(fallback_res, "content") else str(fallback_res)
                     if isinstance(raw_c, list):
                         content = "".join([b.get("text", "") if isinstance(b, dict) else str(b) for b in raw_c])
@@ -191,14 +260,17 @@ def run_triage_router(
                 from gemini_monitor.monitor import record_call
                 record_call(
                     caller="triage_router",
-                    model="gemini-3.7-flash" if "gemini" in str(type(llm)).lower() else "mistral-large-latest",
-                    provider="gemini" if "gemini" in str(type(llm)).lower() else "mistral",
+                    model=mdl,
+                    provider=prov,
                     input_tokens=in_tok,
                     output_tokens=out_tok,
-                    sop_id=override_sop_id or sop_slug,
+                    sop_id=trace_id_val,
+                    trace_id=trace_id_val,
+                    latency_ms=latency_ms,
+                    status="success",
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                log_warning("Gemini Monitor", f"Failed to log triage call: {e}")
 
             if hasattr(res, "tool_calls") and res.tool_calls:
                 messages.append(res)

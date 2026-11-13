@@ -1,9 +1,10 @@
 import json
 import re
+import time
 from typing import Tuple, List, Dict, Any, Optional
 
 # pyrefly: ignore [missing-import]
-from config.llm_config import get_llm
+from config.llm_config import get_llm, resolve_llm_metadata
 # pyrefly: ignore [missing-import]
 from tools.tool_validator_helpers import validate_tool_step_schema
 # pyrefly: ignore [missing-import]
@@ -403,7 +404,31 @@ def validate_plan_faithfulness_and_linkage(
             {"role": "user", "content": "Please perform the faithfulness and security audit on the provided SOP and execution plan, and output the required JSON evaluation according to the system instructions."}
         ]
         check_cancelled()
-        res = llm.invoke(messages)
+        t0 = time.perf_counter()
+        sop_id_val = execution_plan.get("sop_id") if isinstance(execution_plan, dict) else None
+        prov, mdl = resolve_llm_metadata(llm, "planning_validation")
+        try:
+            res = llm.invoke(messages)
+            latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+        except Exception as inv_err:
+            latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+            try:
+                from gemini_monitor.monitor import record_call
+                record_call(
+                    caller="planning_validation",
+                    model=mdl,
+                    provider=prov,
+                    input_tokens=0,
+                    output_tokens=0,
+                    sop_id=sop_id_val,
+                    trace_id=sop_id_val,
+                    latency_ms=latency_ms,
+                    status="error",
+                    error_message=str(inv_err),
+                )
+            except Exception:
+                pass
+            raise inv_err
 
         # Record token usage in gemini_monitor
         in_tok = 0
@@ -421,14 +446,20 @@ def validate_plan_faithfulness_and_linkage(
             from gemini_monitor.monitor import record_call
             record_call(
                 caller="planning_validation",
-                model="gemini-2.5-flash" if "gemini" in str(type(llm)).lower() else "mistral-large-latest",
-                provider="gemini" if "gemini" in str(type(llm)).lower() else "mistral",
+                model=mdl,
+                provider=prov,
                 input_tokens=in_tok,
                 output_tokens=out_tok,
-                sop_id=execution_plan.get("sop_id") if isinstance(execution_plan, dict) else None
+                sop_id=sop_id_val,
+                trace_id=sop_id_val,
+                latency_ms=latency_ms,
+                status="success",
             )
         except Exception as mon_err:
-            pass
+            try:
+                log_warning("Gemini Monitor", f"Failed to log validation call: {mon_err}")
+            except Exception:
+                pass
 
         content = res.content if hasattr(res, "content") else str(res)
         if isinstance(content, list):

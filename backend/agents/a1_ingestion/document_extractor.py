@@ -9,11 +9,12 @@ Supports: .pdf, .docx, .doc, .xlsx, .xls, .pptx, .html, .txt, .md.
 import os
 import base64
 import datetime
+import time
 from typing import Tuple, Optional, List, Dict, Any
 from langchain_core.messages import HumanMessage
 
 # pyrefly: ignore [missing-import]
-from config.llm_config import get_llm
+from config.llm_config import get_llm, resolve_llm_metadata
 from agents.a1_ingestion.intake_validator import validate_sop_file, SOPInputValidationError
 from utils.security import clean_unicode_and_zero_width, redact_sensitive_dlp
 from utils.cancellation import check_cancelled
@@ -209,7 +210,33 @@ def _run_vision_ocr(doc, filepath: str) -> str:
                     }
                 ]
             )
-            res = llm.invoke([message])
+            t0 = time.perf_counter()
+            prov, mdl = resolve_llm_metadata(llm, "vlm_image_analysis")
+            trace_id_val = os.path.basename(filepath)
+            try:
+                res = llm.invoke([message])
+                latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+            except Exception as inv_err:
+                latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+                if record_call is not None:
+                    try:
+                        record_call(
+                            caller="vision_ocr",
+                            model=mdl,
+                            provider=prov,
+                            input_tokens=0,
+                            output_tokens=0,
+                            image_tokens=1024,
+                            sop_id=trace_id_val,
+                            trace_id=trace_id_val,
+                            latency_ms=latency_ms,
+                            status="error",
+                            error_message=str(inv_err),
+                        )
+                    except Exception:
+                        pass
+                raise inv_err
+
             in_tok = 0
             out_tok = 0
             if hasattr(res, "usage_metadata") and res.usage_metadata:
@@ -219,11 +246,15 @@ def _run_vision_ocr(doc, filepath: str) -> str:
                 try:
                     record_call(
                         caller="vision_ocr",
-                        model=getattr(llm, "model", "meta/llama-3.2-11b-vision-instruct"),
-                        provider="nvidia",
+                        model=mdl,
+                        provider=prov,
                         input_tokens=in_tok,
                         output_tokens=out_tok,
                         image_tokens=1024,
+                        sop_id=trace_id_val,
+                        trace_id=trace_id_val,
+                        latency_ms=latency_ms,
+                        status="success",
                     )
                 except Exception:
                     pass

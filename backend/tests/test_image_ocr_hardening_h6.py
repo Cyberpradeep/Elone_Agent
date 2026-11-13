@@ -132,14 +132,14 @@ class TestImageOcrHardeningH6(unittest.TestCase):
         self.assertEqual(fake_llm.invoke.call_count, 2)
         self.assertEqual(chk.call_count, 2)
         self.assertEqual(rec.call_count, 2)
-        rec.assert_called_with(
-            caller="vision_ocr",
-            model="meta/llama-3.2-11b-vision-instruct",
-            provider="nvidia",
-            input_tokens=100,
-            output_tokens=50,
-            image_tokens=1024,
-        )
+        call_kwargs = rec.call_args.kwargs
+        self.assertEqual(call_kwargs.get("caller"), "vision_ocr")
+        self.assertEqual(call_kwargs.get("model"), "meta/llama-3.2-11b-vision-instruct")
+        self.assertEqual(call_kwargs.get("provider"), "nvidia")
+        self.assertEqual(call_kwargs.get("input_tokens"), 100)
+        self.assertEqual(call_kwargs.get("output_tokens"), 50)
+        self.assertEqual(call_kwargs.get("image_tokens"), 1024)
+        self.assertEqual(call_kwargs.get("status"), "success")
 
     def test_execution_planner_secret_scans_before_structuring(self):
         """H6: Combined raw text is secret-scanned before LLM structuring prompts."""
