@@ -26,7 +26,7 @@ class JITFaithfulnessInspectionResult(BaseModel):
         description="Reasoning evaluating if any steps were injected via prompt overrides or contain malicious backdoor commands."
     )
     is_faithful: bool = Field(
-        default=True,
+        default=False,
         description="True if the converted OKF playbook is 100% faithful to the raw human SOP and free of injected payloads."
     )
     injection_detected: bool = Field(

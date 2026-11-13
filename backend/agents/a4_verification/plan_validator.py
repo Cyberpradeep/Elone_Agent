@@ -1,6 +1,6 @@
 import json
 import re
-from typing import Tuple, List, Dict, Any
+from typing import Tuple, List, Dict, Any, Optional
 
 # pyrefly: ignore [missing-import]
 from config.llm_config import get_llm
@@ -32,6 +32,24 @@ try:
     from utils.pipeline_logger import log_validation_audit, log_info, log_warning, log_error
 except ImportError:
     from backend.utils.pipeline_logger import log_validation_audit, log_info, log_warning, log_error
+
+
+def _coerce_bool(val: Any) -> Optional[bool]:
+    """Strictly coerces boolean-like values into bool, returning None for invalid or missing values."""
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, (int, float)):
+        if val == 1:
+            return True
+        if val == 0:
+            return False
+    if isinstance(val, str):
+        v = val.strip().lower()
+        if v in ("true", "1", "yes"):
+            return True
+        if v in ("false", "0", "no"):
+            return False
+    return None
 
 
 def _canonicalize_tool_name(tool_str: str) -> str:
@@ -430,10 +448,25 @@ def validate_plan_faithfulness_and_linkage(
                 parsed_json = json.loads(sanitize_json_text(json_str), strict=False)
 
             if not isinstance(parsed_json, dict):
-                raise ValueError("Parsed JSON must be a dict")
+                raise ValueError("Parsed JSON must be an object/dict")
+
+            if "is_faithful" not in parsed_json:
+                raise ValueError("Validator verdict JSON is missing required 'is_faithful' field.")
+
+            is_faithful_coerced = _coerce_bool(parsed_json.get("is_faithful"))
+            if is_faithful_coerced is None:
+                raise ValueError(
+                    f"Validator verdict 'is_faithful' must be a valid boolean, got: {parsed_json.get('is_faithful')!r}"
+                )
+
+            injection_coerced = _coerce_bool(parsed_json.get("injection_detected"))
+            if injection_coerced is None:
+                injection_coerced = False
 
             try:
                 inspection_result = JITFaithfulnessInspectionResult.model_validate(parsed_json)
+                inspection_result.is_faithful = is_faithful_coerced
+                inspection_result.injection_detected = injection_coerced
             except Exception:
                 def _to_str_list(items):
                     if not isinstance(items, list):
@@ -447,8 +480,8 @@ def validate_plan_faithfulness_and_linkage(
                     return out
 
                 inspection_result = JITFaithfulnessInspectionResult(
-                    is_faithful=bool(parsed_json.get("is_faithful", True)),
-                    injection_detected=bool(parsed_json.get("injection_detected", False)),
+                    is_faithful=is_faithful_coerced,
+                    injection_detected=injection_coerced,
                     confidence_score=float(parsed_json.get("confidence_score") or 0.8),
                     confidence_level=str(parsed_json.get("confidence_level") or "Medium"),
                     confidence_reason=str(parsed_json.get("confidence_reason") or ""),
@@ -536,6 +569,15 @@ def validate_plan_faithfulness_and_linkage(
             if re.search(r'"is_faithful"\s*:\s*false', content, re.IGNORECASE) or "STATUS: INVALID" in content:
                 errors.append(f"Layer 2 Faithfulness Error: {content[:300]}")
                 return False, errors
+
+            # Fail closed: Any unparseable, malformed, or missing verdict is a security failure
+            err_msg = (
+                f"Layer 2 Security Error: Faithfulness validator verdict could not be parsed as valid JSON: "
+                f"{str(parse_err)}. Raw content: {content[:300]}"
+            )
+            log_error("PlanValidator Layer 2", err_msg)
+            errors.append(err_msg)
+            return False, errors
 
     except Exception as e:
         if "Quota" in type(e).__name__ or "DailyQuotaExceededError" in str(type(e)) or "Cancelled" in type(e).__name__:
