@@ -1,6 +1,6 @@
 {
   "file_upload": {
-    "max_file_size_mb": 1,
+    "max_file_size_mb": 50.0,
     "max_page_count": 10,
     "max_text_lines": 600,
     "max_text_words": 5000,
