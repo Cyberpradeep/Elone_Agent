@@ -21,6 +21,7 @@ from schemas import JITFaithfulnessInspectionResult
 try:
     from utils.security import enforce_entity_double_quotes, escape_prompt_delimiters
 except ImportError:
+    # pyrefly: ignore [missing-import]
     from backend.utils.security import enforce_entity_double_quotes, escape_prompt_delimiters
 try:
     from agents.a3_security.ast_sandbox import (
@@ -28,6 +29,7 @@ try:
         validate_command_against_allowlist,
     )
 except ImportError:
+    # pyrefly: ignore [missing-import]
     from backend.agents.a3_security.ast_sandbox import (
         MALICIOUS_COMMAND_PATTERNS,
         validate_command_against_allowlist,
@@ -35,6 +37,7 @@ except ImportError:
 try:
     from utils.pipeline_logger import log_validation_audit, log_info, log_warning, log_error
 except ImportError:
+    # pyrefly: ignore [missing-import]
     from backend.utils.pipeline_logger import log_validation_audit, log_info, log_warning, log_error
 
 
@@ -410,207 +413,240 @@ def validate_plan_faithfulness_and_linkage(
         t0 = time.perf_counter()
         sop_id_val = execution_plan.get("sop_id") if isinstance(execution_plan, dict) else None
         prov, mdl = resolve_llm_metadata(llm, "planning_validation")
-        try:
-            res = llm.invoke(messages)
-            latency_ms = round((time.perf_counter() - t0) * 1000, 2)
-        except Exception as inv_err:
-            latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+        inspection_result: Optional[JITFaithfulnessInspectionResult] = None
+
+        # ---------------------------------------------------------------------
+        # STRUCTURED OUTPUT ENFORCEMENT (Constrained Decoding)
+        # ---------------------------------------------------------------------
+        if hasattr(llm, "with_structured_output"):
             try:
+                structured_llm = llm.with_structured_output(JITFaithfulnessInspectionResult)
+                s_res = structured_llm.invoke(messages)
+                latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+                if isinstance(s_res, JITFaithfulnessInspectionResult):
+                    inspection_result = s_res
+                elif isinstance(s_res, dict):
+                    inspection_result = JITFaithfulnessInspectionResult.model_validate(s_res)
+
+                if inspection_result is not None:
+                    try:
+                        from gemini_monitor.monitor import record_call
+                        record_call(
+                            caller="planning_validation",
+                            model=mdl,
+                            provider=prov,
+                            input_tokens=0,
+                            output_tokens=0,
+                            sop_id=sop_id_val,
+                            trace_id=sop_id_val,
+                            latency_ms=latency_ms,
+                            status="success",
+                        )
+                    except Exception as _exc:
+                        _log.debug("record_call skipped: %s", _exc)
+            except Exception as _struct_err:
+                _log.debug("Structured output invocation fallback: %s", _struct_err)
+                inspection_result = None
+
+        if inspection_result is None:
+            try:
+                res = llm.invoke(messages)
+                latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+            except Exception as inv_err:
+                latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+                try:
+                    from gemini_monitor.monitor import record_call
+                    record_call(
+                        caller="planning_validation",
+                        model=mdl,
+                        provider=prov,
+                        input_tokens=0,
+                        output_tokens=0,
+                        sop_id=sop_id_val,
+                        trace_id=sop_id_val,
+                        latency_ms=latency_ms,
+                        status="error",
+                        error_message=str(inv_err),
+                    )
+                except Exception as _exc:
+                    _log.warning("validate_plan_faithfulness_and_linkage: usage telemetry was not recorded (%s: %s)", type(_exc).__name__, _exc)
+                raise inv_err
+
+            # Record token usage in gemini_monitor
+            in_tok = 0
+            out_tok = 0
+            if hasattr(res, "usage_metadata") and res.usage_metadata:
+                in_tok = res.usage_metadata.get("input_tokens", 0)
+                out_tok = res.usage_metadata.get("output_tokens", 0)
+            elif hasattr(res, "response_metadata") and res.response_metadata:
+                tu = res.response_metadata.get("token_usage", {})
+                in_tok = tu.get("prompt_tokens", 0)
+                out_tok = tu.get("completion_tokens", 0)
+
+            try:
+                # pyrefly: ignore [missing-import]
                 from gemini_monitor.monitor import record_call
                 record_call(
                     caller="planning_validation",
                     model=mdl,
                     provider=prov,
-                    input_tokens=0,
-                    output_tokens=0,
+                    input_tokens=in_tok,
+                    output_tokens=out_tok,
                     sop_id=sop_id_val,
                     trace_id=sop_id_val,
                     latency_ms=latency_ms,
-                    status="error",
-                    error_message=str(inv_err),
+                    status="success",
                 )
-            except Exception as _exc:
-                _log.warning("validate_plan_faithfulness_and_linkage: usage telemetry was not recorded (%s: %s)", type(_exc).__name__, _exc)
-            raise inv_err
-
-        # Record token usage in gemini_monitor
-        in_tok = 0
-        out_tok = 0
-        if hasattr(res, "usage_metadata") and res.usage_metadata:
-            in_tok = res.usage_metadata.get("input_tokens", 0)
-            out_tok = res.usage_metadata.get("output_tokens", 0)
-        elif hasattr(res, "response_metadata") and res.response_metadata:
-            tu = res.response_metadata.get("token_usage", {})
-            in_tok = tu.get("prompt_tokens", 0)
-            out_tok = tu.get("completion_tokens", 0)
-
-        try:
-            # pyrefly: ignore [missing-import]
-            from gemini_monitor.monitor import record_call
-            record_call(
-                caller="planning_validation",
-                model=mdl,
-                provider=prov,
-                input_tokens=in_tok,
-                output_tokens=out_tok,
-                sop_id=sop_id_val,
-                trace_id=sop_id_val,
-                latency_ms=latency_ms,
-                status="success",
-            )
-        except Exception as mon_err:
-            try:
-                log_warning("Gemini Monitor", f"Failed to log validation call: {mon_err}")
-            except Exception as _exc:
+            except Exception as mon_err:
                 _log.warning("validate_plan_faithfulness_and_linkage: usage telemetry was not recorded (%s)", mon_err)
 
-        content = res.content if hasattr(res, "content") else str(res)
-        if isinstance(content, list):
-            content = "".join([b.get("text", "") if isinstance(b, dict) else str(b) for b in content])
+            content = res.content if hasattr(res, "content") else str(res)
+            if isinstance(content, list):
+                content = "".join([b.get("text", "") if isinstance(b, dict) else str(b) for b in content])
 
-        # Robust JSON codeblock extraction
-        match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", content, re.DOTALL)
-        json_str = match.group(1) if match else (
-            re.search(r"(\{.*\})", content, re.DOTALL).group(1) if re.search(r"(\{.*\})", content, re.DOTALL) else content.strip()
-        )
-
-        try:
-            try:
-                parsed_json = json.loads(json_str, strict=False)
-            except Exception:
-                from utils.security import sanitize_json_text
-                parsed_json = json.loads(sanitize_json_text(json_str), strict=False)
-
-            if not isinstance(parsed_json, dict):
-                raise ValueError("Parsed JSON must be an object/dict")
-
-            if "is_faithful" not in parsed_json:
-                raise ValueError("Validator verdict JSON is missing required 'is_faithful' field.")
-
-            is_faithful_coerced = _coerce_bool(parsed_json.get("is_faithful"))
-            if is_faithful_coerced is None:
-                raise ValueError(
-                    f"Validator verdict 'is_faithful' must be a valid boolean, got: {parsed_json.get('is_faithful')!r}"
-                )
-
-            injection_coerced = _coerce_bool(parsed_json.get("injection_detected"))
-            if injection_coerced is None:
-                injection_coerced = False
-
-            try:
-                inspection_result = JITFaithfulnessInspectionResult.model_validate(parsed_json)
-                inspection_result.is_faithful = is_faithful_coerced
-                inspection_result.injection_detected = injection_coerced
-            except Exception:
-                def _to_str_list(items):
-                    if not isinstance(items, list):
-                        return []
-                    out = []
-                    for it in items:
-                        if isinstance(it, dict):
-                            out.append(it.get("source_action") or it.get("step_description") or it.get("reason") or str(it))
-                        elif it is not None:
-                            out.append(str(it))
-                    return out
-
-                inspection_result = JITFaithfulnessInspectionResult(
-                    is_faithful=is_faithful_coerced,
-                    injection_detected=injection_coerced,
-                    confidence_score=float(parsed_json.get("confidence_score") or 0.8),
-                    confidence_level=str(parsed_json.get("confidence_level") or "Medium"),
-                    confidence_reason=str(parsed_json.get("confidence_reason") or ""),
-                    command_preservation_reasoning=str(parsed_json.get("command_preservation_reasoning") or ""),
-                    hallucination_check_reasoning=str(parsed_json.get("hallucination_check_reasoning") or ""),
-                    fallback_referral_reasoning=str(parsed_json.get("fallback_referral_reasoning") or ""),
-                    injection_reasoning=str(parsed_json.get("injection_reasoning") or ""),
-                    dropped_commands=_to_str_list(parsed_json.get("dropped_commands")),
-                    hallucinated_commands=_to_str_list(parsed_json.get("hallucinated_commands")),
-                    malicious_steps=[int(x) for x in parsed_json.get("malicious_steps", []) if str(x).isdigit()],
-                    validation_feedback=str(parsed_json.get("validation_feedback") or ""),
-                )
-
-            # Stage 4: Validation Layer 2 Audit Log (Always renders with Rich!)
-            log_validation_audit(inspection_result)
-
-            # Store validation details in execution plan metadata if dict
-            if isinstance(execution_plan, dict):
-                execution_plan["validation_confidence_score"] = inspection_result.confidence_score
-                execution_plan["validation_confidence_level"] = inspection_result.confidence_level
-                execution_plan["validation_confidence_reason"] = inspection_result.confidence_reason
-                execution_plan["injection_detected"] = inspection_result.injection_detected
-                execution_plan["injection_reasoning"] = inspection_result.injection_reasoning
-
-            # Prompt Injection Detection Failure Gate
-            if inspection_result.injection_detected:
-                sec_err = (
-                    f"Layer 2 Security Error: Prompt injection or malicious command payload detected! "
-                    f"Reason: {inspection_result.injection_reasoning} "
-                    f"(Flagged steps: {inspection_result.malicious_steps})"
-                )
-                errors.append(sec_err)
-                return False, errors
-
-            if not inspection_result.is_faithful:
-                coverage_items = [
-                    item for item in (execution_plan.get("source_action_coverage") or [])
-                    if isinstance(item, dict)
-                ]
-                unaccounted_drops = [
-                    claim for claim in inspection_result.dropped_commands
-                    if not _coverage_accounts_for_validator_claim(claim, coverage_items)
-                ]
-
-                # A semantic reviewer occasionally contradicts its own prompt by
-                # flagging source UI wording even though an approved capability is
-                # explicitly linked in the coverage ledger.  The deterministic
-                # linkage checks above are authoritative in that situation.
-                if (
-                    coverage_items
-                    and not unaccounted_drops
-                    and not inspection_result.hallucinated_commands
-                ):
-                    reasoning_text = (inspection_result.validation_feedback or "") + " " + (inspection_result.confidence_reason or "")
-                    reasoning_lower = reasoning_text.lower()
-                    safety_reasoning_keywords = [
-                        "bypasses a critical safety",
-                        "critical safety control",
-                        "mandatory safety check",
-                        "security control in the sop",
-                        "critical safety gate",
-                    ]
-                    if any(k in reasoning_lower for k in safety_reasoning_keywords):
-                        pass
-                    else:
-                        log_info(
-                            "PlanValidator Layer 2",
-                            "Ignoring inconsistent faithfulness verdict: all reported drops accounted for by source_action_coverage."
-                        )
-                        return True, errors
-
-                reasons = []
-                if unaccounted_drops:
-                    reasons.append(f"Dropped commands/actions: {unaccounted_drops}")
-                if inspection_result.hallucinated_commands:
-                    reasons.append(f"Fabricated/hallucinated commands: {inspection_result.hallucinated_commands}")
-                if inspection_result.validation_feedback and inspection_result.validation_feedback != "PASSED FAITHFULNESS INSPECTION":
-                    reasons.append(f"Feedback: {inspection_result.validation_feedback}")
-                
-                feedback_str = "; ".join(reasons) if reasons else "Playbook steps failed faithfulness inspection."
-                errors.append(f"Layer 2 Faithfulness Error: {feedback_str}")
-                return False, errors
-        except Exception as parse_err:
-            # Fallback if structured json parse failed: check explicit verdict lines
-            if re.search(r'"is_faithful"\s*:\s*false', content, re.IGNORECASE) or "STATUS: INVALID" in content:
-                errors.append(f"Layer 2 Faithfulness Error: {content[:300]}")
-                return False, errors
-
-            # Fail closed: Any unparseable, malformed, or missing verdict is a security failure
-            err_msg = (
-                f"Layer 2 Security Error: Faithfulness validator verdict could not be parsed as valid JSON: "
-                f"{str(parse_err)}. Raw content: {content[:300]}"
+            # Robust JSON codeblock extraction
+            match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", content, re.DOTALL)
+            json_str = match.group(1) if match else (
+                re.search(r"(\{.*\})", content, re.DOTALL).group(1) if re.search(r"(\{.*\})", content, re.DOTALL) else content.strip()
             )
-            log_error("PlanValidator Layer 2", err_msg)
-            errors.append(err_msg)
+
+            try:
+                try:
+                    parsed_json = json.loads(json_str, strict=False)
+                except Exception:
+                    from utils.security import sanitize_json_text
+                    parsed_json = json.loads(sanitize_json_text(json_str), strict=False)
+
+                if not isinstance(parsed_json, dict):
+                    raise ValueError("Parsed JSON must be an object/dict")
+
+                if "is_faithful" not in parsed_json:
+                    raise ValueError("Validator verdict JSON is missing required 'is_faithful' field.")
+
+                is_faithful_coerced = _coerce_bool(parsed_json.get("is_faithful"))
+                if is_faithful_coerced is None:
+                    raise ValueError(
+                        f"Validator verdict 'is_faithful' must be a valid boolean, got: {parsed_json.get('is_faithful')!r}"
+                    )
+
+                injection_coerced = _coerce_bool(parsed_json.get("injection_detected"))
+                if injection_coerced is None:
+                    injection_coerced = False
+
+                try:
+                    inspection_result = JITFaithfulnessInspectionResult.model_validate(parsed_json)
+                    inspection_result.is_faithful = is_faithful_coerced
+                    inspection_result.injection_detected = injection_coerced
+                except Exception:
+                    def _to_str_list(items):
+                        if not isinstance(items, list):
+                            return []
+                        out = []
+                        for it in items:
+                            if isinstance(it, dict):
+                                out.append(it.get("source_action") or it.get("step_description") or it.get("reason") or str(it))
+                            elif it is not None:
+                                out.append(str(it))
+                        return out
+
+                    inspection_result = JITFaithfulnessInspectionResult(
+                        is_faithful=is_faithful_coerced,
+                        injection_detected=injection_coerced,
+                        confidence_score=float(parsed_json.get("confidence_score") or 0.8),
+                        confidence_level=str(parsed_json.get("confidence_level") or "Medium"),
+                        confidence_reason=str(parsed_json.get("confidence_reason") or ""),
+                        command_preservation_reasoning=str(parsed_json.get("command_preservation_reasoning") or ""),
+                        hallucination_check_reasoning=str(parsed_json.get("hallucination_check_reasoning") or ""),
+                        fallback_referral_reasoning=str(parsed_json.get("fallback_referral_reasoning") or ""),
+                        injection_reasoning=str(parsed_json.get("injection_reasoning") or ""),
+                        dropped_commands=_to_str_list(parsed_json.get("dropped_commands")),
+                        hallucinated_commands=_to_str_list(parsed_json.get("hallucinated_commands")),
+                        malicious_steps=[int(x) for x in parsed_json.get("malicious_steps", []) if str(x).isdigit()],
+                        validation_feedback=str(parsed_json.get("validation_feedback") or ""),
+                    )
+            except Exception as parse_err:
+                # Fallback if structured json parse failed: check explicit verdict lines
+                if re.search(r'"is_faithful"\s*:\s*false', content, re.IGNORECASE) or "STATUS: INVALID" in content:
+                    errors.append(f"Layer 2 Faithfulness Error: {content[:300]}")
+                    return False, errors
+
+                # Fail closed: Any unparseable, malformed, or missing verdict is a security failure
+                err_msg = (
+                    f"Layer 2 Security Error: Faithfulness validator verdict could not be parsed as valid JSON: "
+                    f"{str(parse_err)}. Raw content: {content[:300]}"
+                )
+                log_error("PlanValidator Layer 2", err_msg)
+                errors.append(err_msg)
+                return False, errors
+
+        # Stage 4: Validation Layer 2 Audit Log (Always renders with Rich!)
+        log_validation_audit(inspection_result)
+
+        # Store validation details in execution plan metadata if dict
+        if isinstance(execution_plan, dict):
+            execution_plan["validation_confidence_score"] = inspection_result.confidence_score
+            execution_plan["validation_confidence_level"] = inspection_result.confidence_level
+            execution_plan["validation_confidence_reason"] = inspection_result.confidence_reason
+            execution_plan["injection_detected"] = inspection_result.injection_detected
+            execution_plan["injection_reasoning"] = inspection_result.injection_reasoning
+
+        # Prompt Injection Detection Failure Gate
+        if inspection_result.injection_detected:
+            sec_err = (
+                f"Layer 2 Security Error: Prompt injection or malicious command payload detected! "
+                f"Reason: {inspection_result.injection_reasoning} "
+                f"(Flagged steps: {inspection_result.malicious_steps})"
+            )
+            errors.append(sec_err)
+            return False, errors
+
+        if not inspection_result.is_faithful:
+            coverage_items = [
+                item for item in (execution_plan.get("source_action_coverage") or [])
+                if isinstance(item, dict)
+            ]
+            unaccounted_drops = [
+                claim for claim in inspection_result.dropped_commands
+                if not _coverage_accounts_for_validator_claim(claim, coverage_items)
+            ]
+
+            # A semantic reviewer occasionally contradicts its own prompt by
+            # flagging source UI wording even though an approved capability is
+            # explicitly linked in the coverage ledger.  The deterministic
+            # linkage checks above are authoritative in that situation.
+            if (
+                coverage_items
+                and not unaccounted_drops
+                and not inspection_result.hallucinated_commands
+            ):
+                reasoning_text = (inspection_result.validation_feedback or "") + " " + (inspection_result.confidence_reason or "")
+                reasoning_lower = reasoning_text.lower()
+                safety_reasoning_keywords = [
+                    "bypasses a critical safety",
+                    "critical safety control",
+                    "mandatory safety check",
+                    "security control in the sop",
+                    "critical safety gate",
+                ]
+                if any(k in reasoning_lower for k in safety_reasoning_keywords):
+                    pass
+                else:
+                    log_info(
+                        "PlanValidator Layer 2",
+                        "Ignoring inconsistent faithfulness verdict: all reported drops accounted for by source_action_coverage."
+                    )
+                    return True, errors
+
+            reasons = []
+            if unaccounted_drops:
+                reasons.append(f"Dropped commands/actions: {unaccounted_drops}")
+            if inspection_result.hallucinated_commands:
+                reasons.append(f"Fabricated/hallucinated commands: {inspection_result.hallucinated_commands}")
+            if inspection_result.validation_feedback and inspection_result.validation_feedback != "PASSED FAITHFULNESS INSPECTION":
+                reasons.append(f"Feedback: {inspection_result.validation_feedback}")
+            
+            feedback_str = "; ".join(reasons) if reasons else "Playbook steps failed faithfulness inspection."
+            errors.append(f"Layer 2 Faithfulness Error: {feedback_str}")
             return False, errors
 
     except Exception as e:

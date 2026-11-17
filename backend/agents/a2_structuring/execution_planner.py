@@ -115,8 +115,18 @@ def plan_okf_from_raw(
     sop_slug = re.sub(r"[^A-Za-z0-9]+", "-", raw_filename_base).strip("-").upper()[:20]
 
     if pre_extracted_segments is not None:
-        source_parser_type = "pre_extracted_segments"
-        source_segments = pre_extracted_segments
+        # Check if pre-extracted segments contain image segments missing raw binary 'bytes'
+        # (This occurs when segments are retrieved from the JSON artifact store where bytes were popped)
+        needs_reextract = any(
+            isinstance(s, dict) and s.get("type") == "image" and not s.get("bytes")
+            for s in pre_extracted_segments
+        )
+        if needs_reextract and raw_filepath and os.path.exists(raw_filepath):
+            log_info("JIT Converter", f"Image segments in artifact store lack raw bytes. Re-extracting from: {os.path.basename(raw_filepath)}...")
+            source_parser_type, source_segments = extract_ordered_sop_content(raw_filepath)
+        else:
+            source_parser_type = "pre_extracted_segments"
+            source_segments = pre_extracted_segments
     else:
         source_parser_type, source_segments = extract_ordered_sop_content(raw_filepath)
 
@@ -159,7 +169,11 @@ def plan_okf_from_raw(
                 log_warning("JIT Converter Security", f"Document contains more than {max_sop_images} images. Skipping image {image_index}.")
                 continue
             label = seg.get("label", f"Image {image_index}")
-            report_text, image_ref = analyze_and_save_image(seg["bytes"], seg["mime_type"], label, sop_slug, image_index)
+            img_bytes = seg.get("bytes")
+            if not img_bytes:
+                log_warning("JIT Converter", f"Image segment {image_index} is missing raw binary bytes. Skipping VLM inspection.")
+                continue
+            report_text, image_ref = analyze_and_save_image(img_bytes, seg.get("mime_type", "image/png"), label, sop_slug, image_index)
             conf_score = float(image_ref.get("confidence_score", 0.90))
             conf_level = image_ref.get("confidence_level") or ("High" if conf_score >= 0.85 else ("Medium" if conf_score >= 0.60 else "Low"))
 
@@ -293,11 +307,52 @@ def plan_okf_from_raw(
         if attempt > 1:
             log_warning("Converter Retry", f"Attempt {attempt}/{max_retries} with feedback injection...")
 
+        messages = [HumanMessage(content=prompt)]
+        data: Optional[Dict[str, Any]] = None
+
+        # ---------------------------------------------------------------------
+        # STRUCTURED OUTPUT ENFORCEMENT (Constrained OKF Playbook Decoding)
+        # ---------------------------------------------------------------------
+        # When dynamic tool turns are not required (Pure PowerShell / command mode or
+        # pre-injected schemas), directly enforce OKFPlaybookModel to guarantee schema-valid tokens.
+        if not use_tools and hasattr(llm, "with_structured_output"):
+            try:
+                check_cancelled()
+                t0_struct = time.perf_counter()
+                trace_id_val = override_sop_id or sop_slug
+                prov, mdl = resolve_llm_metadata(llm, "execution_planning")
+                structured_planner = llm.with_structured_output(OKFPlaybookModel)
+                s_res = structured_planner.invoke(messages)
+                latency_ms = round((time.perf_counter() - t0_struct) * 1000, 2)
+                if isinstance(s_res, OKFPlaybookModel):
+                    data = s_res.model_dump()
+                elif isinstance(s_res, dict):
+                    data = s_res
+
+                if data is not None:
+                    calls_used += 1
+                    try:
+                        from gemini_monitor.monitor import record_call
+                        record_call(
+                            caller="execution_planning",
+                            model=mdl,
+                            provider=prov,
+                            input_tokens=0,
+                            output_tokens=0,
+                            sop_id=trace_id_val,
+                            trace_id=trace_id_val,
+                            latency_ms=latency_ms,
+                            status="success",
+                        )
+                    except Exception as _exc:
+                        _log.debug("Telemetry record call: %s", _exc)
+            except Exception as _struct_err:
+                _log.debug("Direct structured output fallback: %s", _struct_err)
+                data = None
+
         tool_map = {t.name: t for t in DYNAMIC_CATALOG_TOOLS}
         llm_with_tools = llm.bind_tools(DYNAMIC_CATALOG_TOOLS) if use_tools else llm
-
-        messages = [HumanMessage(content=prompt)]
-        max_tool_turns = 5
+        max_tool_turns = 5 if data is None else 0
         content = ""
         executed_tool_cache = {}
 
@@ -462,60 +517,87 @@ def plan_okf_from_raw(
                     content = str(raw_c)
                 break
 
-        # JSON parsing
-        clean_json = content.strip()
-        code_fence_match = re.search(r"```(?:json|python)?\s*([\s\S]*?)\s*```", content, re.DOTALL)
-        if code_fence_match:
-            block = code_fence_match.group(1).strip()
-            brace_match = re.search(r"(\{[\s\S]*\})", block)
-            clean_json = brace_match.group(1) if brace_match else block
-        else:
-            brace_match = re.search(r"(\{[\s\S]*\})", content)
-            if brace_match:
-                clean_json = brace_match.group(1)
-
-        clean_json = re.sub(r"^\s*\{\{", "{", clean_json)
-        clean_json = re.sub(r"\}\}\s*$", "}", clean_json)
-        clean_json = re.sub(r",\s*([\]}])", r"\1", clean_json)
-
-        data = None
-        json_err_msg = ""
-        try:
-            data = json.loads(clean_json, strict=False)
-        except Exception as e1:
-            json_err_msg = str(e1)
-            try:
-                from utils.security import sanitize_json_text
-                repaired_json = sanitize_json_text(clean_json)
-                data = json.loads(repaired_json, strict=False)
-            except Exception as _exc:
-                _log.debug("plan_okf_from_raw: JSON repair strategy failed, trying the next one (%s: %s)", type(_exc).__name__, _exc)
-
+        # Fallback JSON parsing (only if structured output was not directly emitted)
         if data is None:
-            try:
-                data = ast.literal_eval(clean_json)
-            except Exception as _exc:
-                _log.debug("plan_okf_from_raw: JSON repair strategy failed, trying the next one (%s: %s)", type(_exc).__name__, _exc)
+            clean_json = content.strip()
+            code_fence_match = re.search(r"```(?:json|python)?\s*([\s\S]*?)\s*```", content, re.DOTALL)
+            if code_fence_match:
+                block = code_fence_match.group(1).strip()
+                brace_match = re.search(r"(\{[\s\S]*\})", block)
+                clean_json = brace_match.group(1) if brace_match else block
+            else:
+                brace_match = re.search(r"(\{[\s\S]*\})", content)
+                if brace_match:
+                    clean_json = brace_match.group(1)
 
-        if data is None:
-            # Only attempt single-to-double quote substitution if text uses Python single-quoted keys ({'key': ...})
-            # This prevents destroying English contractions (e.g. User's, doesn't) in standard JSON
-            has_single_quoted_keys = bool(re.search(r"\{\s*'|\n\s*'[\w_-]+'\s*:", clean_json))
-            if has_single_quoted_keys:
+            clean_json = re.sub(r"^\s*\{\{", "{", clean_json)
+            clean_json = re.sub(r"\}\}\s*$", "}", clean_json)
+            clean_json = re.sub(r",\s*([\]}])", r"\1", clean_json)
+
+            json_err_msg = ""
+            try:
+                data = json.loads(clean_json, strict=False)
+            except Exception as e1:
+                json_err_msg = str(e1)
                 try:
-                    normalized = re.sub(r"'([^'\\]*(?:\\.[^'\\]*)*)'", r'"\1"', clean_json)
-                    normalized = re.sub(r"\bTrue\b", "true", normalized)
-                    normalized = re.sub(r"\bFalse\b", "false", normalized)
-                    normalized = re.sub(r"\bNone\b", "null", normalized)
-                    data = json.loads(normalized)
-                except Exception as _exc:
-                    _log.debug("plan_okf_from_raw: JSON repair strategy failed, trying the next one (%s: %s)", type(_exc).__name__, _exc)
+                    from utils.security import sanitize_json_text
+                    repaired_json = sanitize_json_text(clean_json)
+                    data = json.loads(repaired_json, strict=False)
+                except Exception:
+                    try:
+                        data = ast.literal_eval(clean_json)
+                    except Exception:
+                        data = None
 
-        if data is None:
-            err_msg = f"Scenario 1 Error (Attempt {attempt}): JSON Parsing Failed: {json_err_msg or 'Invalid JSON syntax'}"
-            log_warning("Converter", err_msg)
-            feedback_history.append(f"- {err_msg}. MANDATE: Enforce valid JSON output format without truncation.")
-            continue
+            # Phase-2 Structured Synthesis:
+            # If free-form parsing failed or was truncated in tool/hybrid mode,
+            # enforce the Pydantic schema lock directly over the conversation history.
+            if data is None and hasattr(llm, "with_structured_output"):
+                try:
+                    check_cancelled()
+                    t0_struct = time.perf_counter()
+                    trace_id_val = override_sop_id or sop_slug
+                    prov, mdl = resolve_llm_metadata(llm, "execution_planning")
+                    structured_synthesizer = llm.with_structured_output(OKFPlaybookModel)
+                    synth_messages = list(messages)
+                    if not synth_messages or not any(isinstance(m, HumanMessage) for m in synth_messages):
+                        synth_messages = [HumanMessage(content=prompt)]
+                    else:
+                        synth_messages.append(
+                            HumanMessage(content="Tool inspection phase complete. Output the final structured OKF Playbook JSON now.")
+                        )
+                    s_res = structured_synthesizer.invoke(synth_messages)
+                    latency_ms = round((time.perf_counter() - t0_struct) * 1000, 2)
+                    if isinstance(s_res, OKFPlaybookModel):
+                        data = s_res.model_dump()
+                    elif isinstance(s_res, dict):
+                        data = s_res
+
+                    if data is not None:
+                        calls_used += 1
+                        try:
+                            from gemini_monitor.monitor import record_call
+                            record_call(
+                                caller="execution_planning",
+                                model=mdl,
+                                provider=prov,
+                                input_tokens=0,
+                                output_tokens=0,
+                                sop_id=trace_id_val,
+                                trace_id=trace_id_val,
+                                latency_ms=latency_ms,
+                                status="success",
+                            )
+                        except Exception as _exc:
+                            _log.debug("Telemetry record call: %s", _exc)
+                except Exception as _synth_err:
+                    _log.debug("Phase-2 structured synthesis fallback failed: %s", _synth_err)
+
+            if data is None:
+                err_msg = f"Scenario 1 Error (Attempt {attempt}): JSON Parsing Failed: {json_err_msg or 'Invalid JSON syntax'}"
+                log_warning("Converter", err_msg)
+                feedback_history.append(f"- {err_msg}. MANDATE: Enforce valid JSON output format without truncation.")
+                continue
 
         # Schema Validation
         try:

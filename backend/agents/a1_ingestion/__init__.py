@@ -31,6 +31,7 @@ from agents.a1_ingestion.link_scraper import (
 from agents.a1_ingestion.vlm_extractor import (
     analyze_and_save_image,
     analyze_image_bytes,
+    clear_image_report_cache,
     process_sop_images,
     extract_images_from_pdf,
     extract_images_from_docx,
@@ -56,6 +57,7 @@ __all__ = [
     "fetch_and_convert_url",
     "analyze_and_save_image",
     "analyze_image_bytes",
+    "clear_image_report_cache",
     "process_sop_images",
     "extract_images_from_pdf",
     "extract_images_from_docx",

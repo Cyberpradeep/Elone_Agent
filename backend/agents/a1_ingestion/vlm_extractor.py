@@ -14,6 +14,7 @@ import json
 import re
 import time
 import base64
+import hashlib
 from typing import List, Tuple, Dict, Any, Optional
 
 from langchain_core.messages import HumanMessage
@@ -33,6 +34,21 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 KB_DIR = os.getenv("ELONE_KB_DIR", os.path.join(BASE_DIR, "knowledge_base"))
 IMAGES_LOG_DIR = os.path.join(KB_DIR, "logs", "images")
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+
+_IMAGE_REPORT_MEMORY_CACHE: Dict[str, Tuple[str, Dict[str, Any]]] = {}
+
+
+def _safe_relpath(path: str, start: str) -> str:
+    """Safely computes a relative path, handling cross-drive paths on Windows gracefully."""
+    try:
+        return os.path.relpath(path, start).replace("\\", "/")
+    except ValueError:
+        return path.replace("\\", "/")
+
+
+def clear_image_report_cache() -> None:
+    """Clears in-memory VLM image report cache (useful in tests and reloads)."""
+    _IMAGE_REPORT_MEMORY_CACHE.clear()
 
 
 def guess_mime_type(path: str) -> str:
@@ -256,8 +272,21 @@ def analyze_image_bytes(image_bytes: bytes, mime_type: str) -> str:
     return f"VLM Analysis FAILED (quota/rate-limit exhausted after {max_retries} attempts): {last_error}"
 
 
-def analyze_and_save_image(image_bytes: bytes, mime_type: str, label: str, sop_slug: str, index: int) -> Tuple[str, Dict[str, str]]:
-    """Runs VLM analysis on a single image and saves report under knowledge_base/logs/images/<sop_slug>/."""
+def analyze_and_save_image(
+    image_bytes: bytes,
+    mime_type: str,
+    label: str,
+    sop_slug: str,
+    index: int,
+    force_refresh: bool = False,
+) -> Tuple[str, Dict[str, Any]]:
+    """Runs VLM analysis on a single image and saves report under knowledge_base/logs/images/<sop_slug>/.
+    
+    Implements multi-tier caching (Memory + Disk):
+    1. If an existing report matches the image content SHA-256 and is not an error,
+       it reuses the cached inspection report without making duplicate VLM API calls.
+    2. Prevents redundant VLM costs and latency during retry and A4->A2 correction loops.
+    """
     is_valid, sec_err, sanitized_bytes, actual_mime = validate_and_sanitize_image_bytes(image_bytes, mime_type)
     if not is_valid:
         log_error("VLM Security Shield", f"Image {index} ('{label}') rejected: {sec_err}")
@@ -268,6 +297,15 @@ def analyze_and_save_image(image_bytes: bytes, mime_type: str, label: str, sop_s
             "confidence_level": "Low"
         }
 
+    img_sha256 = hashlib.sha256(sanitized_bytes).hexdigest()
+    cache_key = f"{sop_slug}:img_{index}:{img_sha256}"
+
+    # Tier 1: In-Memory Fast Cache
+    if not force_refresh and cache_key in _IMAGE_REPORT_MEMORY_CACHE:
+        cached_rep, cached_ref = _IMAGE_REPORT_MEMORY_CACHE[cache_key]
+        log_info("VLM Cache", f"[VLM Cache Hit] Reusing in-memory inspection report for Image {index} ('{label}') in '{sop_slug}'. Zero API calls.")
+        return cached_rep, cached_ref
+
     sop_image_dir = os.path.join(IMAGES_LOG_DIR, sop_slug)
     os.makedirs(sop_image_dir, exist_ok=True)
 
@@ -276,20 +314,53 @@ def analyze_and_save_image(image_bytes: bytes, mime_type: str, label: str, sop_s
         ext = "jpg"
     img_filename = f"img_{index}.{ext}"
     saved_img_path = os.path.join(sop_image_dir, img_filename)
+    json_meta_path = os.path.join(sop_image_dir, f"{os.path.splitext(img_filename)[0]}_report.json")
+    rel_img_path = _safe_relpath(saved_img_path, BASE_DIR)
+    rel_meta_path = _safe_relpath(json_meta_path, BASE_DIR)
 
+    # Tier 2: Persistent Disk Cache
+    if not force_refresh and os.path.exists(json_meta_path) and os.path.exists(saved_img_path):
+        try:
+            with open(json_meta_path, "r", encoding="utf-8") as f:
+                cached_meta = json.load(f)
+
+            cached_sha = cached_meta.get("sha256")
+            cached_report = cached_meta.get("vlm_report")
+            cached_rep_str = "\n".join(cached_report) if isinstance(cached_report, list) else str(cached_report or "")
+
+            is_match = False
+            if cached_sha and cached_sha == img_sha256:
+                is_match = True
+            elif not cached_sha and os.path.getsize(saved_img_path) == len(sanitized_bytes):
+                with open(saved_img_path, "rb") as sf:
+                    if hashlib.sha256(sf.read()).hexdigest() == img_sha256:
+                        is_match = True
+
+            if is_match and cached_rep_str.strip() and "VLM Analysis FAILED" not in cached_rep_str:
+                log_info("VLM Cache", f"[VLM Cache Hit] Reusing disk inspection report for Image {index} ('{label}') in '{sop_slug}'. Zero API calls.")
+                cached_image_ref = {
+                    "image_path": rel_img_path,
+                    "file_path": rel_meta_path,
+                    "confidence_score": cached_meta.get("confidence_score", 0.90),
+                    "confidence_level": cached_meta.get("confidence_level", "High"),
+                }
+                _IMAGE_REPORT_MEMORY_CACHE[cache_key] = (cached_rep_str, cached_image_ref)
+                return cached_rep_str, cached_image_ref
+        except Exception as _ce:
+            _log.warning("Could not read disk cache from %s: %s", json_meta_path, _ce)
+
+    # Cache miss: Save image to disk and invoke VLM inspection
     with open(saved_img_path, "wb") as f:
         f.write(sanitized_bytes)
 
-    rel_img_path = os.path.relpath(saved_img_path, BASE_DIR).replace("\\", "/")
     report_text = analyze_image_bytes(sanitized_bytes, actual_mime)
     report_str = "\n".join(report_text) if isinstance(report_text, list) else str(report_text)
 
     conf_info = extract_confidence_score(report_str)
 
-    json_meta_path = os.path.join(sop_image_dir, f"{os.path.splitext(img_filename)[0]}_report.json")
-    rel_meta_path = os.path.relpath(json_meta_path, BASE_DIR).replace("\\", "/")
     meta_payload = {
         "image_filename": img_filename,
+        "sha256": img_sha256,
         "label": label,
         "mime_type": actual_mime,
         "confidence_score": conf_info["score"],
@@ -306,6 +377,8 @@ def analyze_and_save_image(image_bytes: bytes, mime_type: str, label: str, sop_s
         "confidence_score": conf_info["score"],
         "confidence_level": conf_info["level"],
     }
+    if report_str.strip() and "VLM Analysis FAILED" not in report_str:
+        _IMAGE_REPORT_MEMORY_CACHE[cache_key] = (report_str, image_ref)
     return report_str, image_ref
 
 
@@ -363,6 +436,7 @@ def process_sop_images(filepath: str, sop_slug: str) -> Dict[str, Any]:
 __all__ = [
     "analyze_and_save_image",
     "analyze_image_bytes",
+    "clear_image_report_cache",
     "process_sop_images",
     "extract_images_from_pdf",
     "extract_images_from_docx",

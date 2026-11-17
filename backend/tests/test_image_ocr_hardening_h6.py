@@ -74,6 +74,74 @@ class TestImageOcrHardeningH6(unittest.TestCase):
         self.assertEqual(draft["vlm_reports"][0]["confidence_score"], 0.92)
         self.assertIn("Visual Inspection Report (Gateway Settings Screen)", draft.get("enriched_text", ""))
 
+    def test_plan_okf_from_raw_reextracts_when_image_segments_missing_bytes(self):
+        """Image segments in artifact store without 'bytes' trigger re-extraction from file."""
+        artifact_segments = [
+            {"type": "text", "content": "Step 1: Restart VPN adapter.\nRestart-Service vpn"},
+            {
+                "type": "image",
+                "bytes_length": 1024,
+                "mime_type": "image/png",
+                "label": "Gateway Screen",
+            },
+        ]
+        real_segments = [
+            {"type": "text", "content": "Step 1: Restart VPN adapter.\nRestart-Service vpn"},
+            {
+                "type": "image",
+                "bytes": b"realbinarybytes",
+                "mime_type": "image/png",
+                "label": "Gateway Screen",
+            },
+        ]
+
+        fake_vlm_report = "Visible gateway status."
+        fake_vlm_ref = {
+            "file_path": "rep.md",
+            "image_path": "img.png",
+            "confidence_score": 0.95,
+            "confidence_level": "High",
+        }
+
+        fake_llm = MagicMock()
+        fake_llm.invoke.return_value = SimpleNamespace(
+            content=json.dumps({
+                "sop_id": "SOP-VPN-002",
+                "title": "VPN Reconnect",
+                "platform": "system",
+                "category": "network",
+                "steps": [
+                    {
+                        "step_number": 1,
+                        "step_type": "command",
+                        "sop_step_description": "Restart VPN service",
+                        "command": "Restart-Service vpn",
+                        "shell": "powershell",
+                    }
+                ],
+            }),
+            usage_metadata={"input_tokens": 50, "output_tokens": 50},
+        )
+
+        with patch.object(ep, "extract_ordered_sop_content", return_value=("ordered_docx", real_segments)) as mock_extract, \
+             patch.object(ep, "analyze_and_save_image", return_value=(fake_vlm_report, fake_vlm_ref)) as mock_img_vlm, \
+             patch.object(ep, "get_llm", return_value=fake_llm), \
+             patch.object(ep, "validate_plan_faithfulness_and_linkage", return_value=(True, [])), \
+             patch.object(ep, "log_execution_plan"), \
+             patch("os.path.exists", return_value=True), \
+             patch("gemini_monitor.monitor.check_daily_limit"), \
+             patch("gemini_monitor.monitor.record_call"):
+
+            draft = ep.plan_okf_from_raw(
+                raw_filepath="solndra_password_reset.docx",
+                override_sop_id="SOP-VPN-002",
+                pre_extracted_segments=artifact_segments,
+            )
+
+        mock_extract.assert_called_once_with("solndra_password_reset.docx")
+        mock_img_vlm.assert_called_once_with(b"realbinarybytes", "image/png", "Gateway Screen", "SOLNDRA-PASSWORD-RES", 1)
+        self.assertEqual(len(draft.get("vlm_reports", [])), 1)
+
     def test_vision_ocr_runs_secret_scan_on_ocr_text(self):
         """H6: OCR text is scanned with redact_sensitive_dlp and secrets are masked."""
         class _FakePix:
