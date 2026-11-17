@@ -13,10 +13,11 @@ class OKFStepModel(BaseModel):
 
     step_number: int = Field(..., description="1-indexed step number")
     sop_step_description: str = Field(..., description="Description of the SOP step action")
-    source_quote: Optional[str] = Field(
-        None,
+    source_quote: str = Field(
+        ...,
+        min_length=5,
         description="5-25 words copied verbatim from the source SOP that this step is based on. "
-                    "The canonical builder locates it in the document to verify traceability.",
+                    "Mandatory for traceability. The canonical builder locates it in the document to verify traceability.",
     )
     step_type: str = Field(default="command", description="Step type: 'tool_call' or 'command'")
     step_reasoning: Optional[str] = Field(
@@ -49,6 +50,13 @@ class OKFStepModel(BaseModel):
             if "output_parse_instruction" in data and not data.get("parse_instruction"):
                 data["parse_instruction"] = data["output_parse_instruction"]
 
+            # Normalize source_quote from common aliases
+            if not data.get("source_quote"):
+                for q_alias in ("quote", "quote_text", "verbatim_quote", "sourceQuote", "source_text_quote"):
+                    if data.get(q_alias):
+                        data["source_quote"] = data[q_alias]
+                        break
+
             # Normalize step_type from common LLM alias keys
             if not data.get("step_type"):
                 for alias in ("type", "action_type", "stepType", "step_action_type"):
@@ -63,6 +71,21 @@ class OKFStepModel(BaseModel):
                 else:
                     data["step_type"] = "command"
         return data
+
+    @field_validator("source_quote")
+    @classmethod
+    def validate_source_quote(cls, v: Any) -> str:
+        if not v or not str(v).strip():
+            raise ValueError(
+                "source_quote is strictly required and cannot be empty. "
+                "Must be 5-25 words copied verbatim from the source document."
+            )
+        val = str(v).strip()
+        if len(val) < 5 or len(val.split()) < 2:
+            raise ValueError(
+                f"source_quote '{val}' is too short; must contain at least 2 words copied verbatim from the SOP."
+            )
+        return val
 
     @field_validator("step_type")
     @classmethod

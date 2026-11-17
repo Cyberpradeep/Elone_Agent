@@ -44,6 +44,7 @@ class TestImageOcrHardeningH6(unittest.TestCase):
                         "sop_step_description": "Restart VPN service",
                         "command": "Restart-Service vpn",
                         "shell": "powershell",
+                        "source_quote": "Restart VPN service",
                     }
                 ],
             }),
@@ -117,6 +118,7 @@ class TestImageOcrHardeningH6(unittest.TestCase):
                         "sop_step_description": "Restart VPN service",
                         "command": "Restart-Service vpn",
                         "shell": "powershell",
+                        "source_quote": "Restart VPN service",
                     }
                 ],
             }),
@@ -237,6 +239,7 @@ class TestImageOcrHardeningH6(unittest.TestCase):
                         "sop_step_description": "Restart-Service spooler",
                         "command": "Restart-Service spooler",
                         "shell": "powershell",
+                        "source_quote": "Restart-Service spooler",
                     }
                 ],
             }

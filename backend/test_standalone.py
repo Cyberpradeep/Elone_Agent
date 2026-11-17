@@ -523,7 +523,8 @@ def test_okf_pydantic_schema():
                 "step_number": 1,
                 "sop_step_description": "Run diagnostic ping",
                 "step_type": "command",
-                "command": "ping 127.0.0.1"
+                "command": "ping 127.0.0.1",
+                "source_quote": "Run diagnostic ping",
             }
         ]
     }
@@ -998,7 +999,8 @@ def test_okf_is_executable_state_variable():
                 "step_number": 1,
                 "sop_step_description": "Run ping",
                 "step_type": "command",
-                "command": "ping 127.0.0.1"
+                "command": "ping 127.0.0.1",
+                "source_quote": "Run ping diagnostic",
             }
         ]
     }

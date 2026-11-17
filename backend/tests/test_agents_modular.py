@@ -75,6 +75,7 @@ class TestAgentsModular(unittest.TestCase):
                         "sop_step_description": "Verify step extraction",
                         "command": "echo 'ok'",
                         "step_type": "command",
+                        "source_quote": "Verify step extraction",
                     }
                 ],
             }

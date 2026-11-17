@@ -234,26 +234,22 @@ def build_canonical_sop_from_draft(
 
         # Traceability: the LLM supplies a verbatim quote from the SOP; the code (not the LLM)
         # finds where it sits in the document, so a made-up or paraphrased quote cannot verify.
-        source_quote = (s.get("source_quote") or "").strip()
-        if source_quote:
-            line_range = _locate_quote(source_quote, source_lines)
-            quote = source_quote
-        else:
-
-            # Fall back: locate via command or action in source document
-            cmd = (s.get("command") or "").strip()
-            cmd_clean = re.sub(r"\{\{[^}]+\}\}", "", cmd).strip()
-            rng = None
-            if cmd_clean and len(cmd_clean) > 3:
-                rng = _locate_quote(cmd_clean, source_lines)
-            if not rng or rng == [1, 1]:
-                rng = _locate_quote(action, source_lines)
-
-            line_range = rng
-            start_idx = max(0, line_range[0] - 1)
-            end_idx = min(len(source_lines), line_range[1])
-            doc_excerpt = " ".join(source_lines[start_idx:end_idx]).strip()
-            quote = doc_excerpt if doc_excerpt else action
+        # Strict source_quote mandate: Fail immediately if missing instead of heuristic fallbacks.
+        source_quote = (
+            s.get("source_quote")
+            or s.get("quote")
+            or s.get("source_text_quote")
+            or s.get("quote_text")
+            or s.get("verbatim_quote")
+            or ""
+        ).strip()
+        if not source_quote:
+            raise ValueError(
+                f"Step {idx} ('{action}') rejected: Missing required verbatim 'source_quote'. "
+                f"Every step must have an explicit quote directly extracted from the source document."
+            )
+        line_range = _locate_quote(source_quote, source_lines)
+        quote = source_quote
 
 
         canonical_step = {

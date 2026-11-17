@@ -144,6 +144,7 @@ class TestPipelineIntegration(unittest.TestCase):
                         "step_type": "command",
                         "command": "ipconfig /flushdns",
                         "shell": "powershell",
+                        "source_quote": "Flush Windows DNS resolver cache",
                     },
                     {
                         "step_number": 2,
@@ -151,6 +152,7 @@ class TestPipelineIntegration(unittest.TestCase):
                         "step_type": "command",
                         "command": "Get-Process chrome | Stop-Process -Force",
                         "shell": "powershell",
+                        "source_quote": "Clear Chrome temporary socket pools",
                     },
                 ],
             }
