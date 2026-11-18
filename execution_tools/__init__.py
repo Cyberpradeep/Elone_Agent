@@ -2,8 +2,10 @@
 
 from .variable_resolver import resolve_template_variables, resolve_step_placeholders
 from .winrm_executor import run_remote_command as run_winrm_command
-from .ssh_executor import run_remote_ssh_command, run_remote_ssh_command as run_remote_command
+from .ssh_executor import run_remote_ssh_command
+from .dispatcher import dispatch_remote_command as run_remote_command, dispatch_remote_command
 from .comm_executor import execute_comm_tool
+from .ast_sandbox import validate_command_against_allowlist, scan_commands_for_ast_threats
 
 __all__ = [
     "resolve_template_variables",
@@ -12,4 +14,6 @@ __all__ = [
     "run_remote_ssh_command",
     "run_winrm_command",
     "execute_comm_tool",
+    "validate_command_against_allowlist",
+    "scan_commands_for_ast_threats",
 ]

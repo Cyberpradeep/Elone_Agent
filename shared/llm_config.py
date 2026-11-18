@@ -7,22 +7,20 @@ load_dotenv()
 
 ROLE_PROVIDER_MAP = {
     "execution_planning": {
-        "provider": "mistral", 
-        "model": "mistral-small-latest",
+        "provider": "groq", 
+        "model": "openai/gpt-oss-120b",
         "fallbacks": [
-            {"provider": "mistral2", "model": "mistral-small-latest"},
-            # {"provider": "gemini", "model": "gemini-2.5-flash"},
-            {"provider": "zai", "model": "GLM-4.7-Flash"}
+            {"provider": "zai", "model": "GLM-4.7-Flash"},
+            {"provider": "groq_fallback", "model": "openai/gpt-oss-120b"}
         ]
     },
 
     "triage": {
-        "provider": "mistral3", 
-        "model": "mistral-small-latest",
+        "provider": "groq", 
+        "model": "openai/gpt-oss-120b",
         "fallbacks":[
-            {"provider": "gemini", "model": "gemini-2.5-flash"},
-            {"provider": "gemini2", "model": "gemini-2.5-flash"},
-            {"provider": "zai", "model": "GLM-4.7-Flash"}
+            {"provider": "zai", "model": "GLM-4.7-Flash"},
+            {"provider": "groq_fallback", "model": "openai/gpt-oss-120b"}
         ]
     },
 
@@ -31,20 +29,16 @@ ROLE_PROVIDER_MAP = {
         "model": "openai/gpt-oss-120b",
         "fallbacks":[
             {"provider": "groq_fallback", "model": "openai/gpt-oss-120b"},
-            # {"provider": "gemini", "model": "gemini-2.5-flash"},
-            {"provider": "mistral2", "model": "mistral-small-latest"},
             {"provider": "zai", "model": "GLM-4.7-Flash"}
         ]
     },
 
     "summarization": {
-        "provider": "gemini", 
-        "model": "gemini-2.5-flash",
+        "provider": "groq_fallback", 
+        "model": "openai/gpt-oss-120b",
         "fallbacks":[
-            {"provider": "groq_fallback", "model": "openai/gpt-oss-120b"},
-            # {"provider": "gemini", "model": "gemini-2.5-flash"},
-            # {"provider": "mistral", "model": "mistral-small-latest"},
-            {"provider": "zai", "model": "GLM-4.7-Flash"}
+            {"provider": "zai", "model": "GLM-4.7-Flash"},
+            {"provider": "groq", "model": "openai/gpt-oss-120b"}
         ]
     },
 }

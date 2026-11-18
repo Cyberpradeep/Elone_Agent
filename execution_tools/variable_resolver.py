@@ -3,11 +3,22 @@ import re
 from typing import Any, Dict
 
 
+def sanitize_placeholder_value(val: Any) -> str:
+    """Sanitizes injected entity/variable values against shell injection metacharacters."""
+    if val is None:
+        return ""
+    if not isinstance(val, str):
+        return str(val)
+    # Neutralize dangerous shell chain and subexpression characters
+    sanitized = re.sub(r'[\r\n;&|`]|(?:\$\()', '', val)
+    return sanitized.strip()
+
+
 def resolve_template_variables(text: str, entities: Dict[str, Any] = None, variables: Dict[str, Any] = None) -> str:
     """Replaces {{entities.key}}, {{variables.key}}, and single-brace placeholders deterministically in text.
 
     Performs direct key lookups across variables and entities scopes.
-    Static entity placeholder binding is performed by the Planner Agent LLM during plan synthesis.
+    Applies security sanitization to prevent command injection breakouts.
     """
     if not text or not isinstance(text, str):
         return text
@@ -22,7 +33,7 @@ def resolve_template_variables(text: str, entities: Dict[str, Any] = None, varia
         if val is None and key.lower() in ("application", "app", "executable", "app_exe"):
             val = entities.get("executable") or entities.get("application_name") or variables.get("executable")
         if val is not None:
-            return str(val)
+            return sanitize_placeholder_value(val)
         return match.group(0)
 
     resolved_text = re.sub(r"\{+entities\.(.*?)\}+", replace_entity, text)
@@ -48,7 +59,7 @@ def resolve_template_variables(text: str, entities: Dict[str, Any] = None, varia
             current = entities[raw_path]
 
         if current is not None and not isinstance(current, (dict, list)):
-            return str(current)
+            return sanitize_placeholder_value(current)
         elif isinstance(current, (dict, list)):
             return json.dumps(current)
         
@@ -69,7 +80,7 @@ def resolve_template_variables(text: str, entities: Dict[str, Any] = None, varia
             if val is None:
                 val = entities.get(clean_key)
             if val is not None:
-                return str(val)
+                return sanitize_placeholder_value(val)
             return match.group(0)
 
         if raw_key.startswith("entities."):
@@ -78,7 +89,7 @@ def resolve_template_variables(text: str, entities: Dict[str, Any] = None, varia
             if val is None and clean_key.lower() in ("application", "app", "executable", "app_exe"):
                 val = entities.get("executable") or entities.get("application_name")
             if val is not None:
-                return str(val)
+                return sanitize_placeholder_value(val)
             return match.group(0)
 
         # Unadorned {key}: Check variables first, then entities
@@ -86,7 +97,7 @@ def resolve_template_variables(text: str, entities: Dict[str, Any] = None, varia
         if val is None and raw_key.lower() in ("application", "app", "executable", "app_exe"):
             val = entities.get("executable") or entities.get("application_name")
         if val is not None:
-            return str(val)
+            return sanitize_placeholder_value(val)
 
         return match.group(0)
 

@@ -36,16 +36,9 @@ from shared.tool_catalog import (
 )
 
 # ---------------------------------------------------------------------------
-# 3. Standalone SOP Ingestion & Compilation Pipeline (elone_sop)
+# 3. Platform Schemas, Validation & Converter Pipeline
 # ---------------------------------------------------------------------------
-# pyrefly: ignore [missing-import]
-from elone_sop import (
-    convert_raw_sop_to_okf,
-    plan_okf_from_raw,
-    write_okf_playbook,
-    validate_plan_faithfulness_and_linkage,
-    extract_ordered_sop_content,
-    extract_full_text,
+from shared.schemas.platforms import (
     find_platform_schema,
     get_all_valid_platform_names,
     DETAILED_TOOL_SCHEMAS,
@@ -55,6 +48,15 @@ from elone_sop import (
     AUTH0_SCHEMA,
     AIRRETAILER_SCHEMA,
     MOCK_SCHEMA,
+)
+from okf_engine.validator import (
+    validate_plan_faithfulness_and_linkage,
+    validate_tool_step_schema,
+)
+from okf_engine.converter import (
+    write_okf_playbook,
+    plan_okf_from_raw,
+    convert_raw_sop_to_okf,
 )
 
 # ---------------------------------------------------------------------------

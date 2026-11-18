@@ -180,7 +180,15 @@ def synthesize_execution_plan_with_deep_cot(
             json_str = cleaned_content[cleaned_content.find("{"):cleaned_content.rfind("}")+1]
             parsed = json.loads(json_str)
             if "steps" in parsed and isinstance(parsed["steps"], list) and len(parsed["steps"]) > 0:
-                generated_steps = parsed["steps"]
+                merged_steps = []
+                for idx, gen_step in enumerate(parsed["steps"]):
+                    base_step = dict(raw_sop_steps[idx]) if idx < len(raw_sop_steps) else {}
+                    merged = dict(base_step)
+                    for k, v in gen_step.items():
+                        if v is not None and v != "":
+                            merged[k] = v
+                    merged_steps.append(merged)
+                generated_steps = merged_steps
             if "reasoning_chain" in parsed and isinstance(parsed["reasoning_chain"], list):
                 reasoning_chain = parsed["reasoning_chain"]
     except Exception as e:

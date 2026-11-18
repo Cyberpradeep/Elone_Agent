@@ -1,6 +1,6 @@
 import json
 import re
-from typing import Literal, Any, Dict, List, Optional
+from typing import Literal, Any, Dict, List, Optional, Union
 from pydantic import BaseModel, Field
 # pyrefly: ignore [missing-import]
 from langgraph.types import Command
@@ -8,6 +8,11 @@ from langgraph.types import Command
 from shared.state import SupportState
 from shared.llm_config import get_llm
 from okf_engine.memory_logger import write_episodic_log
+
+
+class VariableEntry(BaseModel):
+    name: str
+    value: str
 
 
 class SummarizationOutput(BaseModel):
@@ -23,7 +28,7 @@ class SummarizationOutput(BaseModel):
         default_factory=list,
         description="List of automated actions and CLI commands executed during the workflow."
     )
-    discovered_variables: Dict[str, Any] = Field(
+    discovered_variables: Union[Dict[str, Any], List[VariableEntry], List[Dict[str, Any]], List[str]] = Field(
         default_factory=dict,
         description="Extracted dynamic variables and values."
     )
@@ -32,12 +37,15 @@ class SummarizationOutput(BaseModel):
         description="Next steps or recommendations for the user or engineering team."
     )
     customer_ticket_reply: str = Field(
+        default="",
         description="Professional, plain-language resolution message to the end user explaining what was diagnosed and fixed (sent via email)."
     )
     internal_ticket_summary: str = Field(
+        default="",
         description="Detailed technical engineering summary report in Markdown format analyzing the execution logs, commands run, extracted variables, and final status."
     )
     resolution_type: Literal["FULLY_RESOLVED", "ESCALATED_L2", "MANUAL_INTERVENTION_REQUIRED"] = Field(
+        default="FULLY_RESOLVED",
         description="Final resolution categorization."
     )
 
@@ -223,7 +231,12 @@ def summarization_agent(state: SupportState) -> Command[Literal["__end__"]]:
         res.internal_ticket_summary = escalation_payload.get("handover_markdown")
         res.resolution_type = "ESCALATED_L2"
     elif not res.internal_ticket_summary or len(res.internal_ticket_summary.strip()) < 50:
-        var_lines = "\n".join([f"- **`{k}`**: `{v}`" for k, v in res.discovered_variables.items()]) if res.discovered_variables else "- *No dynamic variables extracted*"
+        if isinstance(res.discovered_variables, dict):
+            var_lines = "\n".join([f"- **`{k}`**: `{v}`" for k, v in res.discovered_variables.items()])
+        elif isinstance(res.discovered_variables, list):
+            var_lines = "\n".join([f"- **`{getattr(v, 'name', v)}`**: `{getattr(v, 'value', '')}`" for v in res.discovered_variables])
+        else:
+            var_lines = "- *No dynamic variables extracted*"
         action_lines = "\n".join([f"- {a}" for a in res.actions_taken]) if res.actions_taken else "- *Automated execution completed*"
         finding_lines = "\n".join([f"- {f}" for f in res.diagnostic_findings]) if res.diagnostic_findings else f"- Evaluated workstation {hostname}"
         res.internal_ticket_summary = (

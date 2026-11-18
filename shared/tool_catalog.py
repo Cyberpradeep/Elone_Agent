@@ -1,5 +1,4 @@
-# pyrefly: ignore [missing-import]
-from elone_sop import (
+from shared.schemas.platforms import (
     DETAILED_TOOL_SCHEMAS,
     find_platform_schema,
     get_all_valid_platform_names,

@@ -35,7 +35,7 @@ class TriageResult(BaseModel):
         description="Confidence score (0.0 to 1.0) evaluating how closely the reported symptoms match an active OKF playbook in the catalog."
     )
     
-    sop_source: Optional[Literal["okf_playbook"]] = Field(
+    sop_source: Optional[str] = Field(
         default="okf_playbook",
         description="Indicates that the matched SOP is an active OKF playbook."
     )

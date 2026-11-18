@@ -22,8 +22,7 @@ import threading
 import time
 from typing import Optional
 
-# pyrefly: ignore [missing-import]
-from elone_sop import convert_raw_sop_to_okf
+from okf_engine import convert_raw_sop_to_okf
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KB_DIR = os.getenv("ELONE_KB_DIR", os.path.join(BASE_DIR, "knowledge_base"))
@@ -187,8 +186,16 @@ def start_sop_ingestion_scheduler(interval_minutes: Optional[int] = None):
     """Start the SOP ingestion scheduler as a background daemon thread.
 
     Safe to call multiple times — only the first call starts the thread.
+    Disabled by default: SOP ingestion is governed exclusively by Elone_Agent (Governance Hub).
     """
+    if os.environ.get("ENABLE_SOP_INGESTION_SCHEDULER", "false").lower() not in ("true", "1", "yes"):
+        print("[SOP Scheduler] Ingestion scheduler is disabled (governed by Elone_Agent Governance Hub).")
+        return
+
     interval = interval_minutes or DEFAULT_INTERVAL_MINUTES
+    if interval <= 0:
+        print("[SOP Scheduler] Interval <= 0. Ingestion scheduler will not start.")
+        return
 
     with _scheduler_lock:
         if _scheduler_state["running"]:

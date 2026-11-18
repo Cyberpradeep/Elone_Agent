@@ -1,5 +1,5 @@
 import pytest
-from elone_sop import validate_plan_faithfulness_and_linkage
+from okf_engine import validate_plan_faithfulness_and_linkage
 
 
 def test_layer1_deterministic_validation():

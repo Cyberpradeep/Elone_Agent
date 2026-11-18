@@ -183,12 +183,33 @@ def _match_sop_from_category_index(
     intent_words = set(re.findall(r"\b[a-zA-Z]{3,}\b", intent_clean)) - GENERIC_NOISE_KEYWORDS
 
     for line in lines:
-        match = re.search(r"-\s*\[(.*?)\]\(\./(.*?)\)(?:\s*-\s*(.*))?", line.strip())
-        if match:
-            title, rel_filename, desc = match.groups()
+        line_str = line.strip()
+        link_match = re.search(r"-\s*\[(.*?)\]\(\.?\/?(.*?)\)", line_str)
+        if link_match:
+            title, raw_rel = link_match.groups()
+            rel_filename = raw_rel.lstrip("./").lstrip("/")
+            
+            # Resolve filepath across category dir and SOPS_DIR
             filepath = os.path.join(cat_dir, rel_filename)
+            if not os.path.exists(filepath):
+                cand_sops = os.path.join(SOPS_DIR, rel_filename)
+                cand_base = os.path.join(cat_dir, os.path.basename(rel_filename))
+                if os.path.exists(cand_sops):
+                    filepath = cand_sops
+                elif os.path.exists(cand_base):
+                    filepath = cand_base
+
+            # Extract description and trigger words (supports pipe | and hyphen - formats)
+            desc_clean = ""
+            if "|" in line_str:
+                parts = [p.strip() for p in line_str.split("|")]
+                desc_clean = " ".join(parts[1:]).lower()
+            else:
+                hyphen_match = re.search(r"\)\s*-\s*(.*)", line_str)
+                if hyphen_match:
+                    desc_clean = hyphen_match.group(1).strip().lower()
+
             title_clean = normalize_intent_text(title)
-            desc_clean = (desc or "").lower()
 
             score = 0.0
             if title_clean == intent_clean:
