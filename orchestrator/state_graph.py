@@ -18,6 +18,7 @@ from hub_security.sanitizer import sanitize_incoming_ticket, wrap_untrusted_data
 from orchestrator.stubs import MockExecutorWorker, MockVerifierWorker
 from orchestrator.kill_switch import GLOBAL_KILL_SWITCH
 from orchestrator.pre_step_guard import verify_pre_step_guard
+from orchestrator.budgets import RunBudget, execute_with_timeout
 
 
 class ExecutionModeEnum(str, Enum):
@@ -44,6 +45,8 @@ class EngineState(TypedDict, total=False):
     replan_attempts: int
     security_blocked: bool
     kill_switch_engaged: bool
+    tokens_used: int
+    start_time: float
     error_message: Optional[str]
 
 
@@ -171,8 +174,9 @@ def execution_node(
     state: EngineState,
     executor: Optional[MockExecutorWorker] = None,
     hub_service: Optional[Any] = None,
+    budget: Optional[RunBudget] = None,
 ) -> Dict[str, Any]:
-    """Execute the active step via executor worker, guarded by kill switch & Hub status."""
+    """Execute the active step via executor worker, guarded by kill switch, Hub status, and budget."""
     current = EngineStateEnum(state.get("workflow_state", EngineStateEnum.AWAITING_APPROVAL.value))
     thread_id = state.get("issue_id", "default")
 
@@ -186,11 +190,22 @@ def execution_node(
             "error_message": "Execution halted by emergency Kill Switch.",
         }
 
+    # 2. Resource Budget Guard (Edge Case 36)
+    tokens_used = state.get("tokens_used", 0)
+    max_tokens = budget.max_tokens if budget else 50_000
+    if tokens_used > max_tokens:
+        target = EngineStateEnum.STOPPED_BUDGET_EXCEEDED
+        validate_transition_or_raise(current, target)
+        return {
+            "workflow_state": target.value,
+            "error_message": f"Global token budget exceeded: {tokens_used} > {max_tokens}",
+        }
+
     plan = state.get("plan") or {}
     steps = plan.get("steps", [])
     idx = state.get("current_step_idx", 0)
 
-    # 2. Pre-Mutation Hub Status Re-Check Guard (Rule 5 & Edge Case 4)
+    # 3. Pre-Mutation Hub Status Re-Check Guard (Rule 5 & Edge Case 4)
     if idx < len(steps):
         raw_step = steps[idx]
         risk_val = raw_step.get("evaluated_risk", raw_step.get("risk_level", 1))
@@ -238,8 +253,12 @@ def execution_node(
     }
 
 
-def verification_node(state: EngineState, verifier: Optional[MockVerifierWorker] = None) -> Dict[str, Any]:
-    """Verify execution outcome and determine step progression."""
+def verification_node(
+    state: EngineState,
+    verifier: Optional[MockVerifierWorker] = None,
+    budget: Optional[RunBudget] = None,
+) -> Dict[str, Any]:
+    """Verify execution outcome, handle replans, and enforce remediation loop breaker."""
     current = EngineStateEnum(state.get("workflow_state", EngineStateEnum.EXECUTING.value))
     target = EngineStateEnum.VERIFYING
     validate_transition_or_raise(current, target)
@@ -255,13 +274,27 @@ def verification_node(state: EngineState, verifier: Optional[MockVerifierWorker]
     mode = state.get("mode", ExecutionModeEnum.SUPERVISED.value)
 
     if not v_res.get("passed", False):
-        final_target = EngineStateEnum.NEEDS_HUMAN
-        validate_transition_or_raise(target, final_target)
-        return {
-            "workflow_state": final_target.value,
-            "verification_results": results,
-            "error_message": f"Verification failed on step {idx + 1}",
-        }
+        replans = state.get("replan_attempts", 0)
+        max_replans = budget.max_replan_attempts if budget else 2
+        if replans >= max_replans:
+            final_target = EngineStateEnum.NEEDS_HUMAN
+            validate_transition_or_raise(target, final_target)
+            return {
+                "workflow_state": final_target.value,
+                "verification_results": results,
+                "replan_attempts": replans,
+                "error_message": f"Remediation loop breaker: maximum replan attempts ({max_replans}) reached",
+            }
+        else:
+            # Replan retry loop
+            loop_target = EngineStateEnum.EXECUTING
+            validate_transition_or_raise(target, loop_target)
+            return {
+                "workflow_state": loop_target.value,
+                "replan_attempts": replans + 1,
+                "verification_results": results,
+                "error_message": f"Verification failed on attempt {replans + 1}; initiating replan retry",
+            }
 
     # If shadow mode or all steps completed
     if mode == ExecutionModeEnum.SHADOW.value or (idx + 1 >= len(steps)):
@@ -365,6 +398,7 @@ def route_after_execution(state: EngineState) -> str:
     if wf in (
         EngineStateEnum.STOPPED_KILL_SWITCH.value,
         EngineStateEnum.STOPPED_SECURITY_BLOCKED.value,
+        EngineStateEnum.STOPPED_BUDGET_EXCEEDED.value,
     ):
         return "end"
     return "verification"
@@ -386,16 +420,17 @@ def create_orchestrator_graph(
     executor: Optional[MockExecutorWorker] = None,
     verifier: Optional[MockVerifierWorker] = None,
     hub_service: Optional[Any] = None,
+    budget: Optional[RunBudget] = None,
 ):
     """Compile and return the authoritative LangGraph orchestrator state machine."""
     workflow = StateGraph(EngineState)
 
     # Bind workers into node closures
     def bound_execution_node(state: EngineState) -> Dict[str, Any]:
-        return execution_node(state, executor=executor, hub_service=hub_service)
+        return execution_node(state, executor=executor, hub_service=hub_service, budget=budget)
 
     def bound_verification_node(state: EngineState) -> Dict[str, Any]:
-        return verification_node(state, verifier=verifier)
+        return verification_node(state, verifier=verifier, budget=budget)
 
     # Register nodes
     workflow.add_node("intake", intake_node)

@@ -304,4 +304,7 @@ def test_verification_failure_escalates_to_needs_human(sample_plan):
     )
 
     assert final_state["workflow_state"] == EngineStateEnum.NEEDS_HUMAN.value
-    assert "Verification failed" in final_state["error_message"]
+    assert (
+        "Remediation loop breaker" in final_state["error_message"]
+        or "Verification failed" in final_state["error_message"]
+    )
