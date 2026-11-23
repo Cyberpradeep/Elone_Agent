@@ -52,3 +52,17 @@ def test_kill_switch_accessible_from_active_states():
     for state in active_states:
         assert is_valid_transition(state, EngineStateEnum.STOPPED_KILL_SWITCH)
 
+
+def test_security_blocked_accessible_from_active_states():
+    """Verify that Security Guard can block any active intake, planning, or execution state."""
+    guard_states = [
+        EngineStateEnum.RECEIVED,
+        EngineStateEnum.TRIAGED,
+        EngineStateEnum.PLANNED,
+        EngineStateEnum.POLICY_EVALUATED,
+        EngineStateEnum.AWAITING_APPROVAL,
+        EngineStateEnum.EXECUTING,
+    ]
+    for state in guard_states:
+        assert is_valid_transition(state, EngineStateEnum.STOPPED_SECURITY_BLOCKED)
+

@@ -14,6 +14,19 @@ from orchestrator.stubs import (
     MockExecutorWorker,
     MockVerifierWorker,
 )
+from orchestrator.kill_switch import (
+    KillSwitch,
+    GLOBAL_KILL_SWITCH,
+)
+from orchestrator.pre_step_guard import (
+    PreStepGuardResult,
+    verify_pre_step_guard,
+)
+from orchestrator.lifecycle import (
+    reset_issue,
+    cancel_execution,
+    package_human_handover,
+)
 
 __all__ = [
     "SqliteCheckpointer",
@@ -24,4 +37,11 @@ __all__ = [
     "create_orchestrator_graph",
     "MockExecutorWorker",
     "MockVerifierWorker",
+    "KillSwitch",
+    "GLOBAL_KILL_SWITCH",
+    "PreStepGuardResult",
+    "verify_pre_step_guard",
+    "reset_issue",
+    "cancel_execution",
+    "package_human_handover",
 ]
