@@ -53,12 +53,14 @@ VALID_TRANSITIONS: Dict[EngineStateEnum, Set[EngineStateEnum]] = {
         EngineStateEnum.EXECUTING,
         EngineStateEnum.STOPPED_KILL_SWITCH,
         EngineStateEnum.STOPPED_SECURITY_BLOCKED,
+        EngineStateEnum.STOPPED_BUDGET_EXCEEDED,
     },
     EngineStateEnum.AWAITING_APPROVAL: {
         EngineStateEnum.EXECUTING,
         EngineStateEnum.STOPPED_REJECTED,
         EngineStateEnum.STOPPED_KILL_SWITCH,
         EngineStateEnum.STOPPED_SECURITY_BLOCKED,
+        EngineStateEnum.STOPPED_BUDGET_EXCEEDED,
     },
     EngineStateEnum.EXECUTING: {
         EngineStateEnum.VERIFYING,
@@ -72,6 +74,7 @@ VALID_TRANSITIONS: Dict[EngineStateEnum, Set[EngineStateEnum]] = {
         EngineStateEnum.COMPLETED,  # All steps finished and verified
         EngineStateEnum.NEEDS_HUMAN,  # Verification failed / retries exhausted
         EngineStateEnum.STOPPED_KILL_SWITCH,
+        EngineStateEnum.STOPPED_BUDGET_EXCEEDED,
     },
     # Terminal stop states have zero outbound transitions
     EngineStateEnum.COMPLETED: set(),

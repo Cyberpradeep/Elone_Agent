@@ -27,6 +27,11 @@ from orchestrator.lifecycle import (
     cancel_execution,
     package_human_handover,
 )
+from orchestrator.budgets import (
+    RunBudget,
+    BudgetTracker,
+    execute_with_timeout,
+)
 
 __all__ = [
     "SqliteCheckpointer",
@@ -44,4 +49,7 @@ __all__ = [
     "reset_issue",
     "cancel_execution",
     "package_human_handover",
+    "RunBudget",
+    "BudgetTracker",
+    "execute_with_timeout",
 ]
