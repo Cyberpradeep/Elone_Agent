@@ -60,3 +60,4 @@ def verify_pre_step_guard(
         )
 
     return PreStepGuardResult(passed=True, reason="SOP is PUBLISHED and hash is verified")
+

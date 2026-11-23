@@ -132,3 +132,4 @@ def test_get_checkpointer_factory():
     # Postgres without DATABASE_URL raises ValueError
     with pytest.raises(ValueError, match="DATABASE_URL or connection_string is required"):
         get_checkpointer("postgres")
+

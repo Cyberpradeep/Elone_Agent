@@ -81,3 +81,4 @@ def test_package_human_handover():
     assert handover["failed_step"]["title"] == "Restart Database Service"
     assert len(handover["completed_outputs"]) == 1
     assert "Database failed to restart" in handover["escalation_reason"]
+

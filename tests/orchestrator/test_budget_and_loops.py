@@ -159,3 +159,4 @@ def test_token_budget_exceeded_halts_execution():
     assert "token budget exceeded" in final_state["error_message"].lower()
     assert len(executor.invocations) == 0  # No tool execution occurred
     cp.close()
+

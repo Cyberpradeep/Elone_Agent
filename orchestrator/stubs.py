@@ -63,3 +63,4 @@ class MockVerifierWorker:
             "message": self.default_message,
             "evidence": {"status": "HEALTHY", "verified": self.default_passed},
         }
+

@@ -55,3 +55,4 @@ class KillSwitch:
 
 # Authoritative process-wide singleton
 GLOBAL_KILL_SWITCH = KillSwitch()
+
