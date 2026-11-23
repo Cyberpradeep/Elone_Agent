@@ -98,3 +98,4 @@ def test_mock_hub_deactivation_drill():
     # Post-check: deactivated
     status_after = hub.get_sop_status("SOP-WIN-014")
     assert status_after["status"] == "DEACTIVATED"
+

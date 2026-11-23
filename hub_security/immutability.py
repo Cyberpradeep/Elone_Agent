@@ -60,3 +60,4 @@ def validate_semver_progression(current_version: str, next_version: str) -> bool
         return tuple(next_parts) > tuple(curr_parts)
     except (ValueError, AttributeError):
         return False
+

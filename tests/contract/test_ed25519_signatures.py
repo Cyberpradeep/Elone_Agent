@@ -63,3 +63,4 @@ def test_unauthorized_key_fails_verification():
     assert verify_canonical_signature(pub_hex2, sig_hex, data) is False
     with pytest.raises(CryptographicVerificationError):
         verify_canonical_signature_or_raise(pub_hex2, sig_hex, data)
+

@@ -80,3 +80,4 @@ def test_binary_catalog_allowlist_enforcement():
     is_valid, reason = validate_command_and_arguments("mimikatz.exe privilege::debug", allowed_binaries=allowed)
     assert is_valid is False
     assert "not in the allowed binaries catalog" in reason
+

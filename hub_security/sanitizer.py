@@ -49,3 +49,4 @@ def sanitize_incoming_ticket(ticket_payload: Dict[str, Any]) -> Dict[str, Any]:
         else:
             sanitized[key] = value
     return sanitized
+

@@ -82,3 +82,4 @@ def verify_canonical_signature_or_raise(
             f"INVALID_SIGNATURE: Cryptographic verification failed for {context}. "
             f"The payload has been tampered with or was signed by an unauthorized key."
         )
+

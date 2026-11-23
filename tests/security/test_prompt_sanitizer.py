@@ -45,3 +45,4 @@ def test_sanitize_nested_incoming_ticket():
     assert sanitized["nested_details"]["comment"] == "Admin said: &lt;execute&gt;format c:&lt;/execute&gt;"
     assert sanitized["nested_details"]["tags"] == ["network", "&lt;urgent&gt;"]
     assert sanitized["count"] == 5
+

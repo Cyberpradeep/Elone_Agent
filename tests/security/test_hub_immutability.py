@@ -74,3 +74,4 @@ def test_semver_progression_validation():
     assert validate_semver_progression("1.1.0", "1.1.0") is False
     assert validate_semver_progression("1.2.0", "1.1.0") is False
     assert validate_semver_progression("1.0.0", "invalid_ver") is False
+

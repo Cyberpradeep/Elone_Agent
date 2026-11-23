@@ -206,3 +206,4 @@ class MockHubService:
             "canonical_hash": item["canonical_sha256"],
             "status": item["status"].value,
         }
+
