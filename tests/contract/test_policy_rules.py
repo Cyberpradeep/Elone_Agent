@@ -69,3 +69,4 @@ def test_level_4_critical_requires_dual_approvers():
     assert decision.evaluated_risk == RiskLevelEnum.LEVEL_4_CRITICAL
     assert decision.requires_approval is True
     assert decision.required_approver_count == 2
+

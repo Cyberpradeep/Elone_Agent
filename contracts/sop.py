@@ -69,3 +69,4 @@ class SignedSOPPayload(BaseModel):
     key_id: str = Field(..., min_length=3, max_length=64, description="Hub public key ID")
     status: SOPStatusEnum = SOPStatusEnum.PUBLISHED
     signed_at: datetime = Field(default_factory=datetime.utcnow)
+

@@ -92,3 +92,4 @@ def test_expired_approval_request_rejected():
     simulated_future_time = req.created_at + timedelta(minutes=65)
     with pytest.raises(ValueError, match="expired"):
         validate_approval_governance(req, rec, current_time=simulated_future_time)
+

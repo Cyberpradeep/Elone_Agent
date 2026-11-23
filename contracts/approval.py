@@ -90,3 +90,4 @@ def validate_approval_governance(
     # Rule 4: Level 3 High Mutations require at least one approver
     if request.risk_level == 3 and len(record.approver_ids) < 1:
         raise ValueError("Level 3 high risk requires at least 1 approver.")
+

@@ -57,3 +57,4 @@ def test_signed_sop_payload():
     )
     assert payload.status == SOPStatusEnum.PUBLISHED
     assert payload.key_id == "hub-key-2026-v1"
+

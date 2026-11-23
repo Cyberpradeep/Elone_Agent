@@ -99,3 +99,4 @@ class ExecutionPlan(BaseModel):
             plan_hash=h,
             created_at=created_at or datetime.utcnow(),
         )
+

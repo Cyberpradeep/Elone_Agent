@@ -97,3 +97,4 @@ def test_step_binding_contract():
     )
     assert binding.tool_name == "winrm_jea"
     assert binding.parameter_bindings[0].source == ParameterSourceEnum.TICKET_ENTITY
+
