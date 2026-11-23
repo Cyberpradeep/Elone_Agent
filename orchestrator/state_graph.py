@@ -16,6 +16,8 @@ from contracts.policy import RiskLevelEnum, EnvironmentEnum, evaluate_step_risk
 from contracts.plan import ExecutionStep
 from hub_security.sanitizer import sanitize_incoming_ticket, wrap_untrusted_data
 from orchestrator.stubs import MockExecutorWorker, MockVerifierWorker
+from orchestrator.kill_switch import GLOBAL_KILL_SWITCH
+from orchestrator.pre_step_guard import verify_pre_step_guard
 
 
 class ExecutionModeEnum(str, Enum):
@@ -157,25 +159,63 @@ def approval_node(state: EngineState) -> Dict[str, Any]:
     """Hold execution awaiting explicit human authorization."""
     current = EngineStateEnum(state.get("workflow_state", EngineStateEnum.POLICY_EVALUATED.value))
     target = EngineStateEnum.AWAITING_APPROVAL
-    validate_transition_or_raise(current, target)
+    if current != target:
+        validate_transition_or_raise(current, target)
     return {
         "workflow_state": target.value,
         "approval_status": state.get("approval_status", "PENDING"),
     }
 
 
-def execution_node(state: EngineState, executor: Optional[MockExecutorWorker] = None) -> Dict[str, Any]:
-    """Execute the active step via executor worker."""
+def execution_node(
+    state: EngineState,
+    executor: Optional[MockExecutorWorker] = None,
+    hub_service: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """Execute the active step via executor worker, guarded by kill switch & Hub status."""
     current = EngineStateEnum(state.get("workflow_state", EngineStateEnum.AWAITING_APPROVAL.value))
+    thread_id = state.get("issue_id", "default")
+
+    # 1. Immediate Kill Switch Guard
+    if GLOBAL_KILL_SWITCH.is_thread_stopped(thread_id) or state.get("kill_switch_engaged", False):
+        target = EngineStateEnum.STOPPED_KILL_SWITCH
+        validate_transition_or_raise(current, target)
+        return {
+            "workflow_state": target.value,
+            "kill_switch_engaged": True,
+            "error_message": "Execution halted by emergency Kill Switch.",
+        }
+
+    plan = state.get("plan") or {}
+    steps = plan.get("steps", [])
+    idx = state.get("current_step_idx", 0)
+
+    # 2. Pre-Mutation Hub Status Re-Check Guard (Rule 5 & Edge Case 4)
+    if idx < len(steps):
+        raw_step = steps[idx]
+        risk_val = raw_step.get("evaluated_risk", raw_step.get("risk_level", 1))
+        risk_int = risk_val.value if hasattr(risk_val, "value") else int(risk_val)
+        is_mutation = risk_int > 1
+
+        if is_mutation:
+            sop_ref = plan.get("sop", {})
+            sop_id = sop_ref.get("sop_id", "")
+            sop_hash = sop_ref.get("canonical_hash", "")
+            guard_res = verify_pre_step_guard(sop_id, sop_hash, hub_service=hub_service)
+            if not guard_res.passed:
+                target = EngineStateEnum.STOPPED_SECURITY_BLOCKED
+                validate_transition_or_raise(current, target)
+                return {
+                    "workflow_state": target.value,
+                    "security_blocked": True,
+                    "error_message": guard_res.reason,
+                }
+
     target = EngineStateEnum.EXECUTING
     if current != target:
         validate_transition_or_raise(current, target)
 
     executor = executor or MockExecutorWorker()
-    plan = state.get("plan") or {}
-    steps = plan.get("steps", [])
-    idx = state.get("current_step_idx", 0)
-
     outputs = list(state.get("execution_outputs", []))
     if idx < len(steps):
         raw_step = steps[idx]
@@ -319,6 +359,17 @@ def route_after_approval(state: EngineState) -> str:
     return "approval"
 
 
+def route_after_execution(state: EngineState) -> str:
+    """Route after step execution."""
+    wf = state.get("workflow_state")
+    if wf in (
+        EngineStateEnum.STOPPED_KILL_SWITCH.value,
+        EngineStateEnum.STOPPED_SECURITY_BLOCKED.value,
+    ):
+        return "end"
+    return "verification"
+
+
 def route_after_verification(state: EngineState) -> str:
     """Route after step verification."""
     wf = state.get("workflow_state")
@@ -334,13 +385,14 @@ def create_orchestrator_graph(
     interrupt_on_approval: bool = True,
     executor: Optional[MockExecutorWorker] = None,
     verifier: Optional[MockVerifierWorker] = None,
+    hub_service: Optional[Any] = None,
 ):
     """Compile and return the authoritative LangGraph orchestrator state machine."""
     workflow = StateGraph(EngineState)
 
     # Bind workers into node closures
     def bound_execution_node(state: EngineState) -> Dict[str, Any]:
-        return execution_node(state, executor=executor)
+        return execution_node(state, executor=executor, hub_service=hub_service)
 
     def bound_verification_node(state: EngineState) -> Dict[str, Any]:
         return verification_node(state, verifier=verifier)
@@ -378,7 +430,10 @@ def create_orchestrator_graph(
         "rejected": "rejected",
         "approval": "approval",
     })
-    workflow.add_edge("execution", "verification")
+    workflow.add_conditional_edges("execution", route_after_execution, {
+        "end": END,
+        "verification": "verification",
+    })
     workflow.add_conditional_edges("verification", route_after_verification, {
         "end": END,
         "needs_human": "needs_human",

@@ -18,7 +18,7 @@ def sample_sop():
     return SOPReference(
         sop_id="SOP-WIN-014",
         version="1.0.0",
-        canonical_hash="a" * 64,
+        canonical_hash="5454c02f109395e104ed2f0d38cc557a7f4b2baab15d4bfcf32f7a1ad77918a0",
         title="Windows Print Spooler Recovery",
         tenant_id="tenant-corp-01",
     )
