@@ -34,8 +34,8 @@ class SOPReference(BaseModel):
 
     sop_id: str = Field(
         ...,
-        pattern=r"^SOP-[A-Z]{3,4}-\d{3}$",
-        description="Canonical SOP identifier, e.g. SOP-WIN-014, SOP-NET-006",
+        pattern=r"^SOP-[A-Z]{2,4}-\d{3}$",
+        description="Canonical SOP identifier, e.g. SOP-WIN-014, SOP-DB-021, SOP-NET-006",
     )
     version: str = Field(
         ...,

@@ -39,7 +39,7 @@ class StepBinding(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    sop_id: str = Field(..., pattern=r"^SOP-[A-Z]{3,4}-\d{3}$")
+    sop_id: str = Field(..., pattern=r"^SOP-[A-Z]{2,4}-\d{3}$")
     sop_version: str = Field(..., pattern=r"^\d+\.\d+\.\d+$")
     step_number: int = Field(..., ge=1)
     tool_name: str = Field(..., min_length=2)
